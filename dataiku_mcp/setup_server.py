@@ -116,7 +116,7 @@ def _page(*, error: str = "") -> str:
     button:hover {{ background:#00696c; }}
     button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
     .error {{ background:#fff4f3; color:var(--error); border:1px solid #f0c7c8; border-radius:8px; padding:12px; margin-bottom:20px; }}
-    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} }}
+    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .security {{ flex-direction:column; gap:4px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} }}
     @media (prefers-reduced-motion:reduce) {{ input, button {{ transition:none; }} }}
   </style>
 </head>
