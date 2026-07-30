@@ -2,6 +2,8 @@
 
 Read this reference only when the user wants to bring supplied data into a project as a new Uploaded Files dataset.
 
+This reference covers the generic upload surface only. Excel ingest configuration — sheet selection, header offset, number-format behavior, identifier typing, and splitting one workbook into several datasets — is owned by [Ingest and Reshape Traps](../migrations/sources/excel/build.md#ingest-and-reshape-traps).
+
 ## When To Use Direct Upload
 
 Direct upload is the exception to the Cobuild route. Use it only to create a new Uploaded Files dataset from user-supplied local data or tabular rows.
