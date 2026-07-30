@@ -196,21 +196,64 @@
     });
   }
 
+  function alpha(color, a){
+    return color.replace("hsl(", "hsla(").replace(")", "," + a + ")");
+  }
+
+  function lineDataset(label, data, color, o){
+    return { type:"line", label:label, data:data, borderColor:color, borderWidth:2, pointRadius:0,
+             tension:.25, spanGaps:!!o.spanGaps, fill:!!o.fill, backgroundColor:alpha(color, o.area ? .18 : .08),
+             borderDash:o.dashed ? [6,4] : undefined, stack:o.stack, yAxisID:o.axis, order:0 };
+  }
+
+  function lineSeries(s, color, c, o){
+    if (!c.dash_flags)
+      return [ lineDataset(s.label, s.data, color, {spanGaps:true, fill:o.fill, area:o.area, stack:o.stack, axis:o.axis}) ];
+    var last = -1;
+    s.data.forEach(function(v, i){ if (!c.dash_flags[i] && v !== null) last = i; });
+    var solid = s.data.map(function(v, i){ return c.dash_flags[i] ? null : v; });
+    var dashed = s.data.map(function(v, i){ return (c.dash_flags[i] || i === last) ? v : null; });
+    return [
+      lineDataset(s.label, solid, color, {fill:o.fill, area:o.area, axis:o.axis}),
+      lineDataset(s.label + " (" + c.dash_label + ")", dashed, color, {dashed:true, axis:o.axis})
+    ];
+  }
+
+  function barColors(color, c){
+    if (!c.dash_flags) return color;
+    return c.labels.map(function(_, i){ return c.dash_flags[i] ? alpha(color, .35) : color; });
+  }
+
   function drawChart(el, c){
+    if (c.type === "donut") return drawDonut(el, c);
+    if (c.type === "scatter") return drawScatter(el, c);
     var horizontal = (c.type === "horizontal_bar");
     var stacked = (c.type === "stacked_bar");
-    var line = (c.type === "line");
-    var single = (c.series.length === 1);
-    var datasets = c.series.map(function(s, i){
+    var area = (c.type === "area");
+    var line = (c.type === "line") || area;
+    var single = (c.series.length === 1) && !c.y2 && !c.dash_flags;
+    var stackArea = area && c.series.length > 1 && !c.dash_flags;
+    var datasets = [];
+    c.series.forEach(function(s, i){
       var color = PALETTE[i % PALETTE.length];
-      return line
-        ? { label:s.label, data:s.data, borderColor:color, borderWidth:2, pointRadius:0, tension:.25,
-            fill:single, backgroundColor:"rgba(45,63,168,.08)", spanGaps:true }
-        : { label:s.label, data:s.data, backgroundColor:color, borderWidth:0, stack: stacked ? "s" : undefined };
+      if (line)
+        datasets = datasets.concat(lineSeries(s, color, c,
+          { fill: area || c.series.length === 1, area:area, stack: stackArea ? "a" : undefined }));
+      else
+        datasets.push({ label:s.label, data:s.data, backgroundColor:barColors(color, c),
+                        borderWidth:0, stack: stacked ? "s" : undefined, order:1 });
     });
+    if (c.y2)
+      datasets = datasets.concat(lineSeries({label:c.y2.label, data:c.y2.data},
+        PALETTE[c.series.length % PALETTE.length], c, {axis:"y2"}));
     function vfmt(v){ return fmt(v, c.format); }
-    var valScale = { grid:{color:GRID}, stacked:stacked, ticks:{ callback:function(v){ return vfmt(v); } } };
+    var valScale = { grid:{color:GRID}, stacked:stacked || stackArea, ticks:{ callback:function(v){ return vfmt(v); } } };
     var catScale = { grid:{display:false}, stacked:stacked, ticks:{ maxTicksLimit:14, autoSkip:true } };
+    var scales = horizontal ? { x:valScale, y:{ grid:{display:false}, ticks:{font:{size:10}} } }
+                            : { x:catScale, y:valScale };
+    if (c.y2)
+      scales.y2 = { position:"right", grid:{display:false},
+                    ticks:{ callback:function(v){ return fmt(v, c.y2.format); } } };
     return new Chart(el, {
       type: line ? "line" : "bar",
       data: { labels:c.labels, datasets:datasets },
@@ -221,12 +264,58 @@
         plugins:{
           legend:{ display:!single, position:"bottom", labels:{ boxWidth:10, font:{size:10}, padding:8 } },
           tooltip:{ callbacks:{ label:function(ctx){
+            var f = (c.y2 && ctx.dataset.yAxisID === "y2") ? c.y2.format : c.format;
             var n = ctx.dataset.label && !single ? ctx.dataset.label+": " : "";
-            return n + vfmt(horizontal ? ctx.parsed.x : ctx.parsed.y);
+            return n + fmt(horizontal ? ctx.parsed.x : ctx.parsed.y, f);
           } } }
         },
-        scales: horizontal ? { x:valScale, y:{ grid:{display:false}, ticks:{font:{size:10}} } }
-                           : { x:catScale, y:valScale }
+        scales: scales
+      }
+    });
+  }
+
+  function drawDonut(el, c){
+    var colors = c.labels.map(function(_, i){ return PALETTE[i % PALETTE.length]; });
+    var total = c.series[0].data.reduce(function(a, v){ return a + (v || 0); }, 0);
+    return new Chart(el, {
+      type:"doughnut",
+      data:{ labels:c.labels, datasets:[{ data:c.series[0].data, backgroundColor:colors, borderColor:"#fff", borderWidth:2 }] },
+      options:{
+        responsive:true, maintainAspectRatio:false, cutout:"62%",
+        plugins:{
+          legend:{ position:"right", labels:{ boxWidth:10, font:{size:10}, padding:8 } },
+          tooltip:{ callbacks:{ label:function(ctx){
+            var share = total ? " · " + (100*ctx.parsed/total).toFixed(1) + "%" : "";
+            return " " + ctx.label + ": " + fmt(ctx.parsed, c.format) + share;
+          } } }
+        }
+      }
+    });
+  }
+
+  function drawScatter(el, c){
+    var multi = c.series.length > 1;
+    var datasets = c.series.map(function(s, i){
+      var color = PALETTE[i % PALETTE.length];
+      return { label:s.label, data:s.points, backgroundColor:alpha(color, .7),
+               borderColor:color, borderWidth:1, pointRadius:3.5, pointHoverRadius:5 };
+    });
+    return new Chart(el, {
+      type:"scatter",
+      data:{ datasets:datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ display:multi, position:"bottom", labels:{ boxWidth:10, font:{size:10}, padding:8 } },
+          tooltip:{ callbacks:{ label:function(ctx){
+            var n = ctx.dataset.label && multi ? ctx.dataset.label + ": " : "";
+            return n + (+ctx.parsed.x).toLocaleString(D ? D.locale : undefined) + " · " + fmt(ctx.parsed.y, c.format);
+          } } }
+        },
+        scales:{
+          x:{ grid:{color:GRID}, ticks:{ maxTicksLimit:10 } },
+          y:{ grid:{color:GRID}, ticks:{ callback:function(v){ return fmt(v, c.format); } } }
+        }
       }
     });
   }

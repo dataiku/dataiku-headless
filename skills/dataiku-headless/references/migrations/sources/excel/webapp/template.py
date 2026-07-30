@@ -27,10 +27,14 @@ CONFIG = {
         # {"dataset": "d", "label": "Sheet name", "description": "One row per ...",
         #  "column_formats": {"amount": "money"}, "total_row": False},
     ],
-    # Optional charts. type: line|bar|stacked_bar|horizontal_bar
+    # Optional charts. type: line|area|bar|stacked_bar|horizontal_bar|donut|scatter|combo
     # x: label column. y: value column, or list of value columns (one series each).
-    # series (stacked_bar only): category column pivoted into stacked segments.
-    # wide: full-width card. format: y-axis/tooltip format.
+    # series (stacked_bar, scatter): category column pivoted into one series each.
+    # combo: y renders as bars, y2 as a line on a right axis formatted by format2.
+    # donut: one slice per x value summing y, largest first, excess pooled as Other.
+    # dash (line|area|bar|stacked_bar|combo): {"column": <col>, "when": <value>}
+    #   draws matching rows dashed and fades their bars — actuals versus forecast.
+    # wide: full-width card. format: value-axis/tooltip format.
     "charts": [
         # {"title": "Revenue by year", "subtitle": "", "type": "bar",
         #  "dataset": "d", "x": "year", "y": "revenue", "format": "money", "wide": True},
@@ -156,12 +160,49 @@ def _chart_payload(spec):
             g = df.groupby(x, sort=False)[y].sum().sort_values(ascending=False)
             out["labels"] = [str(_cell(v)) for v in g.index]
             out["series"] = [{"label": str(y), "data": [_num(v) for v in g]}]
+        elif out["type"] == "donut":
+            g = df.groupby(x, sort=False)[y].sum().sort_values(ascending=False)
+            keep, rest = g.iloc[:MAX_SERIES], g.iloc[MAX_SERIES:]
+            out["labels"] = [str(_cell(v)) for v in keep.index]
+            data = [_num(v) for v in keep]
+            if len(rest):
+                out["labels"].append("Other")
+                data.append(_num(rest.sum()))
+            out["series"] = [{"label": str(y), "data": data}]
+        elif out["type"] == "scatter":
+            groups = (
+                [(str(k), g) for k, g in df.groupby(spec["series"], sort=False)]
+                if spec.get("series")
+                else [(str(y), df)]
+            )
+            out["series"] = [
+                {
+                    "label": k,
+                    "points": [
+                        {"x": _num(a), "y": _num(b)} for a, b in zip(g[x], g[y])
+                    ],
+                }
+                for k, g in groups
+            ]
         else:
             out["labels"] = [str(_cell(v)) for v in df[x]]
             cols = y if isinstance(y, list) else [y]
             out["series"] = [
                 {"label": str(c), "data": [_num(v) for v in df[c]]} for c in cols
             ]
+            if out["type"] == "combo" and spec.get("y2"):
+                out["y2"] = {
+                    "label": str(spec["y2"]),
+                    "data": [_num(v) for v in df[spec["y2"]]],
+                    "format": spec.get("format2", "number"),
+                }
+        dash = spec.get("dash")
+        if dash and out["type"] in ("line", "area", "bar", "stacked_bar", "combo"):
+            flags = {}
+            for xv, dv in zip(df[x], df[dash["column"]]):
+                flags.setdefault(str(_cell(xv)), dv == dash["when"])
+            out["dash_flags"] = [bool(flags.get(v)) for v in out["labels"]]
+            out["dash_label"] = str(dash["when"])
     except Exception as e:
         out["error"] = "%s: %s" % (type(e).__name__, e)
     return out
