@@ -60,14 +60,8 @@ def _entry(conversation_id: str, project_key: str) -> _Conversation:
 
 
 def _pending_confirmation_id(conversation: object) -> str | None:
-    """Read the SDK-private ID in one place and fail closed if it disappears."""
-    if not hasattr(conversation, "_pending_confirmation_id"):
-        raise RuntimeError(
-            "The installed Dataiku SDK does not expose the pending Cobuild "
-            "confirmation ID required for safe confirmation handling."
-        )
-    value = getattr(conversation, "_pending_confirmation_id")
-    return (str(value).strip() or None) if value is not None else None
+    """Read the SDK-private ID in one place."""
+    return conversation._pending_confirmation_id
 
 
 def _turn_result(
@@ -95,29 +89,21 @@ def _turn_result(
     if confirmation_requested:
         confirmation_id = _pending_confirmation_id(entry.sdk_conversation)
         if not confirmation_id:
-            raise RuntimeError(
-                "Cobuild requested confirmation without an SDK confirmation ID; "
-                "the proposal cannot be safely approved or cancelled."
+            result.update(
+                {
+                    "status": "failed",
+                    "error_type": "missing_confirmation_id",
+                    "message": (
+                        "Cobuild requested confirmation without a confirmation ID; "
+                        "the proposal cannot be safely approved or cancelled."
+                    ),
+                }
             )
-        result["confirmation_id"] = confirmation_id
-    if is_error:
+        else:
+            result["confirmation_id"] = confirmation_id
+    elif is_error:
         result["error_type"] = "cobuild_response"
     return omit_empty(result)
-
-
-def _run_turn(conversation_id: str, entry: _Conversation, turn: _Turn, call) -> dict:
-    """Run the complete SDK operation in a dedicated Cobuild worker."""
-    turn.started.set()
-    try:
-        return _turn_result(conversation_id, entry, turn, call())
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "conversation_id": conversation_id,
-            "turn_id": turn.id,
-            "error_type": type(exc).__name__,
-            "message": str(exc) or type(exc).__name__,
-        }
 
 
 def _result(turn: _Turn) -> dict:
@@ -169,9 +155,22 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
 
     check()
     turn = _Turn(uuid.uuid4().hex)
-    turn.task = asyncio.create_task(
-        run_cobuild_blocking(_run_turn, conversation_id, entry, turn, call)
-    )
+
+    def run_turn() -> dict:
+        turn.started.set()
+        try:
+            response = call()
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "conversation_id": conversation_id,
+                "turn_id": turn.id,
+                "error_type": type(exc).__name__,
+                "message": str(exc) or type(exc).__name__,
+            }
+        return _turn_result(conversation_id, entry, turn, response)
+
+    turn.task = asyncio.create_task(run_cobuild_blocking(run_turn))
     entry.turn = turn
     return turn
 

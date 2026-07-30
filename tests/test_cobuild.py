@@ -173,7 +173,7 @@ def test_confirmation_uses_the_exact_current_sdk_id(environment):
     ]
 
 
-def test_pending_or_unidentified_confirmation_fails_closed(environment):
+def test_pending_confirmation_blocks_new_messages(environment):
     client, _ = environment
     client.conversation.next_send = Response("delete?", "proposal-a")
 
@@ -186,10 +186,23 @@ def test_pending_or_unidentified_confirmation_fails_closed(environment):
     run(scenario())
     assert len(client.conversation.send_calls) == 1
 
-    client.conversation._pending_confirmation_id = None
-    del client.conversation._pending_confirmation_id
-    with pytest.raises(RuntimeError, match="does not expose"):
-        run(send())
+
+def test_confirmation_without_id_is_a_terminal_failed_result(environment):
+    client, _ = environment
+    response = Response("delete?")
+    response.type = "delete_confirmation_request"
+    response.is_confirmation_request = True
+    response.objects_to_delete = [{"id": "dataset"}]
+    client.conversation.next_send = response
+
+    async def scenario():
+        await start()
+        result = await send(allow_edit_project=True)
+        assert result["status"] == "failed"
+        assert result["error_type"] == "missing_confirmation_id"
+        assert "cannot be safely approved" in result["message"]
+
+    run(scenario())
 
 
 def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkeypatch):
