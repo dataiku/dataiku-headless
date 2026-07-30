@@ -201,13 +201,18 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
         await start()
         first = await send()
         assert first["status"] in {"queued", "in_progress"}
-        assert (await send())["status"] in {"queued", "in_progress"}
+        with pytest.raises(ValueError, match=first["turn_id"]) as running:
+            await send()
+        assert "get_cobuild_turn_status with" in str(running.value)
+        assert '"project_key":"PROJECT"' in str(running.value)
         client.conversation.release.set()
         for _ in range(100):
             if cobuild._conversations["conversation-1"].turn.task.done():
                 break
             await asyncio.sleep(0.01)
-        assert (await send())["status"] == "result_pending"
+        with pytest.raises(ValueError, match="terminal result") as unobserved:
+            await send()
+        assert first["turn_id"] in str(unobserved.value)
         assert (await poll(first["turn_id"]))["status"] == "completed"
         replacement = await send()
         assert replacement["status"] in {"queued", "in_progress"}

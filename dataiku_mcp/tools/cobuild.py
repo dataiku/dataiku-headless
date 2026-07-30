@@ -22,7 +22,7 @@ INLINE_WAIT_SECONDS = 240
 @dataclass
 class _Turn:
     id: str
-    task: asyncio.Task[dict] | None = None
+    task: asyncio.Task[dict] = field(init=False)
     observed: bool = False
     started: threading.Event = field(default_factory=threading.Event)
 
@@ -121,7 +121,6 @@ def _run_turn(conversation_id: str, entry: _Conversation, turn: _Turn, call) -> 
 
 
 def _result(turn: _Turn) -> dict:
-    assert turn.task is not None and turn.task.done()
     return turn.task.result()
 
 
@@ -139,19 +138,34 @@ def _in_progress(conversation_id: str, entry: _Conversation, turn: _Turn) -> dic
     }
 
 
-def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Turn | dict:
-    current = entry.turn
-    if current is not None:
-        assert current.task is not None
-        if not current.task.done():
-            return _in_progress(conversation_id, entry, current)
-        if not current.observed:
-            return {
-                "status": "result_pending",
-                "conversation_id": conversation_id,
-                "turn_id": current.id,
-                "next_action": "Poll get_cobuild_turn_status before starting another operation.",
-            }
+def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
+    turn = entry.turn
+    if turn is None:
+        return
+
+    poll_payload = compact_json(
+        {
+            "conversation_id": conversation_id,
+            "project_key": entry.project_key,
+            "turn_id": turn.id,
+        }
+    )
+    if not turn.task.done():
+        status = "in progress" if turn.started.is_set() else "queued"
+        raise ValueError(
+            f"Cannot start a new Cobuild turn: current turn '{turn.id}' is {status}. "
+            f"First call get_cobuild_turn_status with {poll_payload}."
+        )
+    if not turn.observed:
+        raise ValueError(
+            f"Cannot start a new Cobuild turn: current turn '{turn.id}' has a "
+            "terminal result that has not been observed. First call "
+            f"get_cobuild_turn_status with {poll_payload}."
+        )
+
+
+def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Turn:
+    _require_turn_available(conversation_id, entry)
 
     check()
     turn = _Turn(uuid.uuid4().hex)
@@ -163,7 +177,6 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
 
 
 async def _wait_for_turn(conversation_id: str, entry: _Conversation, turn: _Turn) -> dict:
-    assert turn.task is not None
     try:
         result = await asyncio.wait_for(
             asyncio.shield(turn.task), timeout=INLINE_WAIT_SECONDS
@@ -229,8 +242,6 @@ async def send_cobuild_message(
         )
 
     turn = _start_turn(conversation_id, entry, check, call)
-    if isinstance(turn, dict):
-        return compact_json(turn)
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
@@ -269,8 +280,6 @@ async def answer_cobuild_confirmation(
         check,
         lambda: entry.sdk_conversation.answer_confirmation(choice),
     )
-    if isinstance(turn, dict):
-        return compact_json(turn)
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
@@ -288,7 +297,6 @@ async def get_cobuild_turn_status(
         raise ValueError(
             f"Unknown current Cobuild turn_id '{turn_id}' for conversation '{conversation_id}'."
         )
-    assert turn.task is not None
     if not turn.task.done():
         return compact_json(_in_progress(conversation_id, entry, turn))
     turn.observed = True
