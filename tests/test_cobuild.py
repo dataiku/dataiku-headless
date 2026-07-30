@@ -16,27 +16,48 @@ class Context:
 
 
 class Response:
-    def __init__(self, message="ok", is_confirmation_request=False):
+    def __init__(
+        self,
+        message="ok",
+        is_confirmation_request=False,
+        is_question_request=False,
+        title=None,
+        predefined_answers=None,
+        allow_custom_answer=None,
+        allow_multiple_answers=None,
+        default_answer_set=None,
+    ):
         self.message = message
         self.type = (
             "delete_confirmation_request"
             if is_confirmation_request
+            else "ask_question_to_user_request"
+            if is_question_request
             else "assistant_message"
         )
         self.is_error = False
         self.is_confirmation_request = is_confirmation_request
+        self.is_question_request = is_question_request
         self.objects_to_delete = [{"id": "dataset"}] if is_confirmation_request else None
         self.deletion_impacts = None
+        self.title = title
+        self.predefined_answers = predefined_answers
+        self.allow_custom_answer = allow_custom_answer
+        self.allow_multiple_answers = allow_multiple_answers
+        self.default_answer_set = default_answer_set
 
 
 class Conversation:
     def __init__(self, conversation_id="conversation-1"):
         self.conversation_id = conversation_id
         self.pending_confirmation = False
+        self.pending_question = False
         self.send_calls = []
         self.answer_calls = []
+        self.question_answer_calls = []
         self.next_send = Response()
         self.next_answer = Response("confirmed")
+        self.next_question_answer = Response("question answered")
         self.started = threading.Event()
         self.release = None
         self.error = None
@@ -49,14 +70,24 @@ class Conversation:
         if self.error:
             raise self.error
         self.pending_confirmation = self.next_send.is_confirmation_request
+        self.pending_question = self.next_send.is_question_request
         return self.next_send
 
     def answer_confirmation(self, choice):
         if not self.pending_confirmation:
             raise ValueError("No pending confirmation")
         self.pending_confirmation = self.next_answer.is_confirmation_request
+        self.pending_question = self.next_answer.is_question_request
         self.answer_calls.append(choice)
         return self.next_answer
+
+    def answer_question(self, answers, *, rejected=False, used_custom_answer=False):
+        if not self.pending_question:
+            raise ValueError("No pending question")
+        self.pending_confirmation = self.next_question_answer.is_confirmation_request
+        self.pending_question = self.next_question_answer.is_question_request
+        self.question_answer_calls.append((answers, rejected, used_custom_answer))
+        return self.next_question_answer
 
 
 class Client:
@@ -105,6 +136,14 @@ async def answer(turn_id, choice="APPROVE"):
     return json.loads(
         await cobuild.answer_cobuild_confirmation(
             "conversation-1", "PROJECT", turn_id, choice, Context()
+        )
+    )
+
+
+async def answer_question(turn_id, answers, **kwargs):
+    return json.loads(
+        await cobuild.answer_cobuild_question(
+            "conversation-1", "PROJECT", turn_id, answers, Context(), **kwargs
         )
     )
 
@@ -164,6 +203,8 @@ def test_confirmation_uses_the_exact_current_turn(environment):
         assert "confirmation_id" not in tool.parameters["properties"]
         with pytest.raises(ValueError, match="not the current turn_id"):
             await answer("wrong")
+        with pytest.raises(ValueError, match="does not request a question answer"):
+            await answer_question(proposal["turn_id"], [])
         successor = await answer(proposal["turn_id"])
         assert successor["is_confirmation_request"]
         with pytest.raises(ValueError, match="not the current turn_id"):
@@ -183,6 +224,69 @@ def test_pending_confirmation_blocks_new_messages(environment):
         await send(allow_edit_project=True)
         with pytest.raises(ValueError, match="pending confirmation"):
             await send()
+
+    run(scenario())
+    assert len(client.conversation.send_calls) == 1
+
+
+def test_question_uses_the_exact_current_turn(environment):
+    client, _ = environment
+    client.conversation.next_send = Response(
+        "Which date column?",
+        is_question_request=True,
+        title="Choose a date column",
+        predefined_answers=["order_date", "ship_date"],
+        allow_custom_answer=True,
+        allow_multiple_answers=False,
+        default_answer_set=True,
+    )
+    client.conversation.next_question_answer = Response(
+        "Need another choice?", is_question_request=True
+    )
+
+    async def scenario():
+        await start()
+        question = await send()
+        assert question["is_question_request"]
+        assert question["question"] == {
+            "title": "Choose a date column",
+            "predefined_answers": ["order_date", "ship_date"],
+            "allow_custom_answer": True,
+            "allow_multiple_answers": False,
+            "default_answer_set": True,
+        }
+        tool = await cobuild.mcp.get_tool("answer_cobuild_question")
+        assert "turn_id" in tool.parameters["properties"]
+        assert "answers" in tool.parameters["required"]
+        with pytest.raises(ValueError, match="not the current turn_id"):
+            await answer_question("wrong", ["order_date"])
+        with pytest.raises(ValueError, match="does not request a confirmation"):
+            await answer(question["turn_id"])
+        successor = await answer_question(
+            question["turn_id"], ["custom_date"], used_custom_answer=True
+        )
+        assert successor["is_question_request"]
+        with pytest.raises(ValueError, match="not the current turn_id"):
+            await answer_question(question["turn_id"], [])
+        await answer_question(successor["turn_id"], [], rejected=True)
+
+    run(scenario())
+    assert client.conversation.question_answer_calls == [
+        (["custom_date"], False, True),
+        ([], True, False),
+    ]
+
+
+def test_pending_question_blocks_new_messages(environment):
+    client, _ = environment
+    client.conversation.next_send = Response("Which one?", is_question_request=True)
+
+    async def scenario():
+        await start()
+        question = await send()
+        with pytest.raises(ValueError, match="pending question"):
+            await send()
+        await answer_question(question["turn_id"], [])
 
     run(scenario())
     assert len(client.conversation.send_calls) == 1

@@ -69,6 +69,10 @@ def _terminal_turn_result(
         getattr(response, "is_confirmation_request", False)
         or response_type == "delete_confirmation_request"
     )
+    question_requested = bool(
+        getattr(response, "is_question_request", False)
+        or response_type == "ask_question_to_user_request"
+    )
     is_error = bool(getattr(response, "is_error", False))
     result = {
         "status": "failed" if is_error else "completed",
@@ -80,9 +84,22 @@ def _terminal_turn_result(
         "response_type": response_type,
         "is_error": is_error,
         "is_confirmation_request": confirmation_requested,
+        "is_question_request": question_requested,
         "objects_to_delete": getattr(response, "objects_to_delete", None),
         "deletion_impacts": getattr(response, "deletion_impacts", None),
     }
+    if question_requested:
+        result["question"] = omit_empty(
+            {
+                "title": getattr(response, "title", None),
+                "predefined_answers": getattr(response, "predefined_answers", None),
+                "allow_custom_answer": getattr(response, "allow_custom_answer", None),
+                "allow_multiple_answers": getattr(
+                    response, "allow_multiple_answers", None
+                ),
+                "default_answer_set": getattr(response, "default_answer_set", None),
+            }
+        )
     if is_error:
         result["error_type"] = "cobuild_response"
     return omit_empty(result)
@@ -213,8 +230,15 @@ async def send_cobuild_message(
         current_turn = entry.turn
         if current_turn and current_turn.task.result()["is_confirmation_request"]:
             raise ValueError(
-                f"Cobuild conversation '{conversation_id}' has a pending confirmation request with {current_turn.id}. "
-                "Run get_cobuild_turn_status() to review the pending confirmation, followed by answer_cobuild_confirmation()."
+                f"Cobuild conversation '{conversation_id}' has a pending confirmation "
+                f"request with turn_id '{current_turn.id}'. Call "
+                "answer_cobuild_confirmation with this turn_id."
+            )
+        if current_turn and current_turn.task.result()["is_question_request"]:
+            raise ValueError(
+                f"Cobuild conversation '{conversation_id}' has a pending question "
+                f"request with turn_id '{current_turn.id}'. Call answer_cobuild_question "
+                "with this turn_id."
             )
 
     def call():
@@ -262,6 +286,47 @@ async def answer_cobuild_confirmation(
         entry,
         check,
         lambda: entry.sdk_conversation.answer_confirmation(choice),
+    )
+    return compact_json(await _wait_for_turn(conversation_id, entry, turn))
+
+
+@mcp.tool()
+async def answer_cobuild_question(
+    conversation_id: str,
+    project_key: str,
+    turn_id: str,
+    answers: list[str],
+    ctx: Context,
+    rejected: bool = False,
+    used_custom_answer: bool = False,
+) -> str:
+    """Answer the question request issued by the exact current Cobuild turn."""
+    conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
+    project_key = _require_non_empty_string(project_key, "project_key")
+    turn_id = _require_non_empty_string(turn_id, "turn_id")
+    await ctx.info(f"Answering Cobuild question for conversation {conversation_id}...")
+    entry = _require_conversation_entry(conversation_id, project_key)
+
+    def check():
+        current_turn = entry.turn
+        if current_turn is None or current_turn.id != turn_id:
+            raise ValueError(
+                f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
+            )
+        if not current_turn.task.result()["is_question_request"]:
+            raise ValueError(
+                f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not request a question answer."
+            )
+
+    turn = _start_turn(
+        conversation_id,
+        entry,
+        check,
+        lambda: entry.sdk_conversation.answer_question(
+            answers,
+            rejected=rejected,
+            used_custom_answer=used_custom_answer,
+        ),
     )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
