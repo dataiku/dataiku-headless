@@ -32,34 +32,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
   - Check that the input datasets of the Dataiku Flow match the input datasets of the source bundle.
   - That the migrated Dataiku Flow accurately reproduces the business logic and transformation contained within the Source Bundle.
   - That the Flow outputs are sensible, match the expected outputs, and are all present.
-5. Create a Documentation and Cleanup plan and write it to `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. The Documentation and Cleanup Plan must include all of the following:
-  - Documentation
-
-    Descriptions:
-    1. Add a concise yet useful description to the Project.
-    2. Add a concise yet useful description to all migration-created Datasets and Recipes, including intermediate assets, not only source and final outputs.
-    3. Rename generated `compute_<output>` recipe names to names that state the transformation.
-
-    Flow Zones:
-    1. Make a plan to split up the project into an appropriate number of Flow Zones.
-    2. Create the Flow Zones and add a concise description to each Flow Zone.
-    3. Move all migration-created Flow assets (for example datasets and recipes) into an appropriate zone.
-    4. The default zone cannot be deleted; plan for it to serve as the first stage rather than leaving it empty.
-
-    Scenario:
-    1. Create a rebuild scenario covering every final output; its run is the final build proof.
-
-    Wiki:
-    1. Create a Project Wiki.
-    2. Populate the Wiki with the migration plan created in Phase 1; it should be human-readable.
-    3. Populate the Wiki with the validation plan created in Phase 1; it should be human-readable and note the results of all validation checks.
-    4. Include a column dictionary for the final outputs. Column documentation lives in the Wiki only; column descriptions written onto flow datasets drift downstream recipe schemas and fail the flow check.
-
-  - Cleanup
-
-    1. Delete any orphaned migration-created Flow assets (for example datasets and recipes) that are not part of the final migrated Flow.
-    2. Do not delete pre-existing user/project assets unless the user explicitly requests it.
-
+5. Write a Documentation and Cleanup Plan to `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md` that covers every Phase 4 requirement and distinguishes migration-created assets from pre-existing project assets.
 6. If the source bundle has more than 20 source steps or unresolved `needs-human-input` questions, pause and surface the inventory, plans, and open questions. Otherwise print the plans and continue; unattended runs never stop.
 
 ## Phase 2: Build
@@ -78,17 +51,16 @@ Validation must confirm that the requested final output dataset is produced by a
 
 Validation must also confirm that the completed migrated flow contains no code recipes unless the user explicitly requested code.
 
-Validation is not complete until the migration also satisfies the Documentation and Cleanup Plan.
-
 ## Phase 4: Document and Cleanup
 
-Read the Documentation and Cleanup plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. Apply the Documentation and Cleanup Plan fully via Cobuild.
+Read the Documentation and Cleanup Plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md` and apply it via Cobuild, except for read-back and project settings:
 
-Zone the Flow by stage or functional area; the default zone cannot be deleted, so rename it to serve as the first stage rather than leaving it empty. Set the project's short and long descriptions. One-line object descriptions go in the field each surface displays: zones and recipes take the short description (`shortDesc`) — text in their long `description` field never renders in the Flow — while datasets take the long description. Instruct Cobuild with the words "short description" for zones and recipes. Column documentation lives in the Wiki column dictionary only. Zone descriptions render in the Flow only when the project setting `flowDisplaySettings.showFlowZoneDescriptions` is enabled; Cobuild cannot change project settings, so enable it through an available project-settings surface or record it as a blocked item. Create the rebuild scenario from the plan and run it once; its job result is the final build proof.
+- Zone every migration-created Flow asset by stage or functional area, renaming the undeletable default zone for the first stage. Enable `flowDisplaySettings.showFlowZoneDescriptions` through project settings or record it as blocked; Cobuild cannot change this setting.
+- Set the project's short and long descriptions. For every migration-created dataset, recipe, and zone, set the field DSS displays: dataset `description`; recipe and zone `shortDesc` (ask Cobuild for "short description"; their long `description` is not rendered). Rename generated `compute_<output>` recipes for the transformation they perform.
+- Create a human-readable Project Wiki containing the migration plan, validation plan and results, and a final-output column dictionary. Keep column documentation out of datasets because it drifts through downstream recipe schemas.
+- Apply the cleanup safety rule below. Create and run a rebuild scenario covering every final output; its job result is the final build proof.
 
-Re-reading is evidence, not intent: enumerate every zone, dataset, and recipe through the read tools, confirm the displayed field for each object is non-empty (`short_description` for zones and recipes, `description` for datasets), and write the object-to-description table to `<bundle_dir>/migration_v<n>/documentation_evidence.md`. The completion report may claim only what that file and the validation evidence show; never trust the Cobuild report alone.
-
-The migration is not complete until all required documentation, Flow Zone, Wiki, and cleanup tasks from that plan have been completed.
+Use read tools to enumerate every zone, dataset, and recipe, verify each displayed description is non-empty (`short_description` for zones and recipes; `description` for datasets), and write the inventory to `<bundle_dir>/migration_v<n>/documentation_evidence.md`. Completion claims require this inventory, validation evidence, and the scenario job result; never rely on the Cobuild report.
 
 
 # Migration Notes
