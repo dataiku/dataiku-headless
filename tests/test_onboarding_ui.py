@@ -20,6 +20,7 @@ def test_setup_page_hides_certificate_option_in_advanced_options_and_requires_te
     assert "<summary>Advanced options</summary>" in page
     assert 'name="no_check_certificate"' in page
     assert 'name="action" value="save" disabled' in page
+    assert "button:disabled, button:disabled:hover" in page
 
 
 def test_setup_page_enables_save_after_a_successful_connection_test():

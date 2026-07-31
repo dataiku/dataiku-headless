@@ -145,6 +145,7 @@ def _page(
     .actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
     button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
     button:hover {{ background:#00696c; }}
+    button:disabled, button:disabled:hover {{ color:#6f797d; background:#d9dfdf; cursor:not-allowed; }}
     button.secondary {{ color:var(--ink); background:var(--surface); border:1px solid var(--line); }}
     button.secondary:hover {{ background:var(--soft); }}
     button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
