@@ -6,7 +6,7 @@ import webbrowser
 from dataclasses import dataclass
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlsplit
 
 from . import config
 
@@ -42,7 +42,7 @@ class SetupSession:
 
 def _validate_form(form: dict[str, list[str]]) -> dict:
     name = form.get("name", [""])[0].strip()
-    url = form.get("url", [""])[0].strip().rstrip("/")
+    url = form.get("url", [""])[0].strip()
     api_key = form.get("api_key", [""])[0].strip()
     description = form.get("description", [""])[0].strip()
 
@@ -50,18 +50,24 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
         raise ValueError("Instance name is required.")
     if len(name) > 80 or any(ord(character) < 32 for character in name):
         raise ValueError("Instance name must be 80 characters or fewer.")
-    parsed_url = urlparse(url)
+    if "\\" in url or any(
+        ord(character) < 32 or character.isspace() for character in url
+    ):
+        raise ValueError("Instance URL contains invalid whitespace or backslashes.")
+    try:
+        parsed_url = urlsplit(url)
+        port = parsed_url.port
+        if parsed_url.netloc.endswith(":") or port == 0:
+            raise ValueError
+    except ValueError:
+        raise ValueError(
+            "Instance URL is malformed or contains an invalid port."
+        ) from None
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
         raise ValueError("Instance URL must be a complete http:// or https:// URL.")
-    if (
-        parsed_url.username
-        or parsed_url.password
-        or parsed_url.query
-        or parsed_url.fragment
-    ):
-        raise ValueError(
-            "Instance URL cannot contain credentials, a query, or a fragment."
-        )
+    if parsed_url.username or parsed_url.password:
+        raise ValueError("Instance URL cannot contain credentials.")
+    url = f"{parsed_url.scheme}://{parsed_url.netloc}"
     if not api_key:
         raise ValueError("API key is required.")
 
@@ -132,7 +138,7 @@ def _page(*, error: str = "") -> str:
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production DSS"></div>
-          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" required></div>
+          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
         <div class="checks">
