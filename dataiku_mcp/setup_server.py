@@ -151,7 +151,6 @@ def _page(*, error: str = "", status: str = "", values: dict | None = None) -> s
       <p class="intro">Add or update the instance this agent can use.</p>
       <div class="security"><span class="security-label">Local only</span><div><strong>Your credentials stay on this machine.</strong>The API key is saved with user-only (0600) file permissions. This page runs on 127.0.0.1 and expires after 10 minutes.</div></div>
       {error_markup}
-      {status_markup}
       <form method="post" autocomplete="off">
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
@@ -163,6 +162,7 @@ def _page(*, error: str = "", status: str = "", values: dict | None = None) -> s
           <label class="check"><input type="checkbox" name="set_default"{set_default}><span>Use this instance by default when Dataiku Headless starts.</span></label>
           <label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label>
         </div>
+        {status_markup}
         <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save">Save instance</button></div>
       </form>
     </section>
