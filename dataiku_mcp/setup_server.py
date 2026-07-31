@@ -15,6 +15,12 @@ MAX_REQUEST_BYTES = 16 * 1024
 _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
 
+# Keep the setup server single-route: this is the bird from the checked-in lockup.
+DATAIKU_BIRD_SVG = """<svg class="bird" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
+  <path d="M191.342 139.061H108.562V154.536H191.342V139.061Z" fill="currentColor"/>
+  <path d="M183.598 13.1855C179.295 5.34204 170.964 0 161.361 0C147.37 0 136.028 11.3412 136.028 25.3323C136.028 26.6678 136.156 27.9609 136.368 29.2328L134.226 31.8614L0.421086 196.935C-0.23607 197.74 -0.108879 198.927 0.696667 199.585C1.43862 200.178 2.51974 200.136 3.1981 199.457L59.5227 143.196C69.91 132.83 83.9858 127.001 98.6764 127.001H118.285C161.127 127.001 186.884 102.601 182.22 52.4664C180.609 35.2108 181.499 27.9397 187.414 20.6474C190.466 16.8953 196.381 9.56055 196.381 9.56055L189.449 11.5108L183.577 13.1643L183.598 13.1855ZM161.891 28.4485C158.096 28.4485 155.022 25.3747 155.022 21.5801C155.022 17.7856 158.096 14.7118 161.891 14.7118C165.685 14.7118 168.759 17.7856 168.759 21.5801C168.759 25.3747 165.685 28.4485 161.891 28.4485Z" fill="currentColor"/>
+</svg>"""
+
 
 @dataclass
 class SetupSession:
@@ -86,40 +92,47 @@ def _page(*, error: str = "") -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Configure Dataiku</title>
   <style>
-    :root {{ color-scheme: light; --ink:#152536; --muted:#667585; --teal:#00a6a6; --deep:#123b46; --line:#dbe5e8; --bg:#edf6f5; }}
+    :root {{ color-scheme:light; --ink:#1a1a1a; --muted:#606b70; --teal:#00a6a6; --teal-dark:#007b7d; --line:#d9dfdf; --paper:#fffef9; --surface:#fff; --soft:#f3f7f6; --error:#a6242f; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin:0; min-height:100vh; font:15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:radial-gradient(circle at 8% 8%, #d4f5ef 0, transparent 34%), linear-gradient(135deg, var(--bg), #f7fafb 70%); }}
+    body {{ margin:0; min-height:100vh; font:15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:var(--paper); border-top:4px solid var(--teal); }}
     main {{ width:min(720px, calc(100% - 32px)); margin:48px auto; }}
-    .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:20px; color:var(--deep); font-weight:750; letter-spacing:.01em; }}
-    .mark {{ width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:white; background:var(--teal); box-shadow:0 8px 20px #00a6a63d; }}
-    .card {{ background:#fff; border:1px solid #ffffffcc; border-radius:22px; padding:34px; box-shadow:0 24px 70px #17424c1a; }}
-    h1 {{ margin:0; font-size:clamp(28px, 5vw, 42px); line-height:1.08; letter-spacing:-.035em; }}
-    .intro {{ color:var(--muted); font-size:16px; margin:12px 0 28px; max-width:58ch; }}
-    .security {{ display:flex; gap:11px; align-items:flex-start; background:#effaf7; color:#245d57; border:1px solid #ccece4; border-radius:13px; padding:13px 15px; margin-bottom:25px; }}
-    .security strong {{ display:block; color:#184a45; }}
+    .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:24px; }}
+    .bird {{ display:block; width:48px; height:48px; color:var(--ink); }}
+    .brand-copy {{ display:grid; gap:1px; line-height:1; }}
+    .brand-name {{ font-size:18px; font-weight:750; letter-spacing:-.02em; }}
+    .brand-product {{ color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
+    .card {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:32px; box-shadow:0 1px 2px #1a1a1a0d; }}
+    h1 {{ margin:0; font-size:clamp(28px, 5vw, 38px); line-height:1.1; letter-spacing:-.035em; }}
+    .intro {{ color:var(--muted); font-size:16px; margin:8px 0 24px; max-width:58ch; }}
+    .security {{ display:flex; gap:16px; align-items:flex-start; background:var(--soft); border:1px solid #d6e9e5; border-radius:8px; padding:16px; margin-bottom:24px; }}
+    .security-label {{ flex:0 0 auto; color:var(--teal-dark); font-size:11px; font-weight:750; letter-spacing:.08em; line-height:20px; text-transform:uppercase; }}
+    .security strong {{ display:block; margin-bottom:2px; }}
+    .security div {{ color:var(--muted); font-size:13px; }}
     .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }}
-    label {{ display:block; font-weight:650; margin-bottom:7px; }}
+    label {{ display:block; font-size:13px; font-weight:650; margin-bottom:8px; }}
     .full {{ grid-column:1 / -1; }}
-    input[type=text], input[type=url], input[type=password] {{ width:100%; border:1px solid var(--line); border-radius:11px; padding:12px 13px; color:var(--ink); background:#fbfdfd; font:inherit; outline:none; transition:.15s; }}
-    input:focus {{ border-color:var(--teal); box-shadow:0 0 0 3px #00a6a61f; background:white; }}
-    .hint {{ color:var(--muted); font-size:12.5px; margin-top:5px; }}
-    .checks {{ display:grid; gap:10px; margin:16px 0 22px; }}
+    input[type=text], input[type=url], input[type=password] {{ width:100%; border:1px solid var(--line); border-radius:8px; padding:11px 12px; color:var(--ink); background:var(--paper); font:inherit; outline:none; transition:border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }}
+    input:hover {{ border-color:#aeb9b9; }}
+    input:focus-visible {{ border-color:var(--teal-dark); box-shadow:0 0 0 3px #00a6a626; background:var(--surface); }}
+    .hint {{ color:var(--muted); font-size:12px; margin-top:4px; }}
+    .checks {{ display:grid; gap:12px; margin:20px 0 24px; }}
     .check {{ display:flex; gap:10px; align-items:flex-start; font-weight:500; margin:0; }}
     .check input {{ margin-top:4px; accent-color:var(--teal); flex:0 0 auto; }}
-    button {{ width:100%; border:0; border-radius:12px; padding:13px 18px; color:white; background:linear-gradient(135deg, var(--teal), #007f87); font:700 15px/1 inherit; cursor:pointer; box-shadow:0 10px 25px #008b9240; }}
-    button:hover {{ filter:brightness(.97); transform:translateY(-1px); }}
-    .error {{ background:#fff1f1; color:#9b2d30; border:1px solid #f0c7c8; border-radius:11px; padding:11px 13px; margin-bottom:18px; }}
-    footer {{ text-align:center; color:var(--muted); font-size:12.5px; margin-top:18px; }}
-    @media (max-width:600px) {{ main {{ margin:22px auto; }} .card {{ padding:24px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} }}
+    button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
+    button:hover {{ background:#00696c; }}
+    button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
+    .error {{ background:#fff4f3; color:var(--error); border:1px solid #f0c7c8; border-radius:8px; padding:12px; margin-bottom:20px; }}
+    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .security {{ flex-direction:column; gap:4px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} }}
+    @media (prefers-reduced-motion:reduce) {{ input, button {{ transition:none; }} }}
   </style>
 </head>
 <body>
   <main>
-    <div class="brand"><span class="mark">D</span> Dataiku Headless</div>
+    <header class="brand">{DATAIKU_BIRD_SVG}<span class="brand-copy"><span class="brand-name">Dataiku</span><span class="brand-product">Headless</span></span></header>
     <section class="card">
-      <h1>Configure Dataiku</h1>
-      <p class="intro">Add or update a Dataiku instance.</p>
-      <div class="security"><span>🔒</span><div><strong>Stored locally on this machine.</strong>The API key is saved to the resolved Dataiku configuration file with user-only (0600) file permissions. This setup page is served only on 127.0.0.1 and expires after 10 minutes.</div></div>
+      <h1>Connect to Dataiku</h1>
+      <p class="intro">Add or update the instance this agent can use.</p>
+      <div class="security"><span class="security-label">Local only</span><div><strong>Your credentials stay on this machine.</strong>The API key is saved with user-only (0600) file permissions. This page runs on 127.0.0.1 and expires after 10 minutes.</div></div>
       {error_markup}
       <form method="post" autocomplete="off">
         <div class="grid">
@@ -135,14 +148,40 @@ def _page(*, error: str = "") -> str:
         <button type="submit">Save instance</button>
       </form>
     </section>
-    <footer>This page is served only on 127.0.0.1 and cannot be reached from another computer.</footer>
   </main>
 </body>
 </html>"""
 
 
 def _success_page(name: str) -> str:
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dataiku configured</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#edf6f5;color:#152536;font:16px/1.5 system-ui,sans-serif}}main{{max-width:560px;margin:24px;padding:42px;background:white;border-radius:22px;box-shadow:0 24px 70px #17424c1a;text-align:center}}.ok{{width:54px;height:54px;margin:auto;display:grid;place-items:center;border-radius:50%;background:#00a6a6;color:white;font-size:28px}}h1{{margin:18px 0 8px}}p{{color:#667585}}</style></head><body><main><div class="ok">✓</div><h1>Dataiku is configured</h1><p><strong>{escape(name)}</strong> is now the active instance. You can close this tab and continue in your AI coding tool.</p></main></body></html>"""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataiku configured</title>
+  <style>
+    :root {{ color-scheme:light; --ink:#1a1a1a; --muted:#606b70; --teal:#00a6a6; --paper:#fffef9; --line:#d9dfdf; }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; color:var(--ink); background:var(--paper); border-top:4px solid var(--teal); font:16px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    main {{ width:min(520px, calc(100% - 32px)); margin:32px auto; padding:32px; background:white; border:1px solid var(--line); border-radius:12px; box-shadow:0 1px 2px #1a1a1a0d; text-align:center; }}
+    .bird {{ display:block; width:56px; height:56px; margin:0 auto 24px; color:var(--ink); }}
+    .ok {{ width:32px; height:32px; margin:auto; display:grid; place-items:center; border-radius:50%; background:var(--teal); color:white; font-size:18px; font-weight:800; }}
+    h1 {{ margin:16px 0 8px; font-size:30px; line-height:1.15; letter-spacing:-.03em; }}
+    p {{ margin:0; color:var(--muted); }}
+    strong {{ color:var(--ink); }}
+    @media (max-width:480px) {{ main {{ padding:24px; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    {DATAIKU_BIRD_SVG}
+    <div class="ok">✓</div>
+    <h1>Dataiku is connected</h1>
+    <p><strong>{escape(name)}</strong> is now the active instance. You can close this tab and continue in your AI coding tool.</p>
+  </main>
+</body>
+</html>"""
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):
