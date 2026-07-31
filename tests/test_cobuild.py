@@ -303,6 +303,17 @@ def test_pending_question_blocks_new_messages(environment):
     assert len(client.conversation.send_calls) == 1
 
 
+def test_question_answer_validates_rejected_and_answers(environment):
+    _client, _ = environment
+
+    async def scenario():
+        await start()
+        with pytest.raises(ValueError, match="must be empty when rejected is true"):
+            await answer_question("turn-1", ["order_date"], rejected=True)
+
+    run(scenario())
+
+
 def test_confirmation_request_does_not_depend_on_an_sdk_confirmation_id(environment):
     client, _ = environment
     response = Response("delete?")

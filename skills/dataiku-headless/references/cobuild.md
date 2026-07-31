@@ -72,6 +72,7 @@ Do not use this guide when:
 - Before answering a confirmation or question, always retrieve and inspect its exact current `turn_id` with `get_cobuild_turn_status`.
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
+- When `rejected=true`, `answers` must be empty.
 - Answer a question only when the user request or inspected context determines the answer. Otherwise, ask the user.
 - Honor `question.allow_multiple_answers` and `question.allow_custom_answer`; set `used_custom_answer=true` when supplying a custom free-text answer.
 - When a turn is `queued` or `in_progress`, call `get_cobuild_turn_status` with its current `turn_id`; do not submit a duplicate operation.
