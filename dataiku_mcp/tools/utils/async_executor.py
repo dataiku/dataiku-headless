@@ -3,9 +3,10 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from ...config_mcp import DKU_MCP_MAX_WORKERS
+from ...config_mcp import DKU_MCP_MAX_COBUILD_WORKERS, DKU_MCP_MAX_WORKERS
 
 _executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_WORKERS)
+_cobuild_executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_COBUILD_WORKERS)
 
 
 async def run_blocking(func, *args, **kwargs):
@@ -13,5 +14,14 @@ async def run_blocking(func, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         _executor,
+        lambda: func(*args, **kwargs),
+    )
+
+
+async def run_cobuild_blocking(func, *args, **kwargs):
+    """Run a blocking Cobuild SDK call without occupying the general executor."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _cobuild_executor,
         lambda: func(*args, **kwargs),
     )
