@@ -358,6 +358,25 @@ def test_timeout_retains_one_turn_until_its_result_is_polled(environment, monkey
     ]
 
 
+def test_sdk_exception_does_not_wedge_the_conversation(environment):
+    client, _ = environment
+    client.conversation.error = ConnectionError("connection failed")
+
+    async def scenario():
+        await start()
+        failed = await send()
+        assert failed["status"] == "failed"
+        assert not failed["is_confirmation_request"]
+        assert not failed["is_question_request"]
+        assert await poll(failed["turn_id"]) == failed
+
+        client.conversation.error = None
+        assert (await send())["status"] == "completed"
+
+    run(scenario())
+    assert len(client.conversation.send_calls) == 2
+
+
 def test_turn_status_waits_for_and_returns_the_terminal_result(
     environment, monkeypatch
 ):

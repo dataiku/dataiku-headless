@@ -189,6 +189,8 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
                 "turn_id": turn.id,
                 "error_type": type(exc).__name__,
                 "message": str(exc) or type(exc).__name__,
+                "is_confirmation_request": False,
+                "is_question_request": False,
             }
         return _terminal_turn_result(conversation_id, entry, turn, response)
 
