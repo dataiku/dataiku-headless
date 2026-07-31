@@ -8,6 +8,8 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import dataikuapi
+
 from . import config
 
 SESSION_LIFETIME_SECONDS = 10 * 60
@@ -81,10 +83,21 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     }
 
 
-def _page(*, error: str = "") -> str:
+def _page(*, error: str = "", status: str = "", values: dict | None = None) -> str:
     error_markup = (
         f'<div class="error" role="alert">{escape(error)}</div>' if error else ""
     )
+    status_markup = (
+        f'<div class="status" role="status">{escape(status)}</div>' if status else ""
+    )
+    is_initial_page = values is None
+    values = values or {}
+    name = escape(values.get("name", ""))
+    description = escape(values.get("description", ""))
+    url = escape(values.get("url", ""))
+    api_key = escape(values.get("api_key", ""))
+    set_default = " checked" if is_initial_page or values.get("set_default") else ""
+    no_check_certificate = " checked" if values.get("no_check_certificate") else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -118,11 +131,15 @@ def _page(*, error: str = "") -> str:
     .checks {{ display:grid; gap:12px; margin:20px 0 24px; }}
     .check {{ display:flex; gap:10px; align-items:flex-start; font-weight:500; margin:0; }}
     .check input {{ margin-top:4px; accent-color:var(--teal); flex:0 0 auto; }}
+    .actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
     button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
     button:hover {{ background:#00696c; }}
+    button.secondary {{ color:var(--ink); background:var(--surface); border:1px solid var(--line); }}
+    button.secondary:hover {{ background:var(--soft); }}
     button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
     .error {{ background:#fff4f3; color:var(--error); border:1px solid #f0c7c8; border-radius:8px; padding:12px; margin-bottom:20px; }}
-    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .security {{ flex-direction:column; gap:4px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} }}
+    .status {{ background:#effaf7; color:#245d57; border:1px solid #ccece4; border-radius:8px; padding:12px; margin-bottom:20px; }}
+    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .security {{ flex-direction:column; gap:4px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} .actions {{ grid-template-columns:1fr; }} }}
     @media (prefers-reduced-motion:reduce) {{ input, button {{ transition:none; }} }}
   </style>
 </head>
@@ -134,18 +151,19 @@ def _page(*, error: str = "") -> str:
       <p class="intro">Add or update the instance this agent can use.</p>
       <div class="security"><span class="security-label">Local only</span><div><strong>Your credentials stay on this machine.</strong>The API key is saved with user-only (0600) file permissions. This page runs on 127.0.0.1 and expires after 10 minutes.</div></div>
       {error_markup}
+      {status_markup}
       <form method="post" autocomplete="off">
         <div class="grid">
-          <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
-          <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production DSS"></div>
-          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
-          <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
+          <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
+          <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production DSS" value="{description}"></div>
+          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" value="{url}" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
+          <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" value="{api_key}" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
         <div class="checks">
-          <label class="check"><input type="checkbox" name="set_default" checked><span>Use this instance by default when Dataiku Headless starts.</span></label>
-          <label class="check"><input type="checkbox" name="no_check_certificate"><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label>
+          <label class="check"><input type="checkbox" name="set_default"{set_default}><span>Use this instance by default when Dataiku Headless starts.</span></label>
+          <label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label>
         </div>
-        <button type="submit">Save instance</button>
+        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save">Save instance</button></div>
       </form>
     </section>
   </main>
@@ -182,6 +200,17 @@ def _success_page(name: str) -> str:
   </main>
 </body>
 </html>"""
+
+
+def _test_connection(values: dict) -> None:
+    try:
+        client = dataikuapi.DSSClient(values["url"], values["api_key"])
+        client._session.verify = not values["no_check_certificate"]
+        client.get_auth_info()
+    except Exception as exc:
+        raise ValueError(
+            "Could not connect. Check the URL, API key, and certificate settings."
+        ) from exc
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):
@@ -227,12 +256,24 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                 content_length = int(self.headers.get("Content-Length", "0"))
                 if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
                     raise ValueError("The submitted form is empty or too large.")
-                values = _validate_form(
-                    parse_qs(
-                        self.rfile.read(content_length).decode("utf-8"),
-                        keep_blank_values=True,
-                    )
+                form = parse_qs(
+                    self.rfile.read(content_length).decode("utf-8"),
+                    keep_blank_values=True,
                 )
+                values = _validate_form(form)
+                action = form.get("action", ["save"])[0]
+                if action == "test":
+                    _test_connection(values)
+                    self._send_html(
+                        200,
+                        _page(
+                            status="Connection successful. Your instance has not been saved.",
+                            values=values,
+                        ),
+                    )
+                    return
+                if action != "save":
+                    raise ValueError("Unknown setup action.")
                 result = config.add_instance_to_config(**values)
                 config.set_current_instance(result["name"])
             except (UnicodeDecodeError, ValueError, RuntimeError) as exc:
