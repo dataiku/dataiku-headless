@@ -1,22 +1,17 @@
 """Loopback-only browser setup for Dataiku instance credentials."""
 
-import re
 import secrets
 import threading
 import webbrowser
 from dataclasses import dataclass
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlsplit
 
 from . import config
 
 SESSION_LIFETIME_SECONDS = 10 * 60
 MAX_REQUEST_BYTES = 16 * 1024
-# HTML patterns use RegExp v-mode, where hyphens in character classes are escaped.
-INSTANCE_URL_PATTERN = (
-    r"https?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._~\-]+)(?::[0-9]{1,5})?(?:/home)?/?"
-)
 _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
 
@@ -49,27 +44,23 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
         raise ValueError("Instance name is required.")
     if len(name) > 80 or any(ord(character) < 32 for character in name):
         raise ValueError("Instance name must be 80 characters or fewer.")
-    parsed_url = urlparse(url)
+    if "\\" in url or any(
+        ord(character) < 32 or character.isspace() for character in url
+    ):
+        raise ValueError("Instance URL contains invalid whitespace or backslashes.")
+    try:
+        parsed_url = urlsplit(url)
+        port = parsed_url.port
+        if parsed_url.netloc.endswith(":") or port == 0:
+            raise ValueError
+    except ValueError:
+        raise ValueError(
+            "Instance URL is malformed or contains an invalid port."
+        ) from None
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
         raise ValueError("Instance URL must be a complete http:// or https:// URL.")
-    try:
-        parsed_url.port
-    except ValueError:
-        raise ValueError("Instance URL contains an invalid port.") from None
-    if (
-        parsed_url.username
-        or parsed_url.password
-        or parsed_url.query
-        or parsed_url.fragment
-    ):
-        raise ValueError(
-            "Instance URL cannot contain credentials, a query, or a fragment."
-        )
-    if not re.fullmatch(INSTANCE_URL_PATTERN, url):
-        raise ValueError(
-            "Instance URL must be the instance root or its /home page, "
-            "without any other path."
-        )
+    if parsed_url.username or parsed_url.password:
+        raise ValueError("Instance URL cannot contain credentials.")
     url = f"{parsed_url.scheme}://{parsed_url.netloc}"
     if not api_key:
         raise ValueError("API key is required.")
@@ -134,7 +125,7 @@ def _page(*, error: str = "") -> str:
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production DSS"></div>
-          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" pattern="{INSTANCE_URL_PATTERN}" title="Enter the instance root URL or its /home page." aria-describedby="url-hint" required><div class="hint" id="url-hint">Paste the instance root or /home page. The saved URL will not include /home or a trailing slash.</div></div>
+          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" title="Enter an http:// or https:// URL from your Dataiku instance." aria-describedby="url-hint" required><div class="hint" id="url-hint">Paste any page URL from your Dataiku instance. Only its base address will be saved.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
         <div class="checks">
