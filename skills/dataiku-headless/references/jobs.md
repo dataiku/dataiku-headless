@@ -5,7 +5,7 @@ description: Run existing Dataiku datasets or recipes, then track and investigat
 
 # Jobs
 
-Use this guide to execute existing datasets or recipes and supervise the resulting DSS job. Asset creation and configuration changes still route through Cobuild.
+Use this guide to execute existing datasets or recipes and supervise the resulting Dataiku job. Asset creation and configuration changes still route through Cobuild.
 
 ## Job Concepts
 
@@ -37,7 +37,7 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 
 - If a tool returns `*_still_running` or the harness reports a timeout, treat the job as still active until proven otherwise.
 - `build_datasets` starts all requested outputs in one job. Do not split them into overlapping calls.
-- If a start request raises before returning a `job_id`, inspect recent jobs before retrying; DSS may have accepted the request before the connection failed.
+- If a start request raises before returning a `job_id`, inspect recent jobs before retrying; Dataiku may have accepted the request before the connection failed.
 - A `*_poll_failed` response means the job started but polling failed. Keep its `job_id` and inspect it with `get_job_status` or `wait_for_job`; do not restart.
 - Do not assume a timed-out wait means the job failed; timeout is not failure.
 - Do not assume a missing `job_id` means the job is gone; use `list_jobs` to rediscover recent project jobs first.

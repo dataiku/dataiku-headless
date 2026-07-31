@@ -1,4 +1,4 @@
-"""WebApp inspection tools for Dataiku DSS."""
+"""WebApp inspection tools for Dataiku."""
 
 import copy
 

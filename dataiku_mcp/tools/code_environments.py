@@ -1,4 +1,4 @@
-"""DSS code environment discovery tools."""
+"""Dataiku code environment discovery tools."""
 
 from fastmcp import Context
 
@@ -10,8 +10,8 @@ from .utils.auth import get_dss_client
 
 @mcp.tool()
 async def list_code_envs(ctx: Context) -> str:
-    """List all code environments available on the DSS instance, each with its name and language."""
-    await ctx.info("Listing DSS code environments...")
+    """List all code environments available on the Dataiku instance, each with its name and language."""
+    await ctx.info("Listing Dataiku code environments...")
     envs = await run_blocking(lambda: get_dss_client().list_code_envs())
     result = [
         {

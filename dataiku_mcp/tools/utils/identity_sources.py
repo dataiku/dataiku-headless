@@ -1,4 +1,4 @@
-"""Validation for Dataiku DSS identity source types."""
+"""Validation for Dataiku identity source types."""
 
 from .validation import require_allowed_value
 
@@ -13,5 +13,5 @@ IDENTITY_SOURCE_TYPES = {
 
 
 def require_identity_source_type(value: str, field_name: str = "source_type") -> str:
-    """Require a supported raw DSS identity source type."""
+    """Require a supported raw Dataiku identity source type."""
     return require_allowed_value(value, field_name, IDENTITY_SOURCE_TYPES)

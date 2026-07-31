@@ -1,4 +1,4 @@
-"""Inspection tools for Dataiku DSS Agents."""
+"""Inspection tools for Dataiku Agents."""
 
 from fastmcp import Context
 

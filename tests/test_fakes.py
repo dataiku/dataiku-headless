@@ -1,4 +1,4 @@
-"""Contract tests for shared fake DSS test infrastructure."""
+"""Contract tests for shared fake Dataiku test infrastructure."""
 
 from tests.utils.fakes import FakeDSSClient, FakeProject
 

@@ -1,7 +1,7 @@
 """Shared job summary helpers for tool modules."""
 
 
-# DSS job state is not always present at the top level.
+# Dataiku job state is not always present at the top level.
 # Prefer job-level fields, then activities, then jobEndTime as a last resort.
 def _derive_job_state(raw_job: dict, job_end_time: int | None) -> str | None:
     explicit_state = raw_job.get("state")
@@ -73,7 +73,7 @@ def _summarize_runtime_activities(
     for activity in activities:
         activity_id = activity.get("activityId")
         base = base_activities.get(activity_id) or {}
-        # Live DSS may store output refs under def.targets rather than targets.
+        # Live Dataiku may store output refs under def.targets rather than targets.
         targets = (base.get("def") or {}).get("targets") or base.get("targets") or []
         summarized_activities.append(
             {

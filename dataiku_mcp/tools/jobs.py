@@ -1,4 +1,4 @@
-"""Inspection tools for DSS jobs and futures."""
+"""Inspection tools for Dataiku jobs and futures."""
 
 import asyncio
 import time
@@ -46,7 +46,7 @@ COMPUTABLE_TO_JOB_OUTPUT_TYPE = {
 
 
 class _RecipeExecutionPrecondition(ValueError):
-    """The recipe cannot be mapped to a supported DSS job output."""
+    """The recipe cannot be mapped to a supported Dataiku job output."""
 
 
 def _validate_inline_timeout(timeout_seconds: int) -> int:
@@ -108,7 +108,7 @@ async def build_datasets(
     auto_update_schema: bool = True,
     timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Build one or more existing datasets as a single DSS job.
+    """Build one or more existing datasets as a single Dataiku job.
 
     Args:
         dataset_names: Existing dataset names to build (at least one). All requested datasets are started in one job.
@@ -152,8 +152,8 @@ async def build_datasets(
         job = await run_blocking(_start_job)
     except Exception as exc:
         raise RuntimeError(
-            "DSS did not return a job handle for this build. Inspect recent jobs "
-            "before retrying because the start request may have reached DSS."
+            "Dataiku did not return a job handle for this build. Inspect recent jobs "
+            "before retrying because the start request may have reached Dataiku."
         ) from exc
 
     try:
@@ -277,7 +277,7 @@ async def run_recipe(
         outputs = project.get_flow().get_graph().get_successor_computables(recipe)
         if not outputs:
             raise _RecipeExecutionPrecondition(
-                f"recipe '{recipe_name}' has no outputs, so DSS cannot run it"
+                f"recipe '{recipe_name}' has no outputs, so Dataiku cannot run it"
             )
 
         first_output = outputs[0]
@@ -300,9 +300,9 @@ async def run_recipe(
         raise
     except Exception as exc:
         raise RuntimeError(
-            f"DSS did not return a job handle for recipe '{recipe_name}'. Inspect "
+            f"Dataiku did not return a job handle for recipe '{recipe_name}'. Inspect "
             "recent jobs before retrying because the start request may have "
-            "reached DSS."
+            "reached Dataiku."
         ) from exc
 
     try:
@@ -387,10 +387,10 @@ async def get_future_status(
     ctx: Context,
     fetch_result: bool = False,
 ) -> str:
-    """Get the status of a DSSFuture returned by a long-running DSS operation."""
+    """Get the status of a DSSFuture returned by a long-running Dataiku operation."""
     future_id = _require_non_empty_string(future_id, "future_id")
     await ctx.info(
-        f"Retrieving DSS future status for {future_id} (fetch_result={fetch_result})..."
+        f"Retrieving Dataiku future status for {future_id} (fetch_result={fetch_result})..."
     )
 
     def _run():
@@ -408,7 +408,7 @@ async def get_job_status(
     ctx: Context,
     full: bool = False,
 ) -> str:
-    """Get the current status of a DSS job."""
+    """Get the current status of a Dataiku job."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     await ctx.info(f"Retrieving status for job {job_id} (full={full})...")
@@ -432,7 +432,7 @@ async def get_job_log(
     activity: str | None = None,
     tail_lines: int | None = 200,
 ) -> str:
-    """Get DSS job logs."""
+    """Get Dataiku job logs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     if activity is not None:
@@ -470,7 +470,7 @@ async def get_job_log(
 
 @mcp.tool()
 async def list_jobs(project_key: str, limit: int = 10) -> str:
-    """List recent DSS jobs in the project."""
+    """List recent Dataiku jobs in the project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     limit = min(_require_positive_int(limit, "limit"), 100)
 
@@ -505,11 +505,11 @@ async def wait_for_job(
     ctx: Context,
     timeout_seconds: int = 600,
 ) -> str:
-    """Wait for a DSS job to finish, with a timeout."""
+    """Wait for a Dataiku job to finish, with a timeout."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
-    await ctx.info(f"Waiting for DSS job {job_id} in {project_key}...")
+    await ctx.info(f"Waiting for Dataiku job {job_id} in {project_key}...")
 
     job = await run_blocking(
         lambda: get_dss_client().get_project(project_key).get_job(job_id)
@@ -523,7 +523,7 @@ async def wait_for_job(
                 "status": "job_still_running",
                 "job": status_summary,
                 "hint": (
-                    "The DSS job is still running. Do not assume it failed or start a "
+                    "The Dataiku job is still running. Do not assume it failed or start a "
                     "duplicate build; call wait_for_job again or inspect with "
                     "get_job_status. Add full=true only when you need more detail, "
                     "or use get_job_log for logs."

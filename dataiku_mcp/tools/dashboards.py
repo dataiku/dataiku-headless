@@ -1,4 +1,4 @@
-"""Dashboard inspection for Dataiku DSS."""
+"""Dashboard inspection for Dataiku."""
 
 from fastmcp import Context
 

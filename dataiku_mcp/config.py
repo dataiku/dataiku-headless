@@ -74,7 +74,7 @@ def _parse_no_check_certificate(value: str) -> bool:
 
 def _load_instance_from_env_vars() -> DSSInstance | None:
     """
-    Load the DSS instance defined by environment variables. An instance
+    Load the Dataiku instance defined by environment variables. An instance
     is considered configured when `DKU_DSS_URL` is set.
 
     Returns a single instance object, with at least `name`, `url`,
@@ -195,7 +195,7 @@ def get_instances() -> dict[str, DSSInstance]:
 
 
 def get_current_instance() -> DSSInstance:
-    """Return the currently active DSS instance."""
+    """Return the currently active Dataiku instance."""
     if _current_instance:
         return _current_instance
 

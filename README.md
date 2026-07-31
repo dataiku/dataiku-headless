@@ -27,7 +27,7 @@ Cobuild is exposed here as a retained conversation, driven through MCP tools. Th
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku DSS operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -111,9 +111,9 @@ npx skills add dataiku/dataiku-headless
 
 The onboarding flow is the same:
 
-1. Ask the agent to setup your DSS instance (**run `configure_instance`**).
+1. Ask the agent to setup your Dataiku instance (**run `configure_instance`**).
 2. Approve the MCP URL prompt.
-3. Enter an instance name, DSS URL, and personal API key.
+3. Enter an instance name, Dataiku URL, and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
 The API key never appears in MCP tool arguments.
@@ -175,7 +175,7 @@ uv run dataiku-headless
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
 │   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
 │   │   ├── insights.py        # Insight inspection tools, especially chart insights
-│   │   ├── connections.py     # DSS connection discovery/test tools
+│   │   ├── connections.py     # Dataiku connection discovery/test tools
 │   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
 │   │   ├── data_collections.py  # Data Collection listing/inspection tools
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
@@ -215,7 +215,7 @@ uv run dataiku-headless
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
 │           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
-│           ├── jobs.md             # DSS job tracking, waiting, and log inspection
+│           ├── jobs.md             # Dataiku job tracking, waiting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
 │           ├── code-environments.md # Available code environments for prompts and execution context
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection

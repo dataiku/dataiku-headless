@@ -3,12 +3,12 @@
   "owner": {
     "name": "Dataiku"
   },
-  "description": "Connect your agent to Dataiku DSS: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+  "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "plugins": [
     {
       "name": "dataiku-headless",
       "source": "./",
-      "description": "Connect your agent to Dataiku DSS: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+      "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
       "category": "developer-tools"
     }
   ]

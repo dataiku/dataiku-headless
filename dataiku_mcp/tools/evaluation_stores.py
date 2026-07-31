@@ -1,4 +1,4 @@
-"""Inspection tools for Dataiku DSS Evaluation Stores."""
+"""Inspection tools for Dataiku Evaluation Stores."""
 
 from dataikuapi.utils import DataikuException
 from fastmcp import Context

@@ -75,7 +75,7 @@ async def require_admin() -> None:
             get_dss_client().get_general_settings()
         except DataikuException as err:
             raise PermissionError(
-                "DSS administrator access could not be verified for this operation: "
+                "Dataiku administrator access could not be verified for this operation: "
                 f"{err}"
             ) from None
 

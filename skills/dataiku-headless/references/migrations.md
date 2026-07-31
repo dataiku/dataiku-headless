@@ -1,6 +1,6 @@
 ---
 name: migrations
-description: Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows. Use when user supplies a source bundle and asks to migrate, rebuild, port, or recreate its logic in DSS.
+description: Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows. Use when user supplies a source bundle and asks to migrate, rebuild, port, or recreate its logic in Dataiku.
 ---
 
 
@@ -26,7 +26,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
   - Dataiku Migration Plan (discover and read the needed Dataiku guides, starting with `../SKILL.md`):
     * Translate the source bundle logic into a plan for a Dataiku Flow. The migrated flow must use only visual recipe families unless the user explicitly requests a code-based transformation. Do not choose a Code recipe because it seems easier, faster, more reliable, or more expressive. If the user did not explicitly ask for code, keep searching for a visual-recipe implementation.
     * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
-    * The requested final output dataset must be produced in DSS from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
+    * The requested final output dataset must be produced in Dataiku from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
 4. Create a Validation Plan for the migrated project and write it to `<bundle_dir>/migration_v<n>/validation_plan.md`. The Validation Plan should (at least) include:
   - Check that the input datasets of the Dataiku Flow match the input datasets of the source bundle.
   - That the migrated Dataiku Flow accurately reproduces the business logic and transformation contained within the Source Bundle.
@@ -59,7 +59,7 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
 Create the Dataiku project. If no project key is specified in the user message, create the project using a sensible project key.
 Read the Migration Plan from `<bundle_dir>/migration_v<n>/migration_plan.md` and build the Dataiku project via Cobuild (`./cobuild.md`).
 
-The Build phase must create the DSS flow that performs the transformation logic. A locally computed final result that is only uploaded into DSS does not satisfy this phase.
+The Build phase must create the Dataiku flow that performs the transformation logic. A locally computed final result that is only uploaded into Dataiku does not satisfy this phase.
 
 ## Phase 3: Validate
 
@@ -95,13 +95,13 @@ A valid Dataiku migration must begin from the same logical source datasets as th
 
 If multiple upload attempts are made while establishing the correct source boundary, only the final intended source dataset may remain in the completed project; failed attempts must be cleaned up in Phase 4.
 
-## DSS execution requirement
+## Dataiku execution requirement
 
-A valid migration must implement the transformation logic inside DSS.
+A valid migration must implement the transformation logic inside Dataiku.
 
-The requested final output dataset must be produced in DSS from the migrated source datasets through one or more Dataiku recipes. It is not valid to compute the final result locally and upload that precomputed final dataset as the deliverable.
+The requested final output dataset must be produced in Dataiku from the migrated source datasets through one or more Dataiku recipes. It is not valid to compute the final result locally and upload that precomputed final dataset as the deliverable.
 
-Source-boundary fidelity alone is not sufficient: the migrated project must contain the DSS flow that performs the transformation.
+Source-boundary fidelity alone is not sufficient: the migrated project must contain the Dataiku flow that performs the transformation.
 
 ## Cleanup safety rule
 

@@ -1,11 +1,11 @@
 ---
 name: users
-description: List and administer Dataiku DSS users. Use when finding, creating, updating, disabling, or deleting instance users.
+description: List and administer Dataiku users. Use when finding, creating, updating, disabling, or deleting instance users.
 ---
 
 # Users
 
-Use these tools for instance-level DSS user administration. They require credentials with administrator rights and are not routed through Cobuild.
+Use these tools for instance-level Dataiku user administration. They require credentials with administrator rights and are not routed through Cobuild.
 
 ## Workflow
 

@@ -1,11 +1,11 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku DSS tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
 ---
 
 # Dataiku Headless
 
-Use this for any Dataiku DSS task. Choose the right reference guide first, inspect the current state before acting, route project changes through Cobuild by default, and validate by re-reading the resulting state.
+Use this for any Dataiku task. Choose the right reference guide first, inspect the current state before acting, route project changes through Cobuild by default, and validate by re-reading the resulting state.
 
 ## Shared Operating Rules
 
@@ -59,7 +59,7 @@ Use this for any Dataiku DSS task. Choose the right reference guide first, inspe
 | Inspect Data Quality rules and outcomes | `./references/data-quality.md` |
 | Inspect cross-project sharing | `./references/cross-project-sharing.md` |
 | Discover datasets through Data Collections | `./references/data-collections.md` |
-| Port logic from Alteryx, SAS, Excel, or similar tools into DSS | `./references/migrations.md` |
+| Port logic from Alteryx, SAS, Excel, or similar tools into Dataiku | `./references/migrations.md` |
 
 ## Routing Notes
 

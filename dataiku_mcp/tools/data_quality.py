@@ -1,4 +1,4 @@
-"""Data Quality inspection tools for DSS datasets."""
+"""Data Quality inspection tools for Dataiku datasets."""
 
 from typing import Any
 

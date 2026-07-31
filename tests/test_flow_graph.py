@@ -393,7 +393,7 @@ def test_flow_graph_edge_limit_can_exceed_the_node_ceiling(monkeypatch):
 
 
 def test_flow_graph_keeps_same_named_nodes_of_different_types(monkeypatch):
-    # DSS datasets and recipes are separate namespaces, so one ref can name both.
+    # Dataiku datasets and recipes are separate namespaces, so one ref can name both.
     nodes = {
         "dataset_orders": _dataset("orders", successors=["recipe_orders"]),
         "recipe_orders": _recipe(

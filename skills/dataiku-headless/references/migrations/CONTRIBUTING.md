@@ -21,13 +21,13 @@ Two framework safety nets already catch most failures loudly; restating them was
 
 KEEP only what escapes BOTH nets — three kinds:
 
-1. Silent VALUE divergences — source behavior yielding wrong-but-valid output vs DSS: aggregation null-handling, null semantics, formula / eval order, width / size truncation, source-formula→GREL traps mapping to a wrong or phantom GREL function.
+1. Silent VALUE divergences — source behavior yielding wrong-but-valid output vs Dataiku: aggregation null-handling, null semantics, formula / eval order, width / size truncation, source-formula→GREL traps mapping to a wrong or phantom GREL function.
 2. Silent PARSE traps — bundle-reading silently yielding wrong / incomplete inventory: where real data / config lives, binary formats, multi-implementation dedup.
 3. Silent MIS-REALIZATIONS (sparingly) — construct agent builds CONFIDENTLY WRONG rather than stalls on.
 
 DROP everything else: obvious 1:1 tool→recipe mappings, ANY mapping / translation table, ALL code / CLI / XML / GREL example blocks, rationale / "why" prose, collapse or optimization hints, unbuildable / equivalent-lacking constructs (gap resolution's job).
 
-Mapping table invites 1:1 transliteration, against DSS-Optimized Logic. Agent reads bundle, derives DSS-native realization from recipe-type subskills; Source Subskill flags only where that derivation goes silently wrong.
+Mapping table invites 1:1 transliteration, against Dataiku-Optimized Logic. Agent reads bundle, derives Dataiku-native realization from recipe-type subskills; Source Subskill flags only where that derivation goes silently wrong.
 
 ## Sections
 

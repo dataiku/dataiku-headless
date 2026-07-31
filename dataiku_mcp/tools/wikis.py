@@ -1,4 +1,4 @@
-"""Wiki inspection for Dataiku DSS."""
+"""Wiki inspection for Dataiku."""
 
 from fastmcp import Context
 

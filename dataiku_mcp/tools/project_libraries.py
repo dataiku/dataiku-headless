@@ -1,4 +1,4 @@
-"""Project library operations for Dataiku DSS.
+"""Project library operations for Dataiku.
 
 This module intentionally keeps the surface small:
 
@@ -115,7 +115,7 @@ def _load_external_libraries(project) -> tuple[list[dict], str | None]:
             "External library configuration is unavailable. Check whether the "
             "caller has permission to inspect external libraries and whether "
             "project git/external-library support is available on this project "
-            f"or DSS instance. Details: {str(e).strip()}"
+            f"or Dataiku instance. Details: {str(e).strip()}"
         )
 
 

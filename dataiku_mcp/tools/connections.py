@@ -1,4 +1,4 @@
-"""DSS connection discovery and inspection tools."""
+"""Dataiku connection discovery and inspection tools."""
 
 from typing import Any
 
@@ -144,7 +144,7 @@ async def list_connections(
     connection_type: str = "all",
     connection_category: str = "all",
 ) -> str:
-    """List the DSS connections available on the instance, each with its type. Uses the non-admin API, so no admin rights are required. Provide either connection_type or connection_category, but not both.
+    """List the Dataiku connections available on the instance, each with its type. Uses the non-admin API, so no admin rights are required. Provide either connection_type or connection_category, but not both.
 
     Args:
         connection_type: Returns only connections with this type. Use "all" for every known type.
@@ -172,7 +172,7 @@ async def list_connections(
     )
 
     await ctx.info(
-        "Listing DSS connections "
+        "Listing Dataiku connections "
         f"(type={connection_type}, category={connection_category})..."
     )
 
@@ -208,7 +208,7 @@ async def list_connections(
     ):
         result["warning"] = (
             f"No connections found for type '{connection_type}', and it is not a known "
-            f"DSS connection type. Known types: {sorted(_KNOWN_CONNECTION_TYPES_SET)}"
+            f"Dataiku connection type. Known types: {sorted(_KNOWN_CONNECTION_TYPES_SET)}"
         )
 
     return compact_json(result)
@@ -220,7 +220,7 @@ async def get_connection_info(
     ctx: Context,
     contextual_project_key: str | None = None,
 ) -> str:
-    """Get information about a DSS connection. Requires permissions to read connection details.
+    """Get information about a Dataiku connection. Requires permissions to read connection details.
 
     Args:
         contextual_project_key: Optional project key used to resolve project variables
@@ -231,7 +231,7 @@ async def get_connection_info(
             contextual_project_key, "contextual_project_key"
         )
 
-    await ctx.info(f"Loading info for DSS connection '{connection_name}'...")
+    await ctx.info(f"Loading info for Dataiku connection '{connection_name}'...")
 
     raw_info = await run_blocking(
         lambda: dict(
@@ -255,9 +255,9 @@ async def get_connection_info(
 
 @mcp.tool()
 async def test_connection(connection_name: str, ctx: Context) -> str:
-    """Test if a DSS connection is available. Returns an error if testing is not supported for the connection type, or if the caller lacks required permissions."""
+    """Test if a Dataiku connection is available. Returns an error if testing is not supported for the connection type, or if the caller lacks required permissions."""
     connection_name = _require_non_empty_string(connection_name, "connection_name")
-    await ctx.info(f"Testing DSS connection '{connection_name}'...")
+    await ctx.info(f"Testing Dataiku connection '{connection_name}'...")
 
     raw_result = await run_blocking(
         lambda: get_dss_client().get_connection(connection_name).test()

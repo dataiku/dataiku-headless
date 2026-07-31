@@ -9,7 +9,7 @@ Use this guide to understand and inspect Agent Reviews, including their traits, 
 
 ## Agent Review Concepts
 
-An Agent Review evaluates one DSS agent against a set of test queries and named evaluation traits. It provides a repeatable way to assess the agent's behavior, identify weak cases, and compare outcomes across runs.
+An Agent Review evaluates one Dataiku agent against a set of test queries and named evaluation traits. It provides a repeatable way to assess the agent's behavior, identify weak cases, and compare outcomes across runs.
 
 ### Object Model
 

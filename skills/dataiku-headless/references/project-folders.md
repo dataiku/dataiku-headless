@@ -9,7 +9,7 @@ Use this guide to inspect and manage the instance-level folder hierarchy for pro
 
 ## Project Folder Concepts
 
-Project folders organize projects across the DSS instance. They are separate from Flow zones, which organize items inside one project's Flow, and from managed folders, which are storage objects inside a project.
+Project folders organize projects across the Dataiku instance. They are separate from Flow zones, which organize items inside one project's Flow, and from managed folders, which are storage objects inside a project.
 
 Project folders can be nested. Moving a project between them changes where it appears in the instance hierarchy, not the project's internal Flow.
 
