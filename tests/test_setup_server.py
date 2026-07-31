@@ -70,8 +70,7 @@ def test_validate_form_rejects_malformed_or_unsafe_urls(url):
         _validate_form(_form(url))
 
 
-def test_setup_page_explains_url_normalization():
+def test_setup_page_explains_instance_url():
     page = _page()
 
-    assert "Paste any page URL from your Dataiku instance." in page
-    assert "Only its base address will be saved." in page
+    assert "Enter the URL of your Dataiku instance." in page

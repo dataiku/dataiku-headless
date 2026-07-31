@@ -125,7 +125,7 @@ def _page(*, error: str = "") -> str:
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production DSS"></div>
-          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" title="Enter an http:// or https:// URL from your Dataiku instance." aria-describedby="url-hint" required><div class="hint" id="url-hint">Paste any page URL from your Dataiku instance. Only its base address will be saved.</div></div>
+          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
         <div class="checks">
