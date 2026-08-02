@@ -12,7 +12,7 @@ Read this reference when inspecting or describing a visual data-prep recipe. Use
 | Clean and enrich columns | `prepare` | Use visual processors for common parsing, cleanup, standardization, enrichment, and column changes. See the [prepare processor catalog](../shared/prepare_processors_overview.md). |
 | Combine datasets | `join`, `fuzzyjoin`, `geojoin`, `vstack`, `upsert` | Use joins for keyed matching, `vstack` for appending compatible rows, and `upsert` for merging rows into a target. |
 | Aggregate and reshape | `grouping`, `window`, `pivot`, `split` | Use grouping to change data grain, window calculations for partitioned analytics, pivot for long-to-wide reshaping, and split for routing rows into multiple outputs. |
-| Filter and order | `prepare`, `sampling`, `sort`, `distinct`, `topn` | Use a Prepare filter processor or a compatible recipe's embedded pre/post-filter for row filtering. Reserve `sampling` for actual sampling; use the other recipes for ordering, deduplication, and selecting ranked rows. |
+| Filter, sample, and order | `sampling`, `sort`, `distinct`, `topn` | Use the Sample/Filter recipe for standalone filtering, sampling, or both. Use a compatible embedded pre/post-filter when the condition belongs around another recipe's action; use the other recipes for ordering, deduplication, and selecting ranked rows. |
 | Move data or files | `sync`, `download`, `export` | Use `sync` to copy data across storage backends; `download` and `export` work with managed folders. |
 
 ## Embedded Recipe Stages
@@ -30,14 +30,16 @@ Several visual recipes contain processing stages around their named action. Insp
 
 A pre-filter runs before the action and can change join inputs, group membership, aggregate denominators, or window partitions. A post-filter evaluates action output and can reference generated aggregate or joined columns. Do not move a condition between them unless it is equivalent at both grains.
 
-Use one recipe when its embedded capabilities express the transformation and no intermediate result needs to be delivered, reused, audited, or run with a different engine. After Cobuild work, re-read the payload, build the output, and validate its schema, sample values, row count, and grain.
+For migration work, actively reduce the number of recipes and intermediate datasets by using all compatible stages of a visual recipe: pre-filters, computed columns, the core action, custom or global aggregations, post-filters, and output controls. Use one recipe when these capabilities express the transformation and no intermediate result needs to be delivered, reused, audited, or run with a different engine.
+
+After Cobuild work, re-read the payload, build the output, and validate its schema, sample values, row count, and grain.
 
 ## Selection Notes
 
 - Joins can multiply rows when matching keys are not unique. Inspect key columns and data grain before requesting a join.
 - `fuzzyjoin` and `geojoin` need suitable text or geospatial inputs and should be validated carefully against expected match behavior.
 - Aggregations change the row-level grain. State the desired grouping keys, standard or custom measures, pre-aggregation computed columns, and any post-aggregation filter explicitly in a Cobuild request.
-- A Sampling recipe is not a general row filter. Use `FilterOnCustomFormula` or another appropriate Prepare filter processor when no compatible recipe-level pre/post-filter owns the condition.
+- The Sample/Filter (`sampling`) recipe supports standalone filtering, sampling, or both. Use a Prepare filter processor when filtering is one step in a broader preparation chain.
 - `pivot` changes the schema based on values in the pivot column. `split` can create several output datasets; identify the required output behavior first.
 - `sync` changes storage location rather than transformation logic. Preserve the surrounding storage context unless the user requests a change.
 - `download` and `export` require managed-folder context, including the intended folder and file behavior.
