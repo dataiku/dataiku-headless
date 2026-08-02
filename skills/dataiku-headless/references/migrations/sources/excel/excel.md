@@ -13,7 +13,7 @@ Excel source subskill. The migration workflow, phases, and invariants live in th
 
 ## Delivery Contract
 
-- Minimize recipe count during planning and after build. Fold operations into native recipe slots unless semantics, sharing, delivery, or engine preservation requires separation.
+- Minimize recipe count during planning and after build. Read [Data Prep Recipes](../../../recipes/recipe-types/data-prep-recipes.md) and fold compatible pre-filters, computed columns, the core action (including custom or global aggregations), post-filters, and output controls into one recipe unless semantics, sharing, delivery, or engine preservation requires separation.
 - Collapse applies to intermediates, never to the delivery contract. Each reviewable source output (report sheet, output table, pivot) lands as its own terminal dataset carrying that sheet's column contract, so an SME can diff one source sheet against one dataset without filtering. A shared long-format spine feeding per-sheet terminals through cheap splits satisfies both rules.
 - Every Excel migration delivers an SME-facing overview webapp built from the shipped template, after validation passes and before documentation and cleanup. Cobuild receives finished, locally filled code to paste verbatim — never a design brief to author webapp code from.
 - Complete only after independently re-reading the final flow and outputs, checking the output contract, and finishing documentation and cleanup. Never report a partial project as completed.
