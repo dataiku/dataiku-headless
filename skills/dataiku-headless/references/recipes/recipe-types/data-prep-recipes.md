@@ -30,7 +30,7 @@ Several visual recipes contain processing stages around their named action. Insp
 
 A pre-filter runs before the action and can change join inputs, group membership, aggregate denominators, or window partitions. A post-filter evaluates action output and can reference generated aggregate or joined columns. Do not move a condition between them unless it is equivalent at both grains.
 
-For migration work, actively reduce the number of recipes and intermediate datasets by using all compatible stages of a visual recipe: pre-filters, computed columns, the core action, custom or global aggregations, post-filters, and output controls. Use one recipe when these capabilities express the transformation and no intermediate result needs to be delivered, reused, audited, or run with a different engine.
+Use one recipe when its embedded capabilities express the transformation and no intermediate result needs to be delivered, reused, audited, or run with a different engine.
 
 After Cobuild work, re-read the payload, build the output, and validate its schema, sample values, row count, and grain.
 
