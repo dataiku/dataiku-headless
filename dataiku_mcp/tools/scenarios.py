@@ -1,4 +1,4 @@
-"""Scenario inspection and execution tools for Dataiku DSS."""
+"""Scenario inspection and execution tools for Dataiku."""
 
 import asyncio
 import time
@@ -16,7 +16,7 @@ from .utils.validation import (
 )
 
 SCENARIO_POLL_INTERVAL_SECONDS = 2
-# DSS creates a scenario run asynchronously after firing its trigger.
+# Dataiku creates a scenario run asynchronously after firing its trigger.
 SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS = 4
 MAX_SCENARIO_WAIT_SECONDS = 3600
 
@@ -158,9 +158,9 @@ async def run_scenario(
         )
     except Exception as exc:
         raise RuntimeError(
-            f"DSS did not return a trigger-fire handle for scenario '{scenario_id}'. "
+            f"Dataiku did not return a trigger-fire handle for scenario '{scenario_id}'. "
             "Inspect scenario run history before retrying because the trigger may "
-            "have reached DSS."
+            "have reached Dataiku."
         ) from exc
 
     try:
@@ -242,7 +242,7 @@ async def run_scenario(
                 "hint": (
                     "The scenario did not finish within timeout_seconds. Do not "
                     "trigger it again; poll get_scenario_run_history. If run_id is "
-                    "absent, DSS has not materialized the run yet; match "
+                    "absent, Dataiku has not materialized the run yet; match "
                     "trigger_fire_id against the run-history rows to find it."
                 ),
             }
@@ -287,7 +287,7 @@ async def get_scenario_run_history(
         for run in runs:
             info = run.get_info()
             result = info.get("result") or {}
-            # DSS trigger payloads are not always well-formed; keep usable ids
+            # Dataiku trigger payloads are not always well-formed; keep usable ids
             # and null the rest so one bad record does not crash the read.
             raw_trigger_fire = info.get("trigger")
             trigger_fire = (
@@ -332,7 +332,7 @@ async def get_scenario_run_history(
 
 @mcp.tool()
 async def list_messaging_channels(ctx: Context) -> str:
-    """List the messaging channels configured on this DSS instance."""
+    """List the messaging channels configured on this Dataiku instance."""
     await ctx.info("Listing messaging channels...")
 
     channels = await run_blocking(lambda: get_dss_client().list_messaging_channels())

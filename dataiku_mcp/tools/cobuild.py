@@ -214,7 +214,7 @@ async def _wait_for_turn(
 
 @mcp.tool()
 async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
-    """Start a process-local Cobuild conversation for a DSS project."""
+    """Start a process-local Cobuild conversation for a Dataiku project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 

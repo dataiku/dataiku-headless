@@ -1,6 +1,6 @@
 """Dataiku MCP server package.
 
-Exposes Dataiku DSS operations through FastMCP tools.
+Exposes Dataiku operations through FastMCP tools.
 """
 
 from pathlib import Path
@@ -11,9 +11,9 @@ from fastmcp import FastMCP
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Create MCP instance
-mcp = FastMCP("Dataiku DSS")
+mcp = FastMCP("Dataiku")
 
-# Load MCP server and DSS instance configuration
+# Load MCP server and Dataiku instance configuration
 from . import (  # noqa: E402
     config,
     config_mcp,

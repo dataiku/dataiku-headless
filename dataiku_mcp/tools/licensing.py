@@ -1,4 +1,4 @@
-"""DSS licensing status inspection."""
+"""Dataiku licensing status inspection."""
 
 from datetime import datetime, timezone
 
@@ -43,7 +43,7 @@ async def get_licensing_status(
     ctx: Context,
     include_profile_capabilities: bool = False,
 ) -> str:
-    """Get DSS license validity, expiration, and profile capacity.
+    """Get Dataiku license validity, expiration, and profile capacity.
     Requires global administrator rights on the target Dataiku instance.
 
     Args:
@@ -51,7 +51,7 @@ async def get_licensing_status(
             this quickly bloats the context, so use only if strictly required.
     """
     await require_admin()
-    await ctx.info("Retrieving DSS licensing status...")
+    await ctx.info("Retrieving Dataiku licensing status...")
 
     def _run():
         return get_dss_client().get_licensing_status()

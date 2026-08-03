@@ -1,4 +1,4 @@
-"""DSS group administration tools."""
+"""Dataiku group administration tools."""
 
 from fastmcp import Context
 
@@ -70,7 +70,7 @@ def _sanitize_group(raw_group: dict, fields: dict[str, str]) -> dict:
 
 
 def _apply_changes(definition: dict, changes: dict) -> None:
-    """Updates a DSS group `definition` with `changes` (except immutable group "name")."""
+    """Updates a Dataiku group `definition` with `changes` (except immutable group "name")."""
     for field, raw_field in _GROUP_FIELDS.items():
         if field != "name" and changes[field] is not None:
             definition[raw_field] = changes[field]
@@ -92,12 +92,12 @@ async def list_groups(
     offset: int = 0,
     limit: int = 5,
 ) -> str:
-    """List DSS groups with optional name, source type, and admin filtering.
+    """List Dataiku groups with optional name, source type, and admin filtering.
     Requires global administrator rights on the target Dataiku instance.
 
     Args:
         search: Case-insensitive substring matched against group names.
-        source_type: Exact DSS source type: LOCAL, LDAP, AZURE_AD,
+        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
             LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
         is_admin: Whether to return only administrator or non-administrator groups.
         include_permissions: Retrieve all exposed permissions for returned groups.
@@ -110,7 +110,7 @@ async def list_groups(
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
     await require_admin()
-    await ctx.info("Listing DSS groups...")
+    await ctx.info("Listing Dataiku groups...")
 
     raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
     total_groups = len(raw_groups)
@@ -194,11 +194,11 @@ async def create_group(
     may_manage_enterprise_asset_library: bool = False,
     may_create_enterprise_asset_collections: bool = False,
 ) -> str:
-    """Create a DSS group with external mappings and global permissions.
+    """Create a Dataiku group with external mappings and global permissions.
     Requires global administrator rights on the target Dataiku instance.
 
     Args:
-        name: DSS rejects special characters beyond '.', '_', '-', '@'.
+        name: Dataiku rejects special characters beyond '.', '_', '-', '@'.
         source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
             LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
         is_admin: Whether the group has administrative privileges.
@@ -265,7 +265,7 @@ async def create_group(
         **permissions,
     }
     await require_admin()
-    await ctx.info(f"Creating DSS group '{name}'...")
+    await ctx.info(f"Creating Dataiku group '{name}'...")
 
     def _run():
         client = get_dss_client()
@@ -320,7 +320,7 @@ async def update_group(
     may_manage_enterprise_asset_library: bool | None = None,
     may_create_enterprise_asset_collections: bool | None = None,
 ) -> str:
-    """Patch a DSS group's mappings and global permissions.
+    """Patch a Dataiku group's mappings and global permissions.
     Requires global administrator rights on the target Dataiku instance.
 
     Args:
@@ -390,7 +390,7 @@ async def update_group(
         raise ValueError("Provide at least one group field to update")
 
     await require_admin()
-    await ctx.info(f"Updating DSS group '{name}'...")
+    await ctx.info(f"Updating Dataiku group '{name}'...")
 
     def _run():
         group = get_dss_client().get_group(name)
@@ -404,10 +404,10 @@ async def update_group(
 
 @mcp.tool()
 async def delete_group(name: str, ctx: Context) -> str:
-    """Delete one DSS group.
+    """Delete one Dataiku group.
     Requires global administrator rights on the target Dataiku instance."""
     name = _require_non_empty_string(name, "name")
     await require_admin()
-    await ctx.info(f"Deleting DSS group '{name}'...")
+    await ctx.info(f"Deleting Dataiku group '{name}'...")
     await run_blocking(lambda: get_dss_client().get_group(name).delete())
     return compact_json({"name": name, "deleted": True})

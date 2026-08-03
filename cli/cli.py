@@ -18,7 +18,7 @@ import typer
 
 app = typer.Typer(
     name="dataiku-headless",
-    help="Headless Dataiku DSS agent kit — run the MCP server.",
+    help="Headless Dataiku agent kit — run the MCP server.",
     rich_markup_mode="rich",
     no_args_is_help=False,
     add_completion=False,

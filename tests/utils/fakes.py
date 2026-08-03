@@ -1,6 +1,6 @@
 """Shared fakes for tool unit tests.
 
-Tool tests must run without a live Dataiku DSS connection (same constraint as
+Tool tests must run without a live Dataiku connection (same constraint as
 ``test_smoke.py``), so tests monkeypatch ``get_dss_client`` in the module under
 test with a ``FakeDSSClient`` built here and drive the tool functions directly.
 """

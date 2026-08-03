@@ -1,6 +1,6 @@
 """Smoke tests: the package imports cleanly and exposes its public surface.
 
-These intentionally avoid any live Dataiku DSS connection — importing the
+These intentionally avoid any live Dataiku connection — importing the
 package must work without credentials (``config.py`` defaults every setting to
 an empty value), so CI can run them on a bare runner.
 """
@@ -16,7 +16,7 @@ def test_public_api():
 
 
 def test_mcp_server_initialized():
-    assert dataiku_mcp.mcp.name == "Dataiku DSS"
+    assert dataiku_mcp.mcp.name == "Dataiku"
 
 
 def test_distribution_version_is_resolvable():

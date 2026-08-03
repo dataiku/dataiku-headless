@@ -44,7 +44,7 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 Keep the ids returned by `run_scenario` so later turns can follow the same execution instead of guessing or re-triggering.
 
 - `run_id` identifies the scenario run itself.
-- `trigger_fire_id` identifies the trigger request. It is especially useful when DSS has accepted the trigger but has not materialized the run yet.
+- `trigger_fire_id` identifies the trigger request. It is especially useful when Dataiku has accepted the trigger but has not materialized the run yet.
 - `get_scenario_run_history` includes `trigger_fire_id` on each row, so you can use that id later to find the run the trigger produced.
 
 ## Supporting Context
@@ -67,7 +67,7 @@ Keep the ids returned by `run_scenario` so later turns can follow the same execu
 
 - Inspect a scenario's steps before requesting a manual run or a behavior change.
 - Do not request a new run while the scenario may already be running.
-- If the trigger call itself raises, inspect run history before retrying; the trigger may already have reached DSS.
+- If the trigger call itself raises, inspect run history before retrying; the trigger may already have reached Dataiku.
 - A `scenario_poll_failed` response means the trigger was accepted but polling failed. Use its `trigger_fire_id` (and `run_id` when present) to find the run in history; never re-trigger.
 - A bounded wait returning `scenario_run_still_running` is not failure. Keep polling the same run.
 - Treat scenarios with expensive builds, training, exports, or notifications as consequential automation.

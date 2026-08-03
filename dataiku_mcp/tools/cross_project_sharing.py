@@ -1,4 +1,4 @@
-"""Cross-project sharing inspection for DSS shared objects."""
+"""Cross-project sharing inspection for Dataiku shared objects."""
 
 from dataikuapi.utils import DataikuException
 from fastmcp import Context

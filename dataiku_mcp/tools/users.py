@@ -1,4 +1,4 @@
-"""DSS user administration tools."""
+"""Dataiku user administration tools."""
 
 from fastmcp import Context
 
@@ -47,10 +47,10 @@ async def _require_licensed_user_profile(profile: str) -> None:
         status = get_dss_client().get_licensing_status()
         profiles = status.get("base", {}).get("userProfiles", [])
         if not profiles:
-            raise ValueError("DSS did not return any available user profiles")
+            raise ValueError("Dataiku did not return any available user profiles")
         if profile not in profiles:
             raise ValueError(
-                f"'profile' must be one of the current DSS licensed profile types: "
+                f"'profile' must be one of the current Dataiku licensed profile types: "
                 f"{', '.join(profiles)}"
             )
 
@@ -58,7 +58,7 @@ async def _require_licensed_user_profile(profile: str) -> None:
 
 
 async def _require_existing_groups(groups: list[str]) -> None:
-    """Check that every supplied group exists on the DSS instance.
+    """Check that every supplied group exists on the Dataiku instance.
 
     Note: assumes that caller has admin rights; this internal method should
     ideally be called after checking the user is admin with `require_admin`.
@@ -99,7 +99,7 @@ async def list_users(
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
     await require_admin()
-    await ctx.info("Listing DSS users...")
+    await ctx.info("Listing Dataiku users...")
 
     def _run():
         return get_dss_client().list_users()
@@ -169,10 +169,10 @@ async def create_user(
     profile is available and review its licensing capacity.
 
     Args:
-        login: DSS rejects special characters beyond '.', '_', '-', '@'.
+        login: Dataiku rejects special characters beyond '.', '_', '-', '@'.
         source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
             (SSO), CUSTOM, or PAM.
-        profile: User profile available under the DSS license.
+        profile: User profile available under the Dataiku license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete initial list of group names. Defaults to no groups.
     """
@@ -189,7 +189,7 @@ async def create_user(
     await require_admin()
     await _require_licensed_user_profile(profile)
     await _require_existing_groups(groups)
-    await ctx.info(f"Creating DSS user '{login}'...")
+    await ctx.info(f"Creating Dataiku user '{login}'...")
 
     def _run():
         client = get_dss_client()
@@ -230,7 +230,7 @@ async def update_user(
     Args:
         source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
             (SSO), CUSTOM, or PAM.
-        profile: User profile available under the DSS license.
+        profile: User profile available under the Dataiku license.
         password: Required for LOCAL users and invalid for external users.
         groups: Complete list of group names. Defaults to no groups.
     """
@@ -263,7 +263,7 @@ async def update_user(
         await _require_licensed_user_profile(profile)
     if groups is not None:
         await _require_existing_groups(groups)
-    await ctx.info(f"Updating DSS user '{login}'...")
+    await ctx.info(f"Updating Dataiku user '{login}'...")
 
     def _run():
         client = get_dss_client()
@@ -296,12 +296,12 @@ async def update_user(
 
 @mcp.tool()
 async def delete_user(login: str, ctx: Context) -> str:
-    """Delete one DSS user. Self-deletion remains prohibited.
+    """Delete one Dataiku user. Self-deletion remains prohibited.
     Requires global administrator rights on the target Dataiku instance.
     """
     login = _require_non_empty_string(login, "login")
     await require_admin()
-    await ctx.info(f"Deleting DSS user '{login}'...")
+    await ctx.info(f"Deleting Dataiku user '{login}'...")
 
     def _run():
         get_dss_client().get_user(login).delete()

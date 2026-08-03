@@ -1,11 +1,11 @@
 ---
 name: administration
-description: Route instance-level Dataiku DSS administration tasks, including user, group, and licensing operations.
+description: Route instance-level Dataiku administration tasks, including user, group, and licensing operations.
 ---
 
 # Administration
 
-Use this routing guide for instance-level administrative tasks. These operations require DSS administrator credentials and must use the corresponding direct MCP tools.
+Use this routing guide for instance-level administrative tasks. These operations require Dataiku administrator credentials and must use the corresponding direct MCP tools.
 
 ## Guide Routing
 

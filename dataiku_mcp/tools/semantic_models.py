@@ -1,4 +1,4 @@
-"""Semantic model inspection for Dataiku DSS."""
+"""Semantic model inspection for Dataiku."""
 
 from fastmcp import Context
 

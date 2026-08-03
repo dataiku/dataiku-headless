@@ -77,7 +77,7 @@ def _raw_status_with_activities(job_id, *, end_time, runtime_state, activities):
     for get_job_status_full to surface per-output activity states, which
     build_datasets maps back to per-dataset outcomes.
 
-    The shape mirrors a payload captured from a live DSS 14.x DONE job:
+    The shape mirrors a payload captured from a live Dataiku 14.x DONE job:
     ``runtimeSummary.activities`` is a list carrying state and timings but NO
     output refs, ``baseStatus.activities`` is a dict keyed by activityId whose
     ``statusOutputs`` is empty even when DONE, and the dataset refs live at
@@ -175,9 +175,9 @@ def test_build_datasets_wait_reports_per_dataset_outcomes():
 
 
 def test_build_datasets_per_dataset_matches_live_dss_done_payload():
-    """Regression for the live-DSS activity shape (was per_dataset state null).
+    """Regression for the live-Dataiku activity shape (was per_dataset state null).
 
-    Verified against DSS 14.x project AAA_144D45, job
+    Verified against Dataiku 14.x project AAA_144D45, job
     Build_salary_stats_global__NP__2026-07-23T21-19-33.864: the DONE job's
     runtimeSummary activities carry no output refs, baseStatus.activities'
     statusOutputs is empty, and the only dataset refs sit at
@@ -382,7 +382,7 @@ def test_run_recipe_poll_failure_returns_structured_job_identity():
 
 
 class _HostileJobHandle:
-    """A job handle whose .id raises, as a partial DSS payload would.
+    """A job handle whose .id raises, as a partial Dataiku payload would.
 
     The SDK reads the id straight from the raw payload, so a truncated handle
     makes ``.id`` raise. Combined with a failing poll, the old code read
@@ -676,7 +676,7 @@ def test_run_scenario_wait_completed_returns_both_identities():
 def test_run_scenario_wait_timeout_before_run_exists_keeps_trigger_fire_id():
     trigger_fire = MagicMock()
     trigger_fire.run_id = "TRIG-NO-RUN"
-    trigger_fire.get_scenario_run.return_value = None  # DSS never materializes it
+    trigger_fire.get_scenario_run.return_value = None  # Dataiku never materializes it
     trigger_fire.is_cancelled.return_value = False
     client = _scenario_client(trigger_fire)
 
@@ -691,7 +691,7 @@ def test_run_scenario_wait_timeout_before_run_exists_keeps_trigger_fire_id():
             )
         )
 
-    # The deadline expired before DSS materialized a run: no run_id exists yet,
+    # The deadline expired before Dataiku materialized a run: no run_id exists yet,
     # so the trigger identity must be preserved to forbid a blind re-trigger.
     assert res["status"] == "scenario_run_still_running"
     assert "run_id" not in res
@@ -812,7 +812,7 @@ def test_get_scenario_run_history_rows_carry_trigger_fire_id():
     table = res["runs"]
     row = dict(zip(table["columns"], table["rows"][0]))
     # The trigger-fire id is exposed so a caller holding only a trigger_fire_id
-    # (timeout before DSS materialized the run) can correlate it to its run.
+    # (timeout before Dataiku materialized the run) can correlate it to its run.
     assert row["run_id"] == "RUN-H"
     assert row["trigger_fire_id"] == "TRIG-H"
 
@@ -839,7 +839,7 @@ def _history_row_for_trigger_shape(trigger_value):
 
 
 def test_get_scenario_run_history_tolerates_string_trigger_fire():
-    # DSS put a bare string where the trigger-fire record was expected: the row
+    # Dataiku put a bare string where the trigger-fire record was expected: the row
     # must still come back, with null trigger fields, never a fabricated id.
     row = _history_row_for_trigger_shape("manual")
     assert row["run_id"] == "RUN-SHAPE"

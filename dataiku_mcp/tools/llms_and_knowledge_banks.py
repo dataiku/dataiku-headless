@@ -73,7 +73,7 @@ async def list_llms(
     ctx: Context,
     purpose: str = "ALL",
 ) -> str:
-    """List DSS-managed LLMs available in the project."""
+    """List Dataiku-managed LLMs available in the project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     purpose = _require_non_empty_string(purpose, "purpose").upper()
     normalized_purpose = (
@@ -96,7 +96,7 @@ async def list_llms(
 
 @mcp.tool()
 async def get_llm_info(project_key: str, llm_id: str, ctx: Context) -> str:
-    """Get the full metadata payload for a DSS-managed LLM visible in the project."""
+    """Get the full metadata payload for a Dataiku-managed LLM visible in the project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     llm_id = _require_non_empty_string(llm_id, "llm_id")
     await ctx.info(f"Loading LLM {llm_id} in {project_key}...")

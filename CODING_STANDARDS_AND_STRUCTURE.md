@@ -34,8 +34,8 @@ export DKU_API_KEY="your-api-key"
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
 
 ## Error Handling
-- Prefer simple, readable tool handlers: keep top-level control flow short, avoid repeated DSS lookups, and use local helpers only when they improve clarity.
-- Keep MCP as a thin adapter: validate behavior invariants at the boundary (for example non-empty required lists and allowed mode values), and let DSS validate deeper domain-specific constraints.
+- Prefer simple, readable tool handlers: keep top-level control flow short, avoid repeated Dataiku lookups, and use local helpers only when they improve clarity.
+- Keep MCP as a thin adapter: validate behavior invariants at the boundary (for example non-empty required lists and allowed mode values), and let Dataiku validate deeper domain-specific constraints.
 - For single-operation tools, prefer raising exceptions for invalid preconditions or missing objects instead of returning serialized `{"error": ...}` payloads.
 - Reserve serialized per-item error payloads for APIs that intentionally support partial success (for example batch or multi-operation endpoints).
 - Do not mix raised exceptions and serialized `{"error": ...}` responses for the same failure class within one tool.
