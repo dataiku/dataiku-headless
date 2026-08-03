@@ -19,20 +19,27 @@ Read this reference when inspecting or describing a visual data-prep recipe. Use
 
 Several visual recipes contain processing stages around their named action. Inspect the full `payload` from `get_recipe_settings`; do not assume that one Flow node contains only the core action.
 
-| Recipe types | Embedded capabilities |
+| Stage | Purpose and effect |
 | --- | --- |
-| `grouping` | Top-level `preFilter` and `computedColumns`; grouping keys; standard aggregations or SQL-engine custom aggregations using `customExpr` and `customName`; top-level `postFilter`; output selection and name overrides. |
-| `window` | Top-level `preFilter` and `computedColumns`; window definitions and values; window-wide `globalAggregations`; top-level `postFilter`; retrieved-column selection. |
-| `join`, `fuzzyjoin` | Per-input `virtualInputs[].preFilter` and computed columns; join action; top-level post-join computed columns that can use both inputs; top-level `postFilter`; selected output columns. |
-| `sort`, `distinct`, `topn` | Top-level `preFilter` and `computedColumns`; ordering, deduplication, ranking, or row-limit action; top-level `postFilter`; output controls. |
-| `vstack` | Per-input pre-filters; computed columns; schema remapping and optional origin column; top-level `postFilter`. |
-| `split` | Top-level `preFilter` and `computedColumns`; split conditions and catch-all output; top-level `postFilter`. |
+| Input pre-filter | Removes rows before the core action. It can change join inputs, group membership, aggregate denominators, or window partitions. |
+| Pre-action computed columns | Derives or changes columns available to the core action. |
+| Core action | Performs the recipe's named operation, such as joining, grouping, ranking, or splitting. |
+| Post-action computed columns | Derives columns from the action result. For joins, these can use columns from both inputs. |
+| Post-filter | Removes rows after the core action and can filter generated aggregate or joined columns. |
+| Output controls | Select, rename, map, or otherwise shape delivered output columns. |
 
-A pre-filter runs before the action and can change join inputs, group membership, aggregate denominators, or window partitions. A post-filter evaluates action output and can reference generated aggregate or joined columns. Do not move a condition between them unless it is equivalent at both grains.
+Do not move a condition between stages unless it is equivalent at both grains.
 
-Use one recipe when its embedded capabilities express the transformation and no intermediate result needs to be delivered, reused, audited, or run with a different engine.
+| Recipe types | Input pre-filter | Pre-action computed columns | Core action and other features | Post-action computed columns | Post-filter | Output controls |
+| --- | --- | --- | --- | --- | --- | --- |
+| `grouping` | Yes | Yes | Grouping keys; standard or SQL-engine custom aggregations | — | Yes | Selection and name overrides |
+| `window` | Yes | Yes | Window definitions and values; window-wide global aggregations | — | Yes | Retrieved-column selection |
+| `join`, `fuzzyjoin` | Per input | Per input | Join action | Yes | Yes | Selected columns |
+| `sort`, `distinct`, `topn` | Yes | Yes | Ordering, deduplication, ranking, or row limits | — | Yes | Yes |
+| `vstack` | Per input | Yes | Schema mapping and optional origin column | — | Yes | — |
+| `split` | Yes | Yes | Split conditions and catch-all output | — | Yes | — |
 
-After Cobuild work, re-read the payload, build the output, and validate its schema, sample values, row count, and grain.
+Prefer one recipe when its embedded capabilities express the transformation and separating it provides no material operational, performance, governance, or reuse benefit.
 
 ## Selection Notes
 
