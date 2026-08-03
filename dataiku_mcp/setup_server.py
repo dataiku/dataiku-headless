@@ -306,7 +306,9 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                 result = config.add_instance_to_config(**values)
                 config.set_current_instance(result["name"])
             except (UnicodeDecodeError, ValueError, RuntimeError) as exc:
-                self._send_html(400, _page(error=str(exc)))
+                self._send_html(
+                    400, _page(error=str(exc), values=locals().get("values"))
+                )
                 return
 
             self._send_html(200, _success_page(result["name"]))
