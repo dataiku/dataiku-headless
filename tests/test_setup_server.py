@@ -1,5 +1,10 @@
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
 import pytest
 
+from dataiku_mcp import setup_server
 from dataiku_mcp.setup_server import _page, _validate_form
 
 NORMALIZED_URLS = (
@@ -74,3 +79,62 @@ def test_setup_page_explains_instance_url():
     page = _page()
 
     assert "Enter the URL of your Dataiku instance." in page
+
+
+def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
+    request = Request(url, data=urlencode(form).encode(), method="POST")
+    try:
+        with urlopen(request) as response:
+            return response.status, response.read().decode()
+    except HTTPError as error:
+        return error.code, error.read().decode()
+
+
+def test_setup_server_requires_a_successful_test_before_saving(monkeypatch):
+    session = setup_server.start_setup_server(open_browser=False)
+    form = {
+        "name": "sandbox",
+        "url": "https://example.com",
+        "api_key": "secret",
+        "description": "",
+        "action": "save",
+    }
+    monkeypatch.setattr(
+        setup_server.config,
+        "add_instance_to_config",
+        lambda **values: pytest.fail(f"Unexpected save: {values}"),
+    )
+    try:
+        status, page = _post_setup_form(session.url, form)
+    finally:
+        session.close()
+
+    assert status == 400
+    assert "Test the connection successfully before saving." in page
+
+
+def test_setup_server_invalidates_a_test_when_connection_settings_change(monkeypatch):
+    session = setup_server.start_setup_server(open_browser=False)
+    form = {
+        "name": "sandbox",
+        "url": "https://example.com",
+        "api_key": "secret",
+        "description": "",
+    }
+    monkeypatch.setattr(setup_server, "_test_connection", lambda values: None)
+    try:
+        status, page = _post_setup_form(session.url, {**form, "action": "test"})
+        changed_status, changed_page = _post_setup_form(
+            session.url,
+            {**form, "api_key": "other-secret", "action": "save"},
+        )
+    finally:
+        session.close()
+
+    assert status == 200
+    assert "You can now save this instance." in page
+    assert changed_status == 400
+    assert (
+        "Test again after changing the URL, API key, or certificate setting."
+        in changed_page
+    )
