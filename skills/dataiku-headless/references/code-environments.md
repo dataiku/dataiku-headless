@@ -1,11 +1,14 @@
 ---
 name: code-environments
-description: Understand and inspect Dataiku code environments. Use when selecting an environment or diagnosing an environment-related issue before asking Cobuild to change a recipe, ML analysis, or code agent.
+description: Discover and administer managed Design-node Dataiku code environments, or select one for a recipe, ML analysis, or code agent.
 ---
 
 # Code Environments
 
-Use this guide to inspect available Dataiku code environments and gather grounded context for Cobuild.
+Use this guide to inspect managed Design-node code environments and administer them
+when the user explicitly requests instance-level code-environment work. Code
+environment administration is a direct-write exception: it is not an in-project
+asset and Cobuild does not manage it.
 
 ## Code Environment Concepts
 
@@ -17,16 +20,34 @@ Matching a workload's language does not establish package or runtime compatibili
 
 ## Workflow
 
-1. Use `list_code_envs` to discover exact environment names and available languages.
-2. Identify the affected workload's language and requirements from the relevant recipe, ML analysis, code agent, or error message.
-3. Use the returned environment metadata to identify compatible candidates. Do not assume that a compatible language means a compatible dependency set.
-4. For a requested change, include the exact environment name or intended selection behavior in a grounded Cobuild prompt.
-5. Route recipe, ML analysis, and code-agent environment changes through `./cobuild.md`.
+1. Use `list_code_envs` with its default partial search to discover environments.
+2. Use `search_mode="exact"` with `include_details=true` to inspect one exact environment before updating it. Details include owner, group access, requested packages, installed packages, and build targets.
+3. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
+4. Use `update_packages=true` after changing requested packages. Use `force_rebuild=true` only when a clean environment rebuild is intended, and use `rebuild_images=true` only when container/Spark images must be rebuilt.
+5. Before deleting an environment whose impact is uncertain, use exact search with `include_usages=true`. Usage enrichment is limited to five matching environments; narrow the search instead of scanning the instance.
+6. Route recipe, ML analysis, and code-agent environment selection changes through `./cobuild.md`.
+
+## Permissions
+
+- Detailed reads, creation, and updates require the global **Create code envs** or **Manage all code envs** permission.
+- Deletion requires the global **Manage all code envs** permission.
+- DSS permission and validation errors are returned directly. Do not infer permission from a failed package install or select an alternative environment without grounded compatibility evidence.
+
+## Supported Settings
+
+- Python package entries are requirements-style lines. R entries use DSS raw package-spec lines, for example `"RJSONIO","1.3"`.
+- Owner, `usable_by_all`, and group permissions are supported. Supplying group permissions replaces the full group permission list.
+- Container execution and Spark Kubernetes build targets are supported. Creating an environment never builds images; request image rebuilding explicitly during an update.
+- Resources, Conda/custom repositories, base-package choices, Automation/API-node, versioned, plugin, and internal environments are out of scope.
 
 ## Preferred Tools
 
 - `list_code_envs`
+- `create_code_env`
+- `update_code_env`
+- `delete_code_env`
 
 ## Safety Rules
 
 - Do not select an explicit environment solely from a package or import error unless its compatibility is otherwise established.
+- Do not delete an environment based solely on usage output; DSS remains the authority on whether deletion is permitted.
