@@ -24,7 +24,7 @@ Matching a workload's language does not establish package or runtime compatibili
 2. Use `search_mode="exact"` with `include_details=true` to inspect one exact environment before updating it. Details include owner, group access, requested packages, installed packages, and build targets.
 3. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
 4. Use `update_packages=true` after changing requested packages. Use `force_rebuild=true` only when a clean environment rebuild is intended, and use `rebuild_images=true` only when container/Spark images must be rebuilt.
-5. Before deleting an environment whose impact is uncertain, use exact search with `include_usages=true`. Usage enrichment is limited to five matching environments; narrow the search instead of scanning the instance.
+5. Use `delete_code_env` when deletion is requested. It checks DSS usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
 6. Route recipe, ML analysis, and code-agent environment selection changes through `./cobuild.md`.
 
 ## Permissions
@@ -50,4 +50,4 @@ Matching a workload's language does not establish package or runtime compatibili
 ## Safety Rules
 
 - Do not select an explicit environment solely from a package or import error unless its compatibility is otherwise established.
-- Do not delete an environment based solely on usage output; DSS remains the authority on whether deletion is permitted.
+- Do not retry a blocked deletion until every returned usage has been removed or moved to another environment.

@@ -31,7 +31,6 @@ _DETAIL_COLUMNS = [
     "container_configurations",
     "all_spark_kubernetes_configurations",
     "spark_kubernetes_configurations",
-    "usages",
 ]
 
 
@@ -106,10 +105,7 @@ def _apply_build_targets(
 ) -> bool:
     changed = False
     raw = settings.get_raw()
-    if (
-        all_container_configurations is not None
-        or container_configurations is not None
-    ):
+    if all_container_configurations is not None or container_configurations is not None:
         if all_container_configurations is True and container_configurations:
             raise ValueError(
                 "Cannot provide container_configurations when "
@@ -128,7 +124,10 @@ def _apply_build_targets(
         all_spark_kubernetes_configurations is not None
         or spark_kubernetes_configurations is not None
     ):
-        if all_spark_kubernetes_configurations is True and spark_kubernetes_configurations:
+        if (
+            all_spark_kubernetes_configurations is True
+            and spark_kubernetes_configurations
+        ):
             raise ValueError(
                 "Cannot provide spark_kubernetes_configurations when "
                 "all_spark_kubernetes_configurations is true"
@@ -189,13 +188,16 @@ def _apply_changes(
     if python_interpreter is not None:
         desc["pythonInterpreter"] = python_interpreter
         changed = True
-    return _apply_build_targets(
-        settings,
-        all_container_configurations=all_container_configurations,
-        container_configurations=container_configurations,
-        all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
-        spark_kubernetes_configurations=spark_kubernetes_configurations,
-    ) or changed
+    return (
+        _apply_build_targets(
+            settings,
+            all_container_configurations=all_container_configurations,
+            container_configurations=container_configurations,
+            all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
+            spark_kubernetes_configurations=spark_kubernetes_configurations,
+        )
+        or changed
+    )
 
 
 @mcp.tool()
@@ -205,16 +207,14 @@ async def list_code_envs(
     search_mode: Literal["partial", "exact"] = "partial",
     language: str | None = None,
     include_details: bool = False,
-    include_usages: bool = False,
     offset: int = 0,
     limit: int = 5,
 ) -> str:
-    """List DSS code environments with optional precise detail and usage enrichment.
+    """List DSS code environments with optional precise settings detail.
 
     ``search_mode="exact"`` is the precise read path for one environment.
     ``include_details`` requires global Create code envs or Manage all code envs
-    permission. ``include_usages`` implies details and is allowed only when the
-    complete filtered result has at most five environments.
+    permission.
     """
     search = search.strip()
     search_mode = _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
@@ -224,7 +224,6 @@ async def list_code_envs(
         language = _language(language)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
-    include_details = include_details or include_usages
     await ctx.info("Listing DSS code environments...")
 
     def _run():
@@ -236,25 +235,16 @@ async def list_code_envs(
                 matched = [env for env in matched if env["name"] == search]
             else:
                 query = search.casefold()
-                matched = [
-                    env for env in matched if query in env["name"].casefold()
-                ]
+                matched = [env for env in matched if query in env["name"].casefold()]
         if language is not None:
             matched = [env for env in matched if env["language"] == language]
         matched.sort(key=lambda env: (env["name"].casefold(), env["name"]))
-        if include_usages and len(matched) > 5:
-            raise ValueError(
-                "include_usages requires at most five matching code environments; "
-                "narrow search or language"
-            )
         page = matched[offset : offset + limit]
         if include_details:
             rows = []
             for env in page:
                 code_env = client.get_code_env(env["language"], env["name"])
                 row = _serialize_details(code_env.get_settings().get_raw(), env)
-                if include_usages:
-                    row["usages"] = code_env.list_usages()
                 rows.append(row)
         else:
             rows = page
@@ -267,13 +257,10 @@ async def list_code_envs(
         "matched_code_envs": matched,
         "returned_code_envs": returned,
         "next_offset": offset + returned if offset + returned < matched else None,
-        "code_envs": columnar(rows, _DETAIL_COLUMNS if include_details else _SUMMARY_COLUMNS),
+        "code_envs": columnar(
+            rows, _DETAIL_COLUMNS if include_details else _SUMMARY_COLUMNS
+        ),
     }
-    if include_usages:
-        result["warning"] = (
-            "Usage data is an impact snapshot; DSS remains the authority on whether "
-            "an environment can be deleted."
-        )
     return compact_json(result)
 
 
@@ -306,8 +293,12 @@ async def create_code_env(
 
     def _run():
         client = get_dss_client()
-        params = {"pythonInterpreter": python_interpreter} if python_interpreter else None
-        code_env = client.create_code_env(language, name, "DESIGN_MANAGED", params=params)
+        params = (
+            {"pythonInterpreter": python_interpreter} if python_interpreter else None
+        )
+        code_env = client.create_code_env(
+            language, name, "DESIGN_MANAGED", params=params
+        )
         settings = code_env.get_settings()
         _apply_changes(
             settings,
@@ -431,11 +422,24 @@ async def update_code_env(
 async def delete_code_env(language: str, name: str, ctx: Context) -> str:
     """Delete one managed Design-node code environment.
 
-    Requires global Manage all code envs permission. Use list_code_envs with exact
-    search and include_usages before deletion when impact is uncertain.
+    Requires global Manage all code envs permission. The tool refuses deletion when
+    DSS reports current usages and returns those usages with remediation guidance.
     """
     language = _language(language)
     name = _require_non_empty_string(name, "name")
     await ctx.info(f"Deleting DSS code environment '{name}'...")
-    await run_blocking(lambda: get_dss_client().get_code_env(language, name).delete())
+    code_env = await run_blocking(lambda: get_dss_client().get_code_env(language, name))
+    usages = await run_blocking(code_env.list_usages)
+    if usages:
+        return compact_json(
+            {
+                "name": name,
+                "language": language,
+                "deleted": False,
+                "error": "Code environment cannot be deleted because it has current usages.",
+                "usages": usages,
+                "hint": "Remove or replace all listed code-environment usages, then retry deletion.",
+            }
+        )
+    await run_blocking(code_env.delete)
     return compact_json({"name": name, "language": language, "deleted": True})

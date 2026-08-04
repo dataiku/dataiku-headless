@@ -15,7 +15,9 @@ def _raw(name: str, language: str = "PYTHON") -> dict:
         "envLang": language,
         "deploymentMode": "DESIGN_MANAGED",
         "usableByAll": True,
-        "permissions": [{"group": "admins", "use": True, "update": True, "manageUsers": True}],
+        "permissions": [
+            {"group": "admins", "use": True, "update": True, "manageUsers": True}
+        ],
         "desc": {
             "owner": "owner",
             "pythonInterpreter": "PYTHON311" if language == "PYTHON" else None,
@@ -89,7 +91,10 @@ class FakeCodeEnv:
 
 class FakeClient:
     def __init__(self, envs: list[FakeCodeEnv]):
-        self.envs = {(env.settings.raw["envLang"], env.settings.raw["envName"]): env for env in envs}
+        self.envs = {
+            (env.settings.raw["envLang"], env.settings.raw["envName"]): env
+            for env in envs
+        }
         self.create_calls = []
 
     def list_code_envs(self):
@@ -131,24 +136,14 @@ def test_list_code_envs_filters_exact_and_returns_details(monkeypatch):
     assert row["actual_packages"] == ["requests==2.0", "rich==1.0"]
 
 
-def test_list_code_env_usages_is_bounded_by_complete_match_set(monkeypatch):
-    client = FakeClient([FakeCodeEnv(_raw(f"env-{index}")) for index in range(6)])
-    _patch_client(monkeypatch, client)
-
-    with pytest.raises(ValueError, match="at most five"):
-        asyncio.run(tools.list_code_envs(FakeContext(), include_usages=True, limit=1))
-
-
-def test_list_code_env_usages_implies_details(monkeypatch):
+def test_list_code_envs_does_not_return_usage_data(monkeypatch):
     client = FakeClient([FakeCodeEnv(_raw("env"))])
     _patch_client(monkeypatch, client)
 
-    result = _result(tools.list_code_envs(FakeContext(), include_usages=True))
+    result = _result(tools.list_code_envs(FakeContext(), include_details=True))
 
     columns = result["code_envs"]["columns"]
-    row = dict(zip(columns, result["code_envs"]["rows"][0]))
-    assert row["usages"] == client.get_code_env("PYTHON", "env").usages
-    assert result["warning"]
+    assert "usages" not in columns
 
 
 def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
@@ -172,7 +167,9 @@ def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
     )
 
     env = client.get_code_env("PYTHON", "new-env")
-    assert client.create_calls == [("PYTHON", "new-env", "DESIGN_MANAGED", {"pythonInterpreter": "PYTHON312"})]
+    assert client.create_calls == [
+        ("PYTHON", "new-env", "DESIGN_MANAGED", {"pythonInterpreter": "PYTHON312"})
+    ]
     assert env.settings.raw["desc"]["installCorePackages"] is True
     assert env.settings.raw["desc"]["installJupyterSupport"] is True
     assert env.settings.raw["desc"]["owner"] == "alice"
@@ -209,17 +206,57 @@ def test_update_code_env_rejects_force_rebuild_without_package_update(monkeypatc
 
     with pytest.raises(ValueError, match="requires update_packages"):
         asyncio.run(
-            tools.update_code_env(
-                "PYTHON", "env", FakeContext(), force_rebuild=True
-            )
+            tools.update_code_env("PYTHON", "env", FakeContext(), force_rebuild=True)
         )
 
 
-def test_delete_code_env_delegates_to_dss(monkeypatch):
+def test_delete_code_env_delegates_to_dss_when_unused(monkeypatch):
     env = FakeCodeEnv(_raw("env"))
+    env.usages = []
     _patch_client(monkeypatch, FakeClient([env]))
 
     result = _result(tools.delete_code_env("PYTHON", "env", FakeContext()))
 
     assert result == {"name": "env", "language": "PYTHON", "deleted": True}
     assert env.deleted is True
+
+
+def test_delete_code_env_returns_usages_without_deleting(monkeypatch):
+    env = FakeCodeEnv(_raw("ALTERYX_ENV"))
+    env.usages = [
+        {
+            "envUsage": "PROJECT",
+            "projectKey": "ALTERYXCONVERSION_SQL_SPARK_PROTO",
+            "envLang": "PYTHON",
+            "envName": "ALTERYX_ENV",
+            "accessible": True,
+        },
+        {
+            "envUsage": "NOTEBOOK",
+            "projectKey": "PAT",
+            "objectId": "Extending the Convert Node Class - Example",
+            "envLang": "PYTHON",
+            "envName": "ALTERYX_ENV",
+            "accessible": True,
+        },
+        {
+            "envUsage": "SCENARIO_STEP",
+            "projectKey": "PAT",
+            "objectId": "CONVERT",
+            "envLang": "PYTHON",
+            "envName": "ALTERYX_ENV",
+            "accessible": True,
+        },
+    ]
+    _patch_client(monkeypatch, FakeClient([env]))
+
+    result = _result(tools.delete_code_env("PYTHON", "ALTERYX_ENV", FakeContext()))
+
+    assert result["deleted"] is False
+    assert (
+        result["error"]
+        == "Code environment cannot be deleted because it has current usages."
+    )
+    assert result["usages"] == env.usages
+    assert "Remove or replace" in result["hint"]
+    assert env.deleted is False
