@@ -30,7 +30,7 @@ Homepage = "https://github.com/dataiku/dataiku-headless"
 Repository = "https://github.com/dataiku/dataiku-headless"
 
 [project.scripts]
-dataiku-headless = "dataiku_mcp:run_server"
+dataiku-headless = "dataiku_mcp.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dataiku_mcp"]

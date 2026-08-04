@@ -26,10 +26,10 @@ def test_distribution_version_is_resolvable():
     assert version and version[0].isdigit()
 
 
-def test_single_console_entry_point_runs_the_server():
+def test_single_console_entry_point_uses_the_cli():
     entry_points = {
         entry_point.name: entry_point.value
         for entry_point in importlib.metadata.entry_points(group="console_scripts")
         if entry_point.name in {"dataiku-headless", "dataiku-mcp"}
     }
-    assert entry_points == {"dataiku-headless": "dataiku_mcp:run_server"}
+    assert entry_points == {"dataiku-headless": "dataiku_mcp.cli:main"}
