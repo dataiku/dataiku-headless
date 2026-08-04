@@ -1,7 +1,5 @@
 """DSS Design-node code environment administration tools."""
 
-from typing import Literal
-
 from fastmcp import Context
 from pydantic import BaseModel
 
@@ -18,6 +16,14 @@ from .utils.validation import (
 
 _LANGUAGES = {"PYTHON", "R"}
 _SEARCH_MODES = {"partial", "exact"}
+_PYTHON_INTERPRETERS = {
+    "PYTHON39",
+    "PYTHON310",
+    "PYTHON311",
+    "PYTHON312",
+    "PYTHON313",
+    "PYTHON314",
+}
 _SUMMARY_COLUMNS = ["name", "language", "owner", "deployment_mode"]
 _DETAIL_COLUMNS = [
     *_SUMMARY_COLUMNS,
@@ -195,7 +201,7 @@ def _apply_changes(
 async def list_code_envs(
     ctx: Context,
     search: str = "",
-    search_mode: Literal["partial", "exact"] = "partial",
+    search_mode: str = "partial",
     language: str | None = None,
     include_details: bool = False,
     offset: int = 0,
@@ -208,9 +214,8 @@ async def list_code_envs(
     permission.
     """
     search = search.strip()
-    _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
-    if search_mode == "exact" and not search:
-        raise ValueError("'search' must be non-empty when search_mode is 'exact'")
+    if search:
+        search_mode = _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
     if language is not None:
         language = _require_allowed_value(language, "language", _LANGUAGES)
     offset = _require_non_negative_int(offset, "offset")
@@ -278,6 +283,10 @@ async def create_code_env(
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
+    if python_interpreter is not None:
+        python_interpreter = _require_allowed_value(
+            python_interpreter, "python_interpreter", _PYTHON_INTERPRETERS
+        )
     if language == "R" and python_interpreter is not None:
         raise ValueError("python_interpreter is only supported for PYTHON environments")
     await ctx.info(f"Creating DSS code environment '{name}'...")
@@ -347,6 +356,10 @@ async def update_code_env(
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
+    if python_interpreter is not None:
+        python_interpreter = _require_allowed_value(
+            python_interpreter, "python_interpreter", _PYTHON_INTERPRETERS
+        )
     if language == "R" and python_interpreter is not None:
         raise ValueError("python_interpreter is only supported for PYTHON environments")
     if force_rebuild and not update_packages:

@@ -165,6 +165,15 @@ def test_list_code_envs_does_not_return_usage_data(monkeypatch):
     assert "usages" not in columns
 
 
+def test_list_code_envs_ignores_search_mode_without_a_search(monkeypatch):
+    client = FakeClient([FakeCodeEnv(_raw("env"))])
+    _patch_client(monkeypatch, client)
+
+    result = _result(tools.list_code_envs(FakeContext(), search_mode="unexpected"))
+
+    assert result["matched_code_envs"] == 1
+
+
 def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
     client = FakeClient([])
     _patch_client(monkeypatch, client)
@@ -196,6 +205,15 @@ def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
     assert env.package_calls == [False]
     assert env.jupyter_calls == [True]
     assert env.image_calls == 0
+
+
+@pytest.mark.parametrize("tool", [tools.create_code_env, tools.update_code_env])
+def test_code_env_tools_reject_unknown_python_interpreter(monkeypatch, tool):
+    _patch_client(monkeypatch, FakeClient([FakeCodeEnv(_raw("env"))]))
+    args = ("PYTHON", "env", FakeContext())
+
+    with pytest.raises(ValueError, match="python_interpreter"):
+        asyncio.run(tool(*args, python_interpreter="PYTHON38"))
 
 
 def test_update_code_env_only_runs_explicit_build_actions(monkeypatch):
