@@ -18,10 +18,9 @@ from .utils.validation import (
 
 _LANGUAGES = {"PYTHON", "R"}
 _SEARCH_MODES = {"partial", "exact"}
-_SUMMARY_COLUMNS = ["name", "language", "deployment_mode"]
+_SUMMARY_COLUMNS = ["name", "language", "owner", "deployment_mode"]
 _DETAIL_COLUMNS = [
     *_SUMMARY_COLUMNS,
-    "owner",
     "usable_by_all",
     "group_permissions",
     "python_interpreter",
