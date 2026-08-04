@@ -42,13 +42,22 @@ class CodeEnvGroupPermission(BaseModel):
     manage_users: bool
 
 
+def _serialize_code_env_summary(raw: dict) -> dict:
+    """Map a raw DSS code environment to the MCP summary response."""
+    return {
+        "name": raw.get("envName", ""),
+        "language": raw.get("envLang", ""),
+        "owner": raw.get("owner", ""),
+        "deployment_mode": raw.get("deploymentMode", ""),
+    }
+
+
 def _serialize_code_env_details(raw: dict, summary: dict) -> dict:
     """Map raw DSS code-environment settings to the MCP detail response."""
     desc = raw.get("desc") or {}
     permissions = raw.get("permissions", desc.get("permissions", [])) or []
     return {
         **summary,
-        "owner": desc.get("owner", raw.get("owner", "")),
         "usable_by_all": raw.get("usableByAll", desc.get("usableByAll", False)),
         "group_permissions": [
             {
@@ -210,15 +219,7 @@ async def list_code_envs(
 
     def _run():
         client = get_dss_client()
-        all_envs = [
-            {
-                "name": raw.get("envName", ""),
-                "language": raw.get("envLang", ""),
-                "owner": raw.get("owner", ""),
-                "deployment_mode": raw.get("deploymentMode", ""),
-            }
-            for raw in client.list_code_envs()
-        ]
+        all_envs = [_serialize_code_env_summary(raw) for raw in client.list_code_envs()]
         matched = all_envs
         if search:
             if search_mode == "exact":
@@ -308,9 +309,9 @@ async def create_code_env(
         settings.save()
         package_result = code_env.update_packages()
         jupyter_result = code_env.set_jupyter_support(True)
+        raw_settings = code_env.get_settings().get_raw()
         details = _serialize_code_env_details(
-            code_env.get_settings().get_raw(),
-            {"name": name, "language": language, "deployment_mode": "DESIGN_MANAGED"},
+            raw_settings, _serialize_code_env_summary(raw_settings)
         )
         return details, package_result, jupyter_result
 
@@ -394,9 +395,9 @@ async def update_code_env(
             else None
         )
         image_result = code_env.update_images() if rebuild_images else None
+        raw_settings = code_env.get_settings().get_raw()
         details = _serialize_code_env_details(
-            code_env.get_settings().get_raw(),
-            {"name": name, "language": language, "deployment_mode": "DESIGN_MANAGED"},
+            raw_settings, _serialize_code_env_summary(raw_settings)
         )
         return details, package_result, image_result
 

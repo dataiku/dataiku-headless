@@ -14,6 +14,7 @@ def _raw(name: str, language: str = "PYTHON") -> dict:
         "envName": name,
         "envLang": language,
         "deploymentMode": "DESIGN_MANAGED",
+        "owner": "owner",
         "usableByAll": True,
         "permissions": [
             {"group": "admins", "use": True, "update": True, "manageUsers": True}
