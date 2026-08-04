@@ -42,10 +42,6 @@ class CodeEnvGroupPermission(BaseModel):
     manage_users: bool
 
 
-def _split_lines(value: str | None) -> list[str]:
-    return value.splitlines() if value else []
-
-
 def _serialize_details(raw: dict, summary: dict) -> dict:
     desc = raw.get("desc") or {}
     permissions = raw.get("permissions", desc.get("permissions", [])) or []
@@ -63,8 +59,8 @@ def _serialize_details(raw: dict, summary: dict) -> dict:
             for permission in permissions
         ],
         "python_interpreter": desc.get("pythonInterpreter"),
-        "requested_packages": _split_lines(raw.get("specPackageList")),
-        "actual_packages": _split_lines(raw.get("actualPackageList")),
+        "requested_packages": raw.get("specPackageList", "").splitlines(),
+        "actual_packages": raw.get("actualPackageList", "").splitlines(),
         "all_container_configurations": raw.get(
             "allContainerConfs", desc.get("allContainerConfs", False)
         ),
