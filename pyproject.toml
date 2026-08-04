@@ -23,7 +23,6 @@ dependencies = [
     "fastmcp",
     "dataiku-api-client>=14.7.2",
     "python-dotenv",
-    "typer>=0.12",
 ]
 
 [project.urls]
@@ -31,16 +30,14 @@ Homepage = "https://github.com/dataiku/dataiku-headless"
 Repository = "https://github.com/dataiku/dataiku-headless"
 
 [project.scripts]
-dataiku-mcp = "dataiku_mcp:run_server"
-dataiku-headless = "cli.cli:app"
+dataiku-headless = "dataiku_mcp:run_server"
 
 [tool.hatch.build.targets.wheel]
-packages = ["dataiku_mcp", "cli"]
+packages = ["dataiku_mcp"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "dataiku_mcp",
-    "cli",
     "skills",
     "README.md",
     "pyproject.toml",

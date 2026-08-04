@@ -19,10 +19,6 @@ from packaging.requirements import Requirement
 
 LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
 
-# Runtime dependencies the launcher deliberately leaves out because serving MCP
-# does not need them (``typer`` only backs the ``dataiku-headless`` CLI).
-LAUNCHER_OMITS = {"typer"}
-
 
 def _inline_metadata() -> str:
     """Return the PEP 723 block of the launcher with its comment prefix removed."""
@@ -49,11 +45,7 @@ def _project_requirements() -> dict:
         Requirement(spec)
         for spec in importlib.metadata.requires("dataiku-headless") or []
     ]
-    return {
-        req.name.lower().replace("_", "-"): req
-        for req in parsed
-        if req.name.lower().replace("_", "-") not in LAUNCHER_OMITS
-    }
+    return {req.name.lower().replace("_", "-"): req for req in parsed}
 
 
 def test_inline_dependencies_cover_the_same_packages():

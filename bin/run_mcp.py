@@ -26,10 +26,7 @@ deliberately rather than letting a launch float. Transitive dependencies are
 not pinned by this block; ``mcp``, for instance, floats within whatever range
 the pinned ``fastmcp`` allows.
 
-Only the third-party runtime dependencies are declared above (the CLI-only
-``typer`` is not needed to serve). Each pin must satisfy the corresponding
-entry in ``[project].dependencies`` in ``pyproject.toml``, and the package set
-must match it — the test in ``tests/test_pep723_launcher.py`` enforces both.
+The third-party runtime dependencies are declared above. Each pin must satisfy the corresponding entry in ``[project].dependencies`` in ``pyproject.toml``, and the package set must match it — the test in ``tests/test_pep723_launcher.py`` enforces both.
 
 ``dataiku_mcp`` is imported from this clone rather than from an installed
 distribution — the package is not published to a package index — so the

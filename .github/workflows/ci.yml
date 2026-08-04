@@ -67,5 +67,6 @@ jobs:
           set -euo pipefail
           uv venv --python 3.12 "$RUNNER_TEMP/package-smoke"
           uv pip install --python "$RUNNER_TEMP/package-smoke/bin/python" dist/*.whl
-          "$RUNNER_TEMP/package-smoke/bin/dataiku-headless" --help >/dev/null
-          "$RUNNER_TEMP/package-smoke/bin/python" -c "import cli, dataiku_mcp"
+          test -x "$RUNNER_TEMP/package-smoke/bin/dataiku-headless"
+          test ! -e "$RUNNER_TEMP/package-smoke/bin/dataiku-mcp"
+          "$RUNNER_TEMP/package-smoke/bin/python" -c "from importlib.metadata import entry_points; ep = next(ep for ep in entry_points(group='console_scripts') if ep.name == 'dataiku-headless'); assert ep.value == 'dataiku_mcp:run_server'; ep.load()"

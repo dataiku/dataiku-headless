@@ -24,3 +24,12 @@ def test_distribution_version_is_resolvable():
     # and what the bump workflow keeps in lockstep with the plugin manifests.
     version = importlib.metadata.version("dataiku-headless")
     assert version and version[0].isdigit()
+
+
+def test_single_console_entry_point_runs_the_server():
+    entry_points = {
+        entry_point.name: entry_point.value
+        for entry_point in importlib.metadata.entry_points(group="console_scripts")
+        if entry_point.name in {"dataiku-headless", "dataiku-mcp"}
+    }
+    assert entry_points == {"dataiku-headless": "dataiku_mcp:run_server"}
