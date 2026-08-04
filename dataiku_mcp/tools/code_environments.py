@@ -42,12 +42,6 @@ class CodeEnvGroupPermission(BaseModel):
     manage_users: bool
 
 
-def _language(value: str) -> str:
-    return _require_allowed_value(
-        _require_non_empty_string(value, "language"), "language", _LANGUAGES
-    )
-
-
 def _split_lines(value: str | None) -> list[str]:
     return value.splitlines() if value else []
 
@@ -212,7 +206,7 @@ async def list_code_envs(
     if search_mode == "exact" and not search:
         raise ValueError("'search' must be non-empty when search_mode is 'exact'")
     if language is not None:
-        language = _language(language)
+        language = _require_allowed_value(language, "language", _LANGUAGES)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
     await ctx.info("Listing DSS code environments...")
@@ -284,7 +278,7 @@ async def create_code_env(
     packages and Jupyter support are always enabled; container images are never
     built by this tool.
     """
-    language = _language(language)
+    language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
     if language == "R" and python_interpreter is not None:
         raise ValueError("python_interpreter is only supported for PYTHON environments")
@@ -355,7 +349,7 @@ async def update_code_env(
     group_permissions replace the complete group permission list. A forced rebuild
     requires update_packages=true.
     """
-    language = _language(language)
+    language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
     if language == "R" and python_interpreter is not None:
         raise ValueError("python_interpreter is only supported for PYTHON environments")
@@ -424,7 +418,7 @@ async def delete_code_env(language: str, name: str, ctx: Context) -> str:
     Requires global Manage all code envs permission. The tool refuses deletion when
     DSS reports current usages and returns those usages with remediation guidance.
     """
-    language = _language(language)
+    language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
     await ctx.info(f"Deleting DSS code environment '{name}'...")
     code_env = await run_blocking(lambda: get_dss_client().get_code_env(language, name))
