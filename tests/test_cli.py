@@ -26,9 +26,7 @@ def test_help_prints_usage_without_running_the_server(monkeypatch, capsys):
     assert "usage: dataiku-headless" in capsys.readouterr().out
 
 
-def test_version_prints_package_version_without_running_the_server(
-    monkeypatch, capsys
-):
+def test_version_prints_package_version_without_running_the_server(monkeypatch, capsys):
     monkeypatch.setattr(cli, "run_server", lambda: pytest.fail("server started"))
 
     with pytest.raises(SystemExit) as exc_info:
