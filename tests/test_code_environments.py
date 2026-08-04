@@ -136,6 +136,24 @@ def test_list_code_envs_filters_exact_and_returns_details(monkeypatch):
     assert row["actual_packages"] == ["requests==2.0", "rich==1.0"]
 
 
+def test_list_code_envs_returns_summary_owner(monkeypatch):
+    raw = _raw("ALPHA")
+    raw["owner"] = "alice"
+    client = FakeClient([FakeCodeEnv(raw)])
+    _patch_client(monkeypatch, client)
+
+    result = _result(tools.list_code_envs(FakeContext()))
+
+    columns = result["code_envs"]["columns"]
+    row = dict(zip(columns, result["code_envs"]["rows"][0]))
+    assert row == {
+        "name": "ALPHA",
+        "language": "PYTHON",
+        "owner": "alice",
+        "deployment_mode": "DESIGN_MANAGED",
+    }
+
+
 def test_list_code_envs_does_not_return_usage_data(monkeypatch):
     client = FakeClient([FakeCodeEnv(_raw("env"))])
     _patch_client(monkeypatch, client)

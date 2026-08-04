@@ -221,9 +221,10 @@ async def list_code_envs(
         client = get_dss_client()
         all_envs = [
             {
-                "name": raw.get("envName") or raw.get("name", ""),
-                "language": raw.get("envLang") or raw.get("language", ""),
-                "deployment_mode": raw.get("deploymentMode") or raw.get("type", ""),
+                "name": raw.get("envName", ""),
+                "language": raw.get("envLang", ""),
+                "owner": raw.get("owner", ""),
+                "deployment_mode": raw.get("deploymentMode", ""),
             }
             for raw in client.list_code_envs()
         ]
