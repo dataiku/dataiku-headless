@@ -48,14 +48,6 @@ def _language(value: str) -> str:
     )
 
 
-def _list_entry(raw: dict) -> dict:
-    return {
-        "name": raw.get("envName") or raw.get("name", ""),
-        "language": raw.get("envLang") or raw.get("language", ""),
-        "deployment_mode": raw.get("deploymentMode") or raw.get("type", ""),
-    }
-
-
 def _split_lines(value: str | None) -> list[str]:
     return value.splitlines() if value else []
 
@@ -216,7 +208,7 @@ async def list_code_envs(
     permission.
     """
     search = search.strip()
-    search_mode = _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
+    _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
     if search_mode == "exact" and not search:
         raise ValueError("'search' must be non-empty when search_mode is 'exact'")
     if language is not None:
@@ -227,7 +219,14 @@ async def list_code_envs(
 
     def _run():
         client = get_dss_client()
-        all_envs = [_list_entry(raw) for raw in client.list_code_envs()]
+        all_envs = [
+            {
+                "name": raw.get("envName") or raw.get("name", ""),
+                "language": raw.get("envLang") or raw.get("language", ""),
+                "deployment_mode": raw.get("deploymentMode") or raw.get("type", ""),
+            }
+            for raw in client.list_code_envs()
+        ]
         matched = all_envs
         if search:
             if search_mode == "exact":
