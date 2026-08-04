@@ -42,7 +42,8 @@ class CodeEnvGroupPermission(BaseModel):
     manage_users: bool
 
 
-def _serialize_details(raw: dict, summary: dict) -> dict:
+def _serialize_code_env_details(raw: dict, summary: dict) -> dict:
+    """Map raw DSS code-environment settings to the MCP detail response."""
     desc = raw.get("desc") or {}
     permissions = raw.get("permissions", desc.get("permissions", [])) or []
     return {
@@ -233,7 +234,9 @@ async def list_code_envs(
             rows = []
             for env in page:
                 code_env = client.get_code_env(env["language"], env["name"])
-                row = _serialize_details(code_env.get_settings().get_raw(), env)
+                row = _serialize_code_env_details(
+                    code_env.get_settings().get_raw(), env
+                )
                 rows.append(row)
         else:
             rows = page
@@ -305,7 +308,7 @@ async def create_code_env(
         settings.save()
         package_result = code_env.update_packages()
         jupyter_result = code_env.set_jupyter_support(True)
-        details = _serialize_details(
+        details = _serialize_code_env_details(
             code_env.get_settings().get_raw(),
             {"name": name, "language": language, "deployment_mode": "DESIGN_MANAGED"},
         )
@@ -391,7 +394,7 @@ async def update_code_env(
             else None
         )
         image_result = code_env.update_images() if rebuild_images else None
-        details = _serialize_details(
+        details = _serialize_code_env_details(
             code_env.get_settings().get_raw(),
             {"name": name, "language": language, "deployment_mode": "DESIGN_MANAGED"},
         )
