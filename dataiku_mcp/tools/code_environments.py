@@ -52,12 +52,12 @@ def _serialize_code_env_summary(raw: dict) -> dict:
     }
 
 
-def _serialize_code_env_details(raw: dict, summary: dict) -> dict:
+def _serialize_code_env_details(raw: dict) -> dict:
     """Map raw DSS code-environment settings to the MCP detail response."""
     desc = raw.get("desc") or {}
     permissions = raw.get("permissions", desc.get("permissions", [])) or []
     return {
-        **summary,
+        **_serialize_code_env_summary(raw),
         "usable_by_all": raw.get("usableByAll", desc.get("usableByAll", False)),
         "group_permissions": [
             {
@@ -235,9 +235,7 @@ async def list_code_envs(
             rows = []
             for env in page:
                 code_env = client.get_code_env(env["language"], env["name"])
-                row = _serialize_code_env_details(
-                    code_env.get_settings().get_raw(), env
-                )
+                row = _serialize_code_env_details(code_env.get_settings().get_raw())
                 rows.append(row)
         else:
             rows = page
@@ -310,9 +308,7 @@ async def create_code_env(
         package_result = code_env.update_packages()
         jupyter_result = code_env.set_jupyter_support(True)
         raw_settings = code_env.get_settings().get_raw()
-        details = _serialize_code_env_details(
-            raw_settings, _serialize_code_env_summary(raw_settings)
-        )
+        details = _serialize_code_env_details(raw_settings)
         return details, package_result, jupyter_result
 
     details, package_result, jupyter_result = await run_blocking(_run)
@@ -396,9 +392,7 @@ async def update_code_env(
         )
         image_result = code_env.update_images() if rebuild_images else None
         raw_settings = code_env.get_settings().get_raw()
-        details = _serialize_code_env_details(
-            raw_settings, _serialize_code_env_summary(raw_settings)
-        )
+        details = _serialize_code_env_details(raw_settings)
         return details, package_result, image_result
 
     details, package_result, image_result = await run_blocking(_run)
