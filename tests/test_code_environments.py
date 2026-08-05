@@ -174,14 +174,14 @@ def test_list_code_envs_ignores_search_mode_without_a_search(monkeypatch):
     assert result["matched_code_envs"] == 1
 
 
-def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
+def test_create_code_env_applies_baseline_and_builds_selected_images(monkeypatch):
     client = FakeClient([])
     _patch_client(monkeypatch, client)
     permission = tools.CodeEnvGroupPermission(
         group="scientists", use=True, update=False, manage_users=False
     )
 
-    _result(
+    result = _result(
         tools.create_code_env(
             "PYTHON",
             "new-env",
@@ -204,7 +204,19 @@ def test_create_code_env_applies_baseline_and_never_builds_images(monkeypatch):
     assert env.settings.raw["specPackageList"] == "pandas==2.3"
     assert env.package_calls == [False]
     assert env.jupyter_calls == [True]
+    assert env.image_calls == 1
+    assert result["image_update"] == {"success": True}
+
+
+def test_create_code_env_does_not_build_images_without_targets(monkeypatch):
+    client = FakeClient([])
+    _patch_client(monkeypatch, client)
+
+    result = _result(tools.create_code_env("PYTHON", "new-env", FakeContext()))
+
+    env = client.get_code_env("PYTHON", "new-env")
     assert env.image_calls == 0
+    assert result["image_update"] is None
 
 
 @pytest.mark.parametrize("tool", [tools.create_code_env, tools.update_code_env])

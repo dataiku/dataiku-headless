@@ -278,17 +278,26 @@ async def create_code_env(
     """Create a managed Design-node Python or R code environment.
 
     Requires global Create code envs or Manage all code envs permission. Core
-    packages and Jupyter support are always enabled; container images are never
-    built by this tool.
+    packages and Jupyter support are always enabled. Container images are built
+    when container or Spark Kubernetes build targets are supplied.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
+    if language == "R" and python_interpreter is not None:
+        raise ValueError("python_interpreter is only supported for PYTHON environments")
     if python_interpreter is not None:
         python_interpreter = _require_allowed_value(
             python_interpreter, "python_interpreter", _PYTHON_INTERPRETERS
         )
-    if language == "R" and python_interpreter is not None:
-        raise ValueError("python_interpreter is only supported for PYTHON environments")
+    build_images = any(
+        value is not None
+        for value in (
+            all_container_configurations,
+            container_configurations,
+            all_spark_kubernetes_configurations,
+            spark_kubernetes_configurations,
+        )
+    )
     await ctx.info(f"Creating DSS code environment '{name}'...")
 
     def _run():
@@ -316,16 +325,18 @@ async def create_code_env(
         settings.save()
         package_result = code_env.update_packages()
         jupyter_result = code_env.set_jupyter_support(True)
+        image_result = code_env.update_images() if build_images else None
         raw_settings = code_env.get_settings().get_raw()
         details = _serialize_code_env_details(raw_settings)
-        return details, package_result, jupyter_result
+        return details, package_result, jupyter_result, image_result
 
-    details, package_result, jupyter_result = await run_blocking(_run)
+    details, package_result, jupyter_result, image_result = await run_blocking(_run)
     return compact_json(
         {
             "code_env": details,
             "package_update": package_result,
             "jupyter_update": jupyter_result,
+            "image_update": image_result,
         }
     )
 
