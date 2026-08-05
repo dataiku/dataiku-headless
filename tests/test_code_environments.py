@@ -49,16 +49,6 @@ class FakeSettings:
     def set_required_packages(self, *packages):
         self.raw["specPackageList"] = "\n".join(packages)
 
-    def set_built_container_confs(self, *configs, **kwargs):
-        self.raw["allContainerConfs"] = kwargs.get("all", False)
-        if not self.raw["allContainerConfs"]:
-            self.raw["containerConfs"] = list(configs)
-
-    def set_built_spark_kubernetes_confs(self, *configs, **kwargs):
-        self.raw["allSparkKubernetesConfs"] = kwargs.get("all", False)
-        if not self.raw["allSparkKubernetesConfs"]:
-            self.raw["sparkKubernetesConfs"] = list(configs)
-
 
 class FakeCodeEnv:
     def __init__(self, raw: dict):
@@ -279,13 +269,20 @@ def test_update_code_env_rebuilds_images_for_target_changes(monkeypatch):
             "PYTHON",
             "env",
             FakeContext(),
+            all_container_configurations=True,
             container_configurations=["gpu"],
+            all_spark_kubernetes_configurations=True,
+            spark_kubernetes_configurations=["spark-gpu"],
         )
     )
 
     assert env.package_calls == []
     assert env.image_calls == 1
     assert result["package_update"] is None
+    assert env.settings.raw["allContainerConfs"] is True
+    assert env.settings.raw["containerConfs"] == ["gpu"]
+    assert env.settings.raw["allSparkKubernetesConfs"] is True
+    assert env.settings.raw["sparkKubernetesConfs"] == ["spark-gpu"]
 
 
 def test_delete_code_env_delegates_to_dss_when_unused(monkeypatch):

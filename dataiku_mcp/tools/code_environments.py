@@ -92,52 +92,6 @@ def _serialize_code_env_details(raw: dict) -> dict:
     }
 
 
-def _apply_build_targets(
-    settings,
-    *,
-    all_container_configurations: bool | None,
-    container_configurations: list[str] | None,
-    all_spark_kubernetes_configurations: bool | None,
-    spark_kubernetes_configurations: list[str] | None,
-) -> None:
-    raw = settings.get_raw()
-    if all_container_configurations is not None or container_configurations is not None:
-        if all_container_configurations is True and container_configurations:
-            raise ValueError(
-                "Cannot provide container_configurations when "
-                "all_container_configurations is true"
-            )
-        settings.set_built_container_confs(
-            *(container_configurations or raw.get("containerConfs", [])),
-            all=(
-                all_container_configurations
-                if all_container_configurations is not None
-                else raw.get("allContainerConfs", False)
-            ),
-        )
-    if (
-        all_spark_kubernetes_configurations is not None
-        or spark_kubernetes_configurations is not None
-    ):
-        if (
-            all_spark_kubernetes_configurations is True
-            and spark_kubernetes_configurations
-        ):
-            raise ValueError(
-                "Cannot provide spark_kubernetes_configurations when "
-                "all_spark_kubernetes_configurations is true"
-            )
-        settings.set_built_spark_kubernetes_confs(
-            *(spark_kubernetes_configurations or raw.get("sparkKubernetesConfs", [])),
-            all=(
-                all_spark_kubernetes_configurations
-                if all_spark_kubernetes_configurations is not None
-                else raw.get("allSparkKubernetesConfs", False)
-            ),
-        )
-    return
-
-
 def _apply_changes(
     settings,
     *,
@@ -172,14 +126,14 @@ def _apply_changes(
         ]
     if requested_packages is not None:
         settings.set_required_packages(*requested_packages)
-    _apply_build_targets(
-        settings,
-        all_container_configurations=all_container_configurations,
-        container_configurations=container_configurations,
-        all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
-        spark_kubernetes_configurations=spark_kubernetes_configurations,
-    )
-    return
+    if all_container_configurations is not None:
+        raw["allContainerConfs"] = all_container_configurations
+    if container_configurations is not None:
+        raw["containerConfs"] = container_configurations
+    if all_spark_kubernetes_configurations is not None:
+        raw["allSparkKubernetesConfs"] = all_spark_kubernetes_configurations
+    if spark_kubernetes_configurations is not None:
+        raw["sparkKubernetesConfs"] = spark_kubernetes_configurations
 
 
 @mcp.tool()
