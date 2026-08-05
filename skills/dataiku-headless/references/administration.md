@@ -14,3 +14,4 @@ Use this routing guide for instance-level administrative tasks. These operations
 | List, create, update, disable, or delete instance users | `./administration/users.md` |
 | List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, or profile capacity | `./administration/licensing.md` |
+| Inspect container execution or Spark configurations | `./administration/general-settings.md` |

@@ -77,6 +77,9 @@ EXPECTED_TOOLS_BY_MODULE = {
             "list_flow_zones",
         }
     ),
+    "general_settings": frozenset(
+        {"list_container_exec_configs", "list_spark_configs"}
+    ),
     "groups": frozenset(
         {"create_group", "delete_group", "list_groups", "update_group"}
     ),
