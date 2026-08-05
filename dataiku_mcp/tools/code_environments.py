@@ -99,8 +99,7 @@ def _apply_build_targets(
     container_configurations: list[str] | None,
     all_spark_kubernetes_configurations: bool | None,
     spark_kubernetes_configurations: list[str] | None,
-) -> bool:
-    changed = False
+) -> None:
     raw = settings.get_raw()
     if all_container_configurations is not None or container_configurations is not None:
         if all_container_configurations is True and container_configurations:
@@ -116,7 +115,6 @@ def _apply_build_targets(
                 else raw.get("allContainerConfs", False)
             ),
         )
-        changed = True
     if (
         all_spark_kubernetes_configurations is not None
         or spark_kubernetes_configurations is not None
@@ -137,8 +135,7 @@ def _apply_build_targets(
                 else raw.get("allSparkKubernetesConfs", False)
             ),
         )
-        changed = True
-    return changed
+    return
 
 
 def _apply_changes(
@@ -148,26 +145,21 @@ def _apply_changes(
     usable_by_all: bool | None,
     group_permissions: list[CodeEnvGroupPermission] | None,
     requested_packages: list[str] | None,
-    python_interpreter: str | None,
     all_container_configurations: bool | None,
     container_configurations: list[str] | None,
     all_spark_kubernetes_configurations: bool | None,
     spark_kubernetes_configurations: list[str] | None,
     baseline: bool = False,
-) -> bool:
+) -> None:
     raw = settings.get_raw()
     desc = raw.setdefault("desc", {})
-    changed = False
     if baseline:
         desc["installCorePackages"] = True
         desc["installJupyterSupport"] = True
-        changed = True
     if owner is not None:
         desc["owner"] = owner
-        changed = True
     if usable_by_all is not None:
         raw["usableByAll"] = usable_by_all
-        changed = True
     if group_permissions is not None:
         raw["permissions"] = [
             {
@@ -178,23 +170,16 @@ def _apply_changes(
             }
             for permission in group_permissions
         ]
-        changed = True
     if requested_packages is not None:
         settings.set_required_packages(*requested_packages)
-        changed = True
-    if python_interpreter is not None:
-        desc["pythonInterpreter"] = python_interpreter
-        changed = True
-    return (
-        _apply_build_targets(
-            settings,
-            all_container_configurations=all_container_configurations,
-            container_configurations=container_configurations,
-            all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
-            spark_kubernetes_configurations=spark_kubernetes_configurations,
-        )
-        or changed
+    _apply_build_targets(
+        settings,
+        all_container_configurations=all_container_configurations,
+        container_configurations=container_configurations,
+        all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
+        spark_kubernetes_configurations=spark_kubernetes_configurations,
     )
+    return
 
 
 @mcp.tool()
@@ -315,7 +300,6 @@ async def create_code_env(
             usable_by_all=usable_by_all,
             group_permissions=group_permissions,
             requested_packages=requested_packages,
-            python_interpreter=python_interpreter,
             all_container_configurations=all_container_configurations,
             container_configurations=container_configurations,
             all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
@@ -380,20 +364,18 @@ async def update_code_env(
     def _run():
         code_env = get_dss_client().get_code_env(language, name)
         settings = code_env.get_settings()
-        changed = _apply_changes(
+        _apply_changes(
             settings,
             owner=owner,
             usable_by_all=usable_by_all,
             group_permissions=group_permissions,
             requested_packages=requested_packages,
-            python_interpreter=None,
             all_container_configurations=all_container_configurations,
             container_configurations=container_configurations,
             all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
             spark_kubernetes_configurations=spark_kubernetes_configurations,
         )
-        if changed:
-            settings.save()
+        settings.save()
         package_result = (
             code_env.update_packages(force_rebuild_env=force_rebuild)
             if package_spec_changed or force_rebuild
