@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""workbook anatomy dump · in: <workbook.xlsx> [--json | --schema SHEET [--header-row N]] → out: stdout structure report or DSS schema JSON · deps: openpyxl
+"""workbook anatomy dump · in: <workbook.xlsx> [--json | --schema SHEET [--header-row N]] → out: stdout structure report or Dataiku schema JSON · deps: openpyxl
 
 Reports, per sheet: dimensions, tables, pivot tables, charts, distinct formula
 shapes with counts, merged cells, and autofilters. Also reports workbook-level
@@ -384,7 +384,7 @@ def main() -> None:
     ap.add_argument("--max-formulas", type=int, default=20)
     ap.add_argument(
         "--schema",
-        help="Emit DSS schema JSON from stored cells on a sheet.",
+        help="Emit Dataiku schema JSON from stored cells on a sheet.",
     )
     ap.add_argument("--header-row", type=int, help="1-based header row for --schema.")
     args = ap.parse_args()

@@ -1,6 +1,6 @@
 # Validate
 
-Read this when selecting a parity anchor, proving parity, or judging completion. Return to [Excel](./excel.md) for the delivery contract.
+Read this when selecting a parity anchor, proving parity, or judging completion. Return to [Excel](../excel.md) for the delivery contract.
 
 ## Validating the Migration
 
@@ -30,13 +30,13 @@ Choose the anchor before building the check.
 
 Aggregates are gates, never verdicts. Compare fresh, exhaustive row counts and useful column aggregates against workbook-derived values before the conclusive check. `get_dataset_profile` can truncate at `max_rows`, and `get_dataset_metrics` returns last-computed values; treat either as diagnostic unless its coverage and freshness are verified.
 
-Default to a full local export diff. Use in-DSS verification instead when the output exceeds a declared local disk or comparison-memory budget, CSV cannot preserve a required distinction, or the verdict must remain in the project. Name the path and reason in the validation plan.
+Default to a full local export diff. Use in-Dataiku verification instead when the output exceeds a declared local disk or comparison-memory budget, CSV cannot preserve a required distinction, or the verdict must remain in the project. Name the path and reason in the validation plan.
 
 Both paths must enforce the selected parity tier's ordered schema, cardinality, and cell coverage. Validate business-key uniqueness before a keyed comparison; without a unique key, use a multiset-safe comparison that preserves duplicate counts.
 
-**Local export diff.** `export_dataset` streams every row to a local UTF-8 CSV and returns column types; it is not sample-capped. Read it with those explicit types, normalize workbook and DSS values under the same contract, and compare at workbook-serialized precision. Leading-zero or long text identifiers and Unicode survive when kept as strings, but null and empty string both export as an empty field; use in-DSS verification when that distinction matters. This creates no DSS asset or Cobuild write turn. Record the evidence, then delete the scratch export.
+**Local export diff.** `export_dataset` streams every row to a local UTF-8 CSV and returns column types; it is not sample-capped. Read it with those explicit types, normalize workbook and Dataiku values under the same contract, and compare at workbook-serialized precision. Leading-zero or long text identifiers and Unicode survive when kept as strings, but null and empty string both export as an empty field; use in-Dataiku verification when that distinction matters. This creates no Dataiku asset or Cobuild write turn. Record the evidence, then delete the scratch export.
 
-**In-DSS verification.** Upload the expected output and verify its ingested schema, then build a keyed full-outer comparison or multiset-safe equivalent. Write `parity_mismatches` and a one-row summary (`rows_expected`, `rows_actual`, `mismatch_count`); parity is `mismatch_count == 0`. This persists the evidence and avoids exporting the produced output, but requires Cobuild work and migration-created assets. Record that the same Cobuild built the flow and the check.
+**In-Dataiku verification.** Upload the expected output and verify its ingested schema, then build a keyed full-outer comparison or multiset-safe equivalent. Write `parity_mismatches` and a one-row summary (`rows_expected`, `rows_actual`, `mismatch_count`); parity is `mismatch_count == 0`. This persists the evidence and avoids exporting the produced output, but requires Cobuild work and migration-created assets. Record that the same Cobuild built the flow and the check.
 
 - `get_dataset_sample` caps at 100 rows. Use it to read the one-row verdict or localize a failure, never to prove a larger dataset.
 - Keep parity reference datasets and verification recipes out of the delivered flow; delete them during cleanup after recording the verdict.
@@ -64,8 +64,8 @@ Once `parity_mismatches` is nonzero, the shape of the divergence names the defec
 
 ## Local Workbook Inspection
 
-Local `openpyxl` inspection is expected. Optional helpers in this directory are `./dump_anatomy.py` and `./dump_workbook.py`; each script's first docstring line is authoritative for purpose, inputs, outputs, and dependencies.
+Local `openpyxl` inspection is expected. Optional helpers in `../helpers/` are `dump_anatomy.py` and `dump_workbook.py`; each script's first docstring line is authoritative for purpose, inputs, outputs, and dependencies.
 
 Both helpers read OOXML only. A legacy `.xls` cannot be opened by `openpyxl` at all — inventory it through an alternate reader or convert once to `.xlsx` for inspection, and keep the original `.xls` as the uploaded source. See [Source Identification](./reading-workbooks.md#source-identification).
 
-Before reporting completion, apply the completion rule from [Excel](./excel.md) to the final delivered state.
+Before reporting completion, apply the completion rule from [Excel](../excel.md) to the final delivered state.

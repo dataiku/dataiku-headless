@@ -32,13 +32,19 @@ The purpose of this phase is to inspect the project to be migrated (i.e. the `so
   - Check that the input datasets of the Dataiku Flow match the input datasets of the source bundle.
   - That the migrated Dataiku Flow accurately reproduces the business logic and transformation contained within the Source Bundle.
   - That the Flow outputs are sensible, match the expected outputs, and are all present.
-5. Write a Documentation and Cleanup Plan to `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md` that covers every Phase 4 requirement and distinguishes migration-created assets from pre-existing project assets.
+5. Write a Documentation and Cleanup Plan to `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. The plan must distinguish migration-created assets from pre-existing project assets and cover:
+  - Flow Zones: zone every migration-created Flow asset by stage or functional area, renaming the undeletable default zone for the first stage.
+  - Descriptions: the project's short and long descriptions; a description for every migration-created dataset, recipe, and zone, including intermediate assets; renaming generated `compute_<output>` recipes to names that state the transformation.
+  - Wiki: a human-readable Project Wiki containing the migration plan, validation plan and results, and a final-output column dictionary. Keep column documentation out of datasets because it drifts through downstream recipe schemas.
+  - Cleanup: the cleanup required by the Cleanup safety rule (see Migration Notes), and a rebuild scenario covering every final output.
 6. If the source bundle has more than 20 source steps or unresolved `needs-human-input` questions, pause and surface the inventory, plans, and open questions. Otherwise print the plans and continue; unattended runs never stop.
 
 ## Phase 2: Build
 
 Create the Dataiku project. If no project key is specified in the user message, create the project using a sensible project key.
 Read the Migration Plan from `<bundle_dir>/migration_v<n>/migration_plan.md` and build the Dataiku project via Cobuild (`./cobuild.md`).
+
+Execute the build as a sequence of coherent, independently verifiable units of work — typically one recipe, or one bounded group of related assets, per Cobuild turn. After each unit, inspect and verify the result before instructing the next; never send one monolithic instruction covering the whole flow.
 
 The Build phase must create the Dataiku flow that performs the transformation logic. A locally computed final result that is only uploaded into Dataiku does not satisfy this phase.
 
@@ -55,10 +61,9 @@ Validation must also confirm that the completed migrated flow contains no code r
 
 Read the Documentation and Cleanup Plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md` and apply it via Cobuild, except for read-back and project settings:
 
-- Zone every migration-created Flow asset by stage or functional area, renaming the undeletable default zone for the first stage. Enable `flowDisplaySettings.showFlowZoneDescriptions` through project settings or record it as blocked; Cobuild cannot change this setting.
-- Set the project's short and long descriptions. For every migration-created dataset, recipe, and zone, set the field DSS displays: dataset `description`; recipe and zone `shortDesc` (ask Cobuild for "short description"; their long `description` is not rendered). Rename generated `compute_<output>` recipes for the transformation they perform.
-- Create a human-readable Project Wiki containing the migration plan, validation plan and results, and a final-output column dictionary. Keep column documentation out of datasets because it drifts through downstream recipe schemas.
-- Apply the cleanup safety rule below. Create and run a rebuild scenario covering every final output; its job result is the final build proof.
+- Displaying zone descriptions in the Flow is a project display setting that neither Cobuild nor the available tools can change; record in the documentation evidence that the user must enable it manually.
+- When setting descriptions, set the field Dataiku displays: dataset `description`; recipe and zone `shortDesc` (ask Cobuild for "short description"; their long `description` is not rendered).
+- Apply the planned cleanup under the Cleanup safety rule below. Create and run the rebuild scenario; its job result is the final build proof.
 
 Use read tools to enumerate every zone, dataset, and recipe, verify each displayed description is non-empty (`short_description` for zones and recipes; `description` for datasets), and write the inventory to `<bundle_dir>/migration_v<n>/documentation_evidence.md`. Completion claims require this inventory, validation evidence, and the scenario job result; never rely on the Cobuild report.
 
@@ -93,7 +98,13 @@ Source-boundary fidelity alone is not sufficient: the migrated project must cont
 
 ## Gap resolution
 
-Classify non-obvious source constructs as `derivable`, `hand-authored`, or `needs-human-input`. Carry unresolved items in the Migration Plan and surface them at the Phase 1 gate.
+Classify every non-obvious source construct:
+
+- `derivable`: a function of its inputs (formula chains, lookups, query steps). Migrate it as Flow logic; never upload it as a source dataset.
+- `hand-authored`: manually entered or edited values with no recoverable rule. Preserve them as source data and document them; never re-derive them.
+- `needs-human-input`: answerable only by the workflow owner. Ask; do not guess.
+
+Carry unresolved items in the Migration Plan and surface them at the Phase 1 step 6 gate.
 
 ## Cleanup safety rule
 
@@ -102,4 +113,4 @@ Do not delete assets that clearly pre-date the migration unless the user explici
 
 ## Source Bundle helper scripts
 
-Source-parsing helpers sit beside their Source Subskill: `sources/<kind>/*.py`. Planner-domain, source-bound, optional. Discover via `ls sources/<kind>/`; first docstring line states purpose · inputs → outputs · deps. Pick on demand, adapt to the bundle before running.
+Source-parsing helpers sit in their Source Subskill's helpers directory: `sources/<kind>/helpers/*.py`. Planner-domain, source-bound, optional. Discover via `ls sources/<kind>/helpers/`; first docstring line states purpose · inputs → outputs · deps. Pick on demand, adapt to the bundle before running.

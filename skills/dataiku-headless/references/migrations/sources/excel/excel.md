@@ -20,17 +20,17 @@ Excel source subskill. The migration workflow, phases, and invariants live in th
 
 ## Plan Additions
 
-- Classify the workbook and recover its DAG through [Reading Workbooks](./reading-workbooks.md) before DSS planning. Read [Excel Semantics](./excel-semantics.md) when typed, formatted, dated, or identifier-bearing cells are in scope, or when VBA, Solver, slicers, or external connections are present.
-- The Migration Plan additionally includes: a manifest of every workbook root, shared intermediate, and cross-file dependency; every query, formula block, engine block, true input leaf, and requested deliverable; ordered output columns and types plus the full parity reference or strongest available parity anchor; named cells, prompts, modes, scenarios, and other interface inputs that must remain configurable; source logic dispatch across flow transformations, scenarios, checks, reporters, and analyst-facing surfaces; a source-step to DSS-object mapping with a named reason for every separation retained under the collapse principle; a sheet-to-terminal-dataset table naming one terminal dataset per reviewable source output (a consolidated table covering several sheets is an intermediate, not a deliverable); and the overview webapp CONFIG (see [Overview Webapp](./webapp.md) for the CONFIG contract).
-- The Validation Plan names the parity tier and reference, the chosen verdict path and why (see [Validate](./validate.md#parity-mechanism)), behavioral probes for parameterized logic, the temporary time pin and restore step when needed, requested surfaces, and documented deviations.
-- Read [Ingest and Build Traps](./build.md) before the first build turn; it carries the ingest configuration that must be correct on the first turn rather than repaired after it.
+- Classify the workbook and recover its DAG through [Reading Workbooks](./guides/reading-workbooks.md) before Dataiku planning. Read [Excel Semantics](./guides/excel-semantics.md) when typed, formatted, dated, or identifier-bearing cells are in scope, or when VBA, Solver, slicers, or external connections are present.
+- The Migration Plan additionally includes: a manifest of every workbook root, shared intermediate, and cross-file dependency; every query, formula block, engine block, true input leaf, and requested deliverable; ordered output columns and types plus the full parity reference or strongest available parity anchor; named cells, prompts, modes, scenarios, and other interface inputs that must remain configurable; source logic dispatch across flow transformations, scenarios, checks, reporters, and analyst-facing surfaces; a source-step to Dataiku-object mapping with a named reason for every separation retained under the collapse principle; a sheet-to-terminal-dataset table naming one terminal dataset per reviewable source output (a consolidated table covering several sheets is an intermediate, not a deliverable); and the overview webapp CONFIG (see [Overview Webapp](./guides/webapp.md) for the CONFIG contract).
+- The Validation Plan names the parity tier and reference, the chosen verdict path and why (see [Validate](./guides/validate.md#parity-mechanism)), behavioral probes for parameterized logic, the temporary time pin and restore step when needed, requested surfaces, and documented deviations.
+- Read [Ingest and Build Traps](./guides/build.md) before the first build turn; it carries the ingest configuration that must be correct on the first turn rather than repaired after it.
 
 ## Routing
 
 | When | Read |
 |---|---|
-| Identifying sources, inspecting bundle structure, recovering intent, or inventorying a model workbook or report snapshot | [Reading Workbooks](./reading-workbooks.md) |
-| Preserving workbook meaning or handling unavailable features | [Excel Semantics](./excel-semantics.md) |
-| Ingesting workbook tables or reshaping them in DSS | [Ingest and Build Traps](./build.md) |
-| Selecting a parity anchor, proving parity, or judging completion | [Validate](./validate.md) |
-| Delivering or repairing the overview webapp | [Overview Webapp](./webapp.md) |
+| Identifying sources, inspecting bundle structure, recovering intent, or inventorying a model workbook or report snapshot | [Reading Workbooks](./guides/reading-workbooks.md) |
+| Preserving workbook meaning or handling unavailable features | [Excel Semantics](./guides/excel-semantics.md) |
+| Ingesting workbook tables or reshaping them in Dataiku | [Ingest and Build Traps](./guides/build.md) |
+| Selecting a parity anchor, proving parity, or judging completion | [Validate](./guides/validate.md) |
+| Delivering or repairing the overview webapp | [Overview Webapp](./guides/webapp.md) |

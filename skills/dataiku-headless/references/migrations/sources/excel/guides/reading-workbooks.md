@@ -1,6 +1,6 @@
 # Reading Workbooks
 
-Read this when identifying workbook sources, inspecting bundle structure, recovering intent, or inventorying a model workbook. Return to [Excel](./excel.md) for routing.
+Read this when identifying workbook sources, inspecting bundle structure, recovering intent, or inventorying a model workbook. Return to [Excel](../excel.md) for routing.
 
 ## Source Identification
 
@@ -39,7 +39,7 @@ A report snapshot is a generated report: static values written by an upstream pr
 
 - Reconstruct entity-grain input schemas from the report's own dimensions and register sheets. The cached values become the parity reference.
 - When inputs are not shipped, engineer synthetic inputs that reproduce every printed margin exactly, including any printed cross-tabulation. Seed the generation and record the seed.
-- Reproduce the report locally from the engineered inputs before the first build turn; every printed margin must match before DSS enters.
+- Reproduce the report locally from the engineered inputs before the first build turn; every printed margin must match before Dataiku enters.
 - Engineer quantile-bearing columns so every percentile definition agrees on the printed value; interpolation differences then cannot fail parity.
 - Joint distributions the report does not print are not identifiable. Randomize them and name them as structural-only in the deviations.
 - Front-page, register, and configuration sheets become project metadata and wiki content, not datasets.

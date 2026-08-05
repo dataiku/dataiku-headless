@@ -1,6 +1,6 @@
 # Ingest and Build Traps
 
-Read this before the first build turn and when ingesting or reshaping workbook tables. Return to [Excel](./excel.md) for routing.
+Read this before the first build turn and when ingesting or reshaping workbook tables. Return to [Excel](../excel.md) for routing.
 
 Uploading only lands the file: `create_upload_dataset` takes no sheet, header, number-format, or storage-type argument, and every uploaded dataset defaults to the workbook's first sheet. The Excel parse configuration is applied in the Cobuild turns that follow, and must arrive there already decided rather than reconstructed turn by turn. One workbook can produce a dozen or more ingest targets; batch them across the narrow Cobuild turns the parent's build phase prescribes.
 
@@ -8,7 +8,7 @@ Create every project variable before a formula references it, and rebuild the sm
 
 ## Ingest and Reshape Traps
 
-- One workbook can feed several logical datasets. Upload the workbook once, then create one Uploaded Files dataset per logical table, each re-reading that same file with its own sheet selection and header offset. One file does not mean one dataset. See [Uploaded Files Datasets](../../../datasets/uploaded-files-datasets.md) for the generic upload surface and connection choice.
+- One workbook can feed several logical datasets. Upload the workbook once, then create one Uploaded Files dataset per logical table, each re-reading that same file with its own sheet selection and header offset. One file does not mean one dataset. See [Uploaded Files Datasets](../../../../datasets/uploaded-files-datasets.md) for the generic upload surface and connection choice.
 - Set sheet selection, header offset, and number-format behavior explicitly for each ingest target.
 - Excel ingest defaults to the first sheet unless selection is explicit. After changing sheet or format parameters, re-infer schema without re-detecting the format.
 - Use explicit schema when used-range junk or inferred types disagree with stored cell types.
@@ -29,4 +29,4 @@ Create every project variable before a formula references it, and rebuild the sm
 
 ## Collapse Timing
 
-Apply the collapse principle from [Excel](./excel.md) before documentation and cleanup, keeping the per-sheet delivery contract intact.
+Apply the collapse principle from [Excel](../excel.md) before documentation and cleanup, keeping the per-sheet delivery contract intact.

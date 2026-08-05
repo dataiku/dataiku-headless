@@ -1,12 +1,12 @@
 # Overview Webapp
 
-Read this when delivering the migration overview webapp. Return to [Excel](./excel.md) for the delivery contract.
+Read this when delivering the migration overview webapp. Return to [Excel](../excel.md) for the delivery contract.
 
 Every migration delivers one STANDARD webapp named after the workbook (for example "Project Finance Overview") that lets an SME read the migrated outputs without opening the Flow: one tab per terminal dataset mirroring the source sheets, a KPI header, optional charts, and per-tab Excel export. Deliver it after validation passes and before writing the final documentation evidence.
 
 ## The Template Is the Code
 
-Cobuild does not design or author webapp code. The webapp is the shipped template in `./webapp/`:
+Cobuild does not design or author webapp code. The webapp is the shipped template in `../webapp/`:
 
 | File | Role |
 |---|---|
@@ -45,7 +45,7 @@ Never send a partial tab set, and never ask Cobuild to "build a webapp showing t
 Cobuild's completion report is not evidence. After the turn:
 
 1. `get_webapp_settings` and compare each tab against the local filled files. Require equality up to leading/trailing whitespace; any other drift gets one repair turn per drifted tab: "Replace the entire <tab> tab content with exactly:" plus the block. Re-read and re-compare after repair.
-2. `get_webapp_state` until the backend is running. A `ModuleNotFoundError: flask` failure means the inherited code environment lacks Flask: have Cobuild set the webapp's code environment selection to the DSS builtin env and restart.
+2. `get_webapp_state` until the backend is running. A `ModuleNotFoundError: flask` failure means the inherited code environment lacks Flask: have Cobuild set the webapp's code environment selection to the Dataiku builtin env and restart.
 3. A running backend with drift-free tabs is the delivery proof. Record the webapp id, backend state, tab-comparison verdict, and the view URL (`.../webapps/<id>_<kebab-case-name>/view`) in `<bundle_dir>/migration_v<n>/webapp_evidence.md`, and list the webapp in the documentation evidence.
 
 The webapp reads only delivered terminal datasets. If a tab needs a dataset that validation did not cover, the sheet list is wrong — fix CONFIG, not the flow.

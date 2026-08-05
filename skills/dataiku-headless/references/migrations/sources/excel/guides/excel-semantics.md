@@ -1,6 +1,6 @@
 # Excel Semantics and Placeholders
 
-Read this when translating workbook semantics or classifying placeholders. Return to [Excel](./excel.md) for routing.
+Read this when translating workbook semantics or classifying placeholders. Return to [Excel](../excel.md) for routing.
 
 ## Excel semantics
 

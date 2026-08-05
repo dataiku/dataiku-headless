@@ -47,7 +47,8 @@ Do not use this guide when:
 
 ## Prompt Guidance
 
-- Keep each turn to one coherent unit that fits the server-side time cap, observed at 30 minutes; split wide or repetitive work across turns.
+- Unless the user explicitly requests otherwise, keep each turn to one coherent unit of work. For example, creating a recipe, adding descriptions to a number of objects, editing a Wiki. The intention here is to not submit large, monolithic instructions to Cobuild that cover many actions at once.
+- Large transformations may hit Cobuild's server-side time cap and end mid-turn. After a timed-out turn, inspect the project to see what was actually created, then re-issue instructions covering only the remaining work.
 - Prefer explicit Dataiku object names in prompts.
 - For creation requests, describe the intended asset, inputs, outputs, and constraints clearly.
 - If Cobuild needs project context, mention the relevant datasets, recipes, folders, models, dashboards, or other assets directly by name.
