@@ -1,6 +1,7 @@
 """Unit tests for managed Design-node code environment tools."""
 
 import asyncio
+import inspect
 import json
 
 import pytest
@@ -219,16 +220,24 @@ def test_create_code_env_does_not_build_images_without_targets(monkeypatch):
     assert result["image_update"] is None
 
 
-@pytest.mark.parametrize("tool", [tools.create_code_env, tools.update_code_env])
-def test_code_env_tools_reject_unknown_python_interpreter(monkeypatch, tool):
+def test_create_code_env_rejects_unknown_python_interpreter(monkeypatch):
     _patch_client(monkeypatch, FakeClient([FakeCodeEnv(_raw("env"))]))
-    args = ("PYTHON", "env", FakeContext())
 
     with pytest.raises(ValueError, match="python_interpreter"):
-        asyncio.run(tool(*args, python_interpreter="PYTHON38"))
+        asyncio.run(
+            tools.create_code_env(
+                "PYTHON", "env", FakeContext(), python_interpreter="PYTHON38"
+            )
+        )
 
 
-def test_update_code_env_only_runs_explicit_build_actions(monkeypatch):
+def test_update_code_env_does_not_accept_python_interpreter():
+    assert (
+        "python_interpreter" not in inspect.signature(tools.update_code_env).parameters
+    )
+
+
+def test_update_code_env_rebuilds_for_package_changes(monkeypatch):
     env = FakeCodeEnv(_raw("env"))
     client = FakeClient([env])
     _patch_client(monkeypatch, client)
@@ -239,9 +248,7 @@ def test_update_code_env_only_runs_explicit_build_actions(monkeypatch):
             "env",
             FakeContext(),
             requested_packages=["new-package"],
-            update_packages=True,
             force_rebuild=True,
-            rebuild_images=True,
         )
     )
 
@@ -250,13 +257,35 @@ def test_update_code_env_only_runs_explicit_build_actions(monkeypatch):
     assert env.image_calls == 1
 
 
-def test_update_code_env_rejects_force_rebuild_without_package_update(monkeypatch):
-    _patch_client(monkeypatch, FakeClient([FakeCodeEnv(_raw("env"))]))
+def test_update_code_env_force_rebuilds_local_environment_only(monkeypatch):
+    env = FakeCodeEnv(_raw("env"))
+    _patch_client(monkeypatch, FakeClient([env]))
 
-    with pytest.raises(ValueError, match="requires update_packages"):
-        asyncio.run(
-            tools.update_code_env("PYTHON", "env", FakeContext(), force_rebuild=True)
+    result = _result(
+        tools.update_code_env("PYTHON", "env", FakeContext(), force_rebuild=True)
+    )
+
+    assert env.package_calls == [True]
+    assert env.image_calls == 0
+    assert result["image_update"] is None
+
+
+def test_update_code_env_rebuilds_images_for_target_changes(monkeypatch):
+    env = FakeCodeEnv(_raw("env"))
+    _patch_client(monkeypatch, FakeClient([env]))
+
+    result = _result(
+        tools.update_code_env(
+            "PYTHON",
+            "env",
+            FakeContext(),
+            container_configurations=["gpu"],
         )
+    )
+
+    assert env.package_calls == []
+    assert env.image_calls == 1
+    assert result["package_update"] is None
 
 
 def test_delete_code_env_delegates_to_dss_when_unused(monkeypatch):

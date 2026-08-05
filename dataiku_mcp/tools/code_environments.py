@@ -347,7 +347,6 @@ async def update_code_env(
     name: str,
     ctx: Context,
     requested_packages: list[str] | None = None,
-    python_interpreter: str | None = None,
     owner: str | None = None,
     usable_by_all: bool | None = None,
     group_permissions: list[CodeEnvGroupPermission] | None = None,
@@ -355,41 +354,27 @@ async def update_code_env(
     container_configurations: list[str] | None = None,
     all_spark_kubernetes_configurations: bool | None = None,
     spark_kubernetes_configurations: list[str] | None = None,
-    update_packages: bool = False,
     force_rebuild: bool = False,
-    rebuild_images: bool = False,
 ) -> str:
-    """Patch a managed Design-node code environment and optionally rebuild it.
+    """Patch a managed Design-node code environment and rebuild affected artifacts.
 
     Requires global Create code envs or Manage all code envs permission. Supplied
-    group_permissions replace the complete group permission list. A forced rebuild
-    requires update_packages=true.
+    group_permissions replace the complete group permission list. Package changes
+    update the local environment and rebuild images; build-target changes rebuild
+    images. ``force_rebuild`` forces a rebuild of the local environment.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
-    if python_interpreter is not None:
-        python_interpreter = _require_allowed_value(
-            python_interpreter, "python_interpreter", _PYTHON_INTERPRETERS
-        )
-    if language == "R" and python_interpreter is not None:
-        raise ValueError("python_interpreter is only supported for PYTHON environments")
-    if force_rebuild and not update_packages:
-        raise ValueError("force_rebuild requires update_packages=true")
-    if not any(
+    package_spec_changed = requested_packages is not None
+    build_targets_changed = any(
         value is not None
         for value in (
-            requested_packages,
-            python_interpreter,
-            owner,
-            usable_by_all,
-            group_permissions,
             all_container_configurations,
             container_configurations,
             all_spark_kubernetes_configurations,
             spark_kubernetes_configurations,
         )
-    ) and not (update_packages or rebuild_images):
-        raise ValueError("Provide at least one code environment change or build action")
+    )
     await ctx.info(f"Updating DSS code environment '{name}'...")
 
     def _run():
@@ -401,7 +386,7 @@ async def update_code_env(
             usable_by_all=usable_by_all,
             group_permissions=group_permissions,
             requested_packages=requested_packages,
-            python_interpreter=python_interpreter,
+            python_interpreter=None,
             all_container_configurations=all_container_configurations,
             container_configurations=container_configurations,
             all_spark_kubernetes_configurations=all_spark_kubernetes_configurations,
@@ -411,10 +396,14 @@ async def update_code_env(
             settings.save()
         package_result = (
             code_env.update_packages(force_rebuild_env=force_rebuild)
-            if update_packages
+            if package_spec_changed or force_rebuild
             else None
         )
-        image_result = code_env.update_images() if rebuild_images else None
+        image_result = (
+            code_env.update_images()
+            if package_spec_changed or build_targets_changed
+            else None
+        )
         raw_settings = code_env.get_settings().get_raw()
         details = _serialize_code_env_details(raw_settings)
         return details, package_result, image_result

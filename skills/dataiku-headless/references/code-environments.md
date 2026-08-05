@@ -23,7 +23,7 @@ Matching a workload's language does not establish package or runtime compatibili
 1. Use `list_code_envs` with its default partial search to discover environments.
 2. Use `search_mode="exact"` with `include_details=true` to inspect one exact environment before updating it. Details include owner, group access, requested packages, installed packages, and build targets.
 3. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
-4. Use `update_packages=true` after changing requested packages. Use `force_rebuild=true` only when a clean environment rebuild is intended, and use `rebuild_images=true` only when container/Spark images must be rebuilt.
+4. Requested-package changes automatically update the local environment and rebuild images. Container or Spark Kubernetes target changes rebuild images. Use `force_rebuild=true` only when a clean local environment rebuild is intended; it does not rebuild images by itself.
 5. Use `delete_code_env` when deletion is requested. It checks DSS usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
 6. Route recipe, ML analysis, and code-agent environment selection changes through `./cobuild.md`.
 
