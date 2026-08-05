@@ -1,6 +1,6 @@
 ---
 name: code-environments
-description: Discover and administer managed Design-node Dataiku code environments, or select one for a recipe, ML analysis, or code agent.
+description: Discover and administer Dataiku code environments, or select one for a recipe, ML analysis, or code agent.
 ---
 
 # Code Environments
@@ -20,7 +20,7 @@ Matching a workload's language does not establish package or runtime compatibili
 1. Use `list_code_envs` with its default partial search to discover environments.
 2. Use `search_mode="exact"` with `include_details=true` to inspect one exact environment before updating it. Details include owner, group access, requested packages, installed packages, and build targets.
 3. Before setting an owner or group permissions, obtain the exact Dataiku login and group names using `./users.md` and `./groups.md`.
-4. Before setting container execution or Spark Kubernetes targets, obtain configuration names according to the Containerized Execution skill; do not invent names.
+4. Before setting container execution or Spark Kubernetes targets, obtain configuration names according to `./general-settings.md`; do not invent names.
 5. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
 6. Requested-package changes automatically update the local environment and rebuild images. Container or Spark Kubernetes target changes rebuild images. Use `force_rebuild=true` only when a clean local environment rebuild is intended; it does not rebuild images by itself.
 7. Use `delete_code_env` when deletion is requested. It checks Dataiku usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
@@ -30,6 +30,7 @@ Matching a workload's language does not establish package or runtime compatibili
 
 - Detailed reads, creation, and updates require the global **Create code envs** or **Manage all code envs** permission.
 - Deletion requires the global **Manage all code envs** permission.
+- Per-environment update and deletion permissions apply only in the Dataiku UI. They do not authorize MCP-based updates or deletion.
 - Dataiku permission and validation errors are returned directly. Do not infer permission from a failed package install or select an alternative environment without grounded compatibility evidence.
 
 ## Supported Settings
