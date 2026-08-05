@@ -23,21 +23,21 @@ Matching a workload's language does not establish package or runtime compatibili
 4. Before setting container execution or Spark Kubernetes targets, obtain configuration names according to the Containerized Execution skill; do not invent names.
 5. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
 6. Requested-package changes automatically update the local environment and rebuild images. Container or Spark Kubernetes target changes rebuild images. Use `force_rebuild=true` only when a clean local environment rebuild is intended; it does not rebuild images by itself.
-7. Use `delete_code_env` when deletion is requested. It checks DSS usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
+7. Use `delete_code_env` when deletion is requested. It checks Dataiku usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
 8. Route recipe, ML analysis, and code-agent environment selection changes through `../cobuild.md`.
 
 ## Permissions
 
 - Detailed reads, creation, and updates require the global **Create code envs** or **Manage all code envs** permission.
 - Deletion requires the global **Manage all code envs** permission.
-- DSS permission and validation errors are returned directly. Do not infer permission from a failed package install or select an alternative environment without grounded compatibility evidence.
+- Dataiku permission and validation errors are returned directly. Do not infer permission from a failed package install or select an alternative environment without grounded compatibility evidence.
 
 ## Supported Settings
 
-- Python package entries are requirements-style lines. R entries use DSS raw package-spec lines, for example `"RJSONIO","1.3"`.
+- Python package entries are requirements-style lines. R entries use Dataiku raw package-spec lines, for example `"RJSONIO","1.3"`.
 - Owner, `usable_by_all`, and group permissions are supported. Supplying group permissions replaces the full group permission list. A group permission item has the form `{"group": "data-science", "use": true, "update": false, "manage_users": false}`.
 - Container execution and Spark Kubernetes build targets are supported. Supplying any target during creation builds the resulting images; target changes rebuild images automatically on update.
-- `all_container_configurations` and `all_spark_kubernetes_configurations` take precedence over any listed configurations; listed values are preserved but ignored by DSS while their corresponding `all_*` value is true.
+- `all_container_configurations` and `all_spark_kubernetes_configurations` take precedence over any listed configurations; listed values are preserved but ignored by Dataiku while their corresponding `all_*` value is true.
 - Resources, Conda/custom repositories, base-package choices, Automation/API-node, versioned, plugin, and internal environments are out of scope.
 
 ## Preferred Tools

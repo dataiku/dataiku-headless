@@ -1,4 +1,4 @@
-"""DSS Design-node code environment administration tools."""
+"""Dataiku code environment administration tools."""
 
 from fastmcp import Context
 from pydantic import BaseModel
@@ -40,7 +40,7 @@ _DETAIL_COLUMNS = [
 
 
 class CodeEnvGroupPermission(BaseModel):
-    """One DSS group's access to a code environment."""
+    """One Dataiku group's access to a code environment."""
 
     group: str
     use: bool
@@ -49,7 +49,7 @@ class CodeEnvGroupPermission(BaseModel):
 
 
 def _serialize_code_env_summary(raw: dict) -> dict:
-    """Map a raw DSS code environment to the MCP summary response."""
+    """Map a raw Dataiku code environment to the MCP summary response."""
     return {
         "name": raw.get("envName", ""),
         "language": raw.get("envLang", ""),
@@ -59,7 +59,7 @@ def _serialize_code_env_summary(raw: dict) -> dict:
 
 
 def _serialize_code_env_details(raw: dict) -> dict:
-    """Map raw DSS code-environment settings to the MCP detail response."""
+    """Map raw Dataiku code-environment settings to the MCP detail response."""
     desc = raw.get("desc") or {}
     permissions = raw.get("permissions", desc.get("permissions", [])) or []
     return {
@@ -146,7 +146,7 @@ async def list_code_envs(
     offset: int = 0,
     limit: int = 5,
 ) -> str:
-    """List DSS code environments with optional settings detail.
+    """List Dataiku code environments with optional settings detail.
 
     Args:
         search: Environment name search. Defaults to every environment.
@@ -166,7 +166,7 @@ async def list_code_envs(
         language = _require_allowed_value(language, "language", _LANGUAGES)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
-    await ctx.info("Listing DSS code environments...")
+    await ctx.info("Listing Dataiku code environments...")
 
     def _run():
         client = get_dss_client()
@@ -251,7 +251,7 @@ async def create_code_env(
             spark_kubernetes_configurations,
         )
     )
-    await ctx.info(f"Creating DSS code environment '{name}'...")
+    await ctx.info(f"Creating Dataiku code environment '{name}'...")
 
     def _run():
         client = get_dss_client()
@@ -336,7 +336,7 @@ async def update_code_env(
             spark_kubernetes_configurations,
         )
     )
-    await ctx.info(f"Updating DSS code environment '{name}'...")
+    await ctx.info(f"Updating Dataiku code environment '{name}'...")
 
     def _run():
         code_env = get_dss_client().get_code_env(language, name)
@@ -382,12 +382,12 @@ async def delete_code_env(language: str, name: str, ctx: Context) -> str:
     """Delete one managed Design-node code environment.
 
     Requires global Manage all code envs permission. The tool refuses deletion when
-    DSS reports current usages and returns ``deleted: false``, the usages, and
+    Dataiku reports current usages and returns ``deleted: false``, the usages, and
     remediation guidance instead of deleting the environment.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
-    await ctx.info(f"Deleting DSS code environment '{name}'...")
+    await ctx.info(f"Deleting Dataiku code environment '{name}'...")
     code_env = await run_blocking(lambda: get_dss_client().get_code_env(language, name))
     usages = await run_blocking(code_env.list_usages)
     if usages:
