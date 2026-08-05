@@ -146,11 +146,18 @@ async def list_code_envs(
     offset: int = 0,
     limit: int = 5,
 ) -> str:
-    """List DSS code environments with optional precise settings detail.
+    """List DSS code environments with optional settings detail.
 
-    ``search_mode="exact"`` is the precise read path for one environment.
-    ``include_details`` requires global Create code envs or Manage all code envs
-    permission.
+    Args:
+        search: Environment name search. Defaults to every environment.
+        search_mode: ``partial`` for case-insensitive name matching, or ``exact``
+            to retrieve one named environment. Ignored when ``search`` is empty.
+        language: Exact language filter: ``PYTHON`` or ``R``.
+        include_details: Return owner, access, packages, and image-build targets
+            for each returned environment. Requires global Create code envs or
+            Manage all code envs permission.
+        offset: Zero-based offset within the matching environments.
+        limit: Maximum environments to return. Values above 10 are capped at 10.
     """
     search = search.strip()
     if search:
@@ -218,7 +225,14 @@ async def create_code_env(
 
     Requires global Create code envs or Manage all code envs permission. Core
     packages and Jupyter support are always enabled. Container images are built
-    when container or Spark Kubernetes build targets are supplied.
+    when container or Spark build targets are supplied.
+
+    Args:
+        language: Environment language: ``PYTHON`` or ``R``.
+        name: New environment name.
+
+    See the Code Environments skill reference for parameter details and operating
+    guidance.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
@@ -300,6 +314,15 @@ async def update_code_env(
     group_permissions replace the complete group permission list. Package changes
     update the local environment and rebuild images; build-target changes rebuild
     images. ``force_rebuild`` forces a rebuild of the local environment.
+
+    Omitted fields are preserved. Empty lists intentionally clear their setting.
+
+    Args:
+        language: Environment language: ``PYTHON`` or ``R``.
+        name: Existing environment name.
+
+    See the Code Environments skill reference for parameter details and operating
+    guidance.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
@@ -359,7 +382,8 @@ async def delete_code_env(language: str, name: str, ctx: Context) -> str:
     """Delete one managed Design-node code environment.
 
     Requires global Manage all code envs permission. The tool refuses deletion when
-    DSS reports current usages and returns those usages with remediation guidance.
+    DSS reports current usages and returns ``deleted: false``, the usages, and
+    remediation guidance instead of deleting the environment.
     """
     language = _require_allowed_value(language, "language", _LANGUAGES)
     name = _require_non_empty_string(name, "name")
