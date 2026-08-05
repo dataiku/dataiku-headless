@@ -14,7 +14,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - `dataiku_mcp/` is a local, stdio-only FastMCP server. `dataiku_mcp/__init__.py` constructs the server and imports each tool module so decorators register their tools.
 - `dataiku_mcp/tools/` contains thin adapters over the synchronous `dataikuapi` client. Shared authentication, validation, serialization, error, and executor helpers live under `dataiku_mcp/tools/utils/`.
 - `dataiku_mcp/tools/cobuild.py` owns retained Cobuild conversations. Cobuild is the default path for constructing or modifying project-level flow and analytic assets.
-- Direct mutation tools are narrow exceptions for work Cobuild cannot perform or should not own, such as bootstrap, local content transfer, cross-project or instance administration, and execution of existing assets. Determine the intended route from the relevant skill reference and current implementation; do not maintain a duplicate tool list here.
+- Cobuild owns construction and modification of project-level flow and analytic assets. Direct writes are allowed only for the fixed exception categories defined by the **Cobuild Write-Routing Convention** in `CODING_STANDARDS_AND_STRUCTURE.md`; do not infer permission for a new direct write from existing implementation.
 - `skills/dataiku-headless/SKILL.md` is the operator-facing router. Its `references/` directory owns object-specific inspection, mutation, and verification workflows.
 - `bin/launcher.sh` is the entry point used by manifests. It chooses a runtime and then executes the PEP 723 server script in `bin/run_mcp.py`. Stdout is reserved for MCP JSON-RPC; launcher and server diagnostics belong on stderr.
 
