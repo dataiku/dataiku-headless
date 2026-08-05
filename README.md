@@ -217,7 +217,6 @@ uv run dataiku-headless
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
 │           ├── jobs.md             # Dataiku job tracking, waiting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
-│           ├── code-environments.md # Design-node code environment discovery and administration
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
