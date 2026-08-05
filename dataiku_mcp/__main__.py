@@ -4,7 +4,7 @@ Usage:
     python -m dataiku_mcp
 """
 
-from .cli import main
+from . import run_server
 
 if __name__ == "__main__":
-    main()
+    run_server()

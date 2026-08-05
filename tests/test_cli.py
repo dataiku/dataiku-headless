@@ -1,9 +1,11 @@
 """Tests for the command-line interface."""
 
 import importlib.metadata
+import runpy
 
 import pytest
 
+import dataiku_mcp
 from dataiku_mcp import cli
 
 
@@ -12,6 +14,20 @@ def test_no_arguments_runs_the_server(monkeypatch):
     monkeypatch.setattr(cli, "run_server", lambda: calls.append(True))
 
     cli.main([])
+
+    assert calls == [True]
+
+
+def test_module_entrypoint_runs_server_without_loading_cli(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dataiku_mcp, "run_server", lambda: calls.append(True))
+    monkeypatch.setattr(
+        cli,
+        "main",
+        lambda: pytest.fail("module entry point loaded the distribution-backed CLI"),
+    )
+
+    runpy.run_module("dataiku_mcp", run_name="__main__")
 
     assert calls == [True]
 
