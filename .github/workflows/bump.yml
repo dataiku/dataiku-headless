@@ -84,10 +84,14 @@ jobs:
       - id: before
         name: Record current tag
         run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+      # Keep the bump local until manifests are verified. commitizen-action's
+      # push defaults to true, which would publish a release tag before we can
+      # fail on a silent version_files miss.
       - name: Bump version, changelog and tag
         uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          push: false
           # 3 = no commits found, 21 = nothing to bump: treat both as a no-op
           # rather than a failed run.
           no_raise: "3,21"
@@ -109,7 +113,7 @@ jobs:
       # but a version_files entry whose version string no longer matches is
       # skipped *silently* — the run stays green while the plugin manifests keep
       # advertising the old version, which is exactly the field harnesses use to
-      # decide whether users get an update. Fail loudly instead.
+      # decide whether users get an update. Fail loudly instead, before any push.
       - name: Verify plugin manifests carry the bumped version
         id: version
         run: |
@@ -140,7 +144,30 @@ jobs:
             exit 1
           fi
 
+          # Guard the Agent Plugins schema identifiers: a botched version rewrite
+          # must not rewrite the 1.0.0 schema path segment.
+          for schema_file in plugin.json mcp.json; do
+            schema=$(jq -r '."$schema"' "${schema_file}")
+            case "${schema}" in
+              https://agent-plugins.org/schemas/1.0.0/*) ;;
+              *)
+                echo "::error::${schema_file} \$schema drifted to ${schema}."
+                exit 1
+                ;;
+            esac
+          done
+
           echo "version=${project}" >> "${GITHUB_OUTPUT}"
+
+      # Publish the local bump commit + vX.Y.Z tag only after verification.
+      - name: Push bump commit and version tag
+        if: steps.after.outputs.tag != ''
+        env:
+          TAG: ${{ steps.after.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "refs/tags/${TAG}"
 
       # Plugin release tag, in the form `claude plugin tag` produces. Separate
       # from commitizen's vX.Y.Z: it marks the commit a harness resolves a plugin
