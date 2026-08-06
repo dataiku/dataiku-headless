@@ -247,6 +247,52 @@ def test_update_code_env_rebuilds_for_package_changes(monkeypatch):
     assert env.image_calls == 1
 
 
+def test_update_code_env_rejects_package_changes_for_non_managed_env(monkeypatch):
+    raw = _raw("env")
+    raw["deploymentMode"] = "EXTERNAL_CONDA_NAMED"
+    env = FakeCodeEnv(raw)
+    _patch_client(monkeypatch, FakeClient([env]))
+
+    with pytest.raises(ValueError, match="requested_packages.*DESIGN_MANAGED"):
+        asyncio.run(
+            tools.update_code_env(
+                "PYTHON",
+                "env",
+                FakeContext(),
+                requested_packages=["new-package"],
+            )
+        )
+
+    assert env.settings.raw["specPackageList"] == "requests\nrich"
+    assert env.settings.save_calls == 0
+    assert env.package_calls == []
+    assert env.image_calls == 0
+
+
+def test_update_code_env_allows_other_changes_for_non_managed_env(monkeypatch):
+    raw = _raw("env")
+    raw["deploymentMode"] = "EXTERNAL_CONDA_NAMED"
+    env = FakeCodeEnv(raw)
+    _patch_client(monkeypatch, FakeClient([env]))
+
+    _result(
+        tools.update_code_env(
+            "PYTHON",
+            "env",
+            FakeContext(),
+            usable_by_all=False,
+            container_configurations=["gpu"],
+            force_rebuild=True,
+        )
+    )
+
+    assert env.settings.raw["usableByAll"] is False
+    assert env.settings.raw["containerConfs"] == ["gpu"]
+    assert env.settings.save_calls == 1
+    assert env.package_calls == [True]
+    assert env.image_calls == 1
+
+
 def test_update_code_env_force_rebuilds_local_environment_only(monkeypatch):
     env = FakeCodeEnv(_raw("env"))
     _patch_client(monkeypatch, FakeClient([env]))
@@ -286,7 +332,9 @@ def test_update_code_env_rebuilds_images_for_target_changes(monkeypatch):
 
 
 def test_delete_code_env_delegates_to_dss_when_unused(monkeypatch):
-    env = FakeCodeEnv(_raw("env"))
+    raw = _raw("env")
+    raw["deploymentMode"] = "PLUGIN_MANAGED"
+    env = FakeCodeEnv(raw)
     env.usages = []
     _patch_client(monkeypatch, FakeClient([env]))
 

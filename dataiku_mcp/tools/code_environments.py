@@ -308,12 +308,13 @@ async def update_code_env(
     spark_kubernetes_configurations: list[str] | None = None,
     force_rebuild: bool = False,
 ) -> str:
-    """Patch a managed Design-node code environment and rebuild affected artifacts.
+    """Patch a Design-node code environment and rebuild affected artifacts.
 
     Requires global Create code envs or Manage all code envs permission. Supplied
     group_permissions replace the complete group permission list. Package changes
-    update the local environment and rebuild images; build-target changes rebuild
-    images. ``force_rebuild`` forces a rebuild of the local environment.
+    are supported only for managed Design-node environments; they update the local
+    environment and rebuild images. Build-target changes rebuild images.
+    ``force_rebuild`` forces a rebuild of the local environment.
 
     Omitted fields are preserved. Empty lists intentionally clear their setting.
 
@@ -341,6 +342,14 @@ async def update_code_env(
     def _run():
         code_env = get_dss_client().get_code_env(language, name)
         settings = code_env.get_settings()
+        if (
+            requested_packages is not None
+            and settings.get_raw().get("deploymentMode") != "DESIGN_MANAGED"
+        ):
+            raise ValueError(
+                "requested_packages can only be changed for DESIGN_MANAGED "
+                "code environments"
+            )
         _apply_changes(
             settings,
             owner=owner,
@@ -379,7 +388,7 @@ async def update_code_env(
 
 @mcp.tool()
 async def delete_code_env(language: str, name: str, ctx: Context) -> str:
-    """Delete one managed Design-node code environment.
+    """Delete one Dataiku code environment.
 
     Requires global Manage all code envs permission. The tool refuses deletion when
     Dataiku reports current usages and returns ``deleted: false``, the usages, and

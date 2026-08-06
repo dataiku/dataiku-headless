@@ -21,7 +21,7 @@ Matching a workload's language does not establish package or runtime compatibili
 2. Use `search_mode="exact"` with `include_details=true` to inspect one exact environment before updating it. Details include owner, group access, requested packages, installed packages, and build targets.
 3. Before setting an owner or group permissions, obtain the exact Dataiku login and group names using `./users.md` and `./groups.md`.
 4. Before setting container execution or Spark Kubernetes targets, obtain configuration names according to `./general-settings.md`; do not invent names.
-5. Create or update only managed Design-node `PYTHON` or `R` environments. The tools always enable core packages and Jupyter support on creation.
+5. Create only managed Design-node `PYTHON` or `R` environments. Package-spec changes are also limited to managed Design-node environments; permissions, build targets, and rebuilds can be updated on other environment types.
 6. Requested-package changes automatically update the local environment and rebuild images. Container or Spark Kubernetes target changes rebuild images. Use `force_rebuild=true` only when a clean local environment rebuild is intended; it does not rebuild images by itself.
 7. Use `delete_code_env` when deletion is requested. It checks Dataiku usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
 8. Route recipe, ML analysis, and code-agent environment selection changes through `../cobuild.md`.
@@ -36,10 +36,11 @@ Matching a workload's language does not establish package or runtime compatibili
 ## Supported Settings
 
 - Python package entries are requirements-style lines. R entries use Dataiku raw package-spec lines, for example `"RJSONIO","1.3"`.
+- Package-spec changes are supported only for `DESIGN_MANAGED` environments. Non-`DESIGN_MANAGED` deployment modes are `DSS_INTERNAL`, `PLUGIN_MANAGED`, `PLUGIN_NONMANAGED`, `BUSINESS_APP_MANAGED`, `DESIGN_NON_MANAGED`, and `EXTERNAL_CONDA_NAMED`.
 - Owner, `usable_by_all`, and group permissions are supported. Supplying group permissions replaces the full group permission list. A group permission item has the form `{"group": "data-science", "use": true, "update": false, "manage_users": false}`.
 - Container execution and Spark Kubernetes build targets are supported. Supplying any target during creation builds the resulting images; target changes rebuild images automatically on update.
 - `all_container_configurations` and `all_spark_kubernetes_configurations` take precedence over any listed configurations; listed values are preserved but ignored by Dataiku while their corresponding `all_*` value is true.
-- Resources, Conda/custom repositories, base-package choices, Automation/API-node, versioned, plugin, and internal environments are out of scope.
+- Resources, Conda/custom repositories, base-package choices, Automation/API-node, and versioned environments are out of scope.
 
 ## Preferred Tools
 
