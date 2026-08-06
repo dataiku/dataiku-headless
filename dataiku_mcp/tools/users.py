@@ -14,16 +14,18 @@ from .utils.validation import (
     require_positive_int as _require_positive_int,
 )
 
-_USER_FIELDS = {
+_BASIC_USER_FIELDS = {
     "login": "login",
     "display_name": "displayName",
-    "email": "email",
-    "source_type": "sourceType",
     "groups": "groups",
-    "profile": "userProfile",
     "enabled": "enabled",
 }
-_USER_COLUMNS = list(_USER_FIELDS)
+_USER_FIELDS = {
+    **_BASIC_USER_FIELDS,
+    "email": "email",
+    "source_type": "sourceType",
+    "profile": "userProfile",
+}
 
 
 def _sanitize_user(raw_user: dict, fields: dict[str, str]) -> dict:
@@ -86,10 +88,12 @@ async def list_users(
     limit: int = 20,
 ) -> str:
     """List Dataiku users, with optional search and offset pagination.
-    Requires global administrator rights on the target Dataiku instance.
+    All callers receive basic user information; in addition, global administrators
+    receive email, profile, and source type.
 
     Args:
-        search: Case-insensitive substring matched against login, display name, and email.
+        search: Case-insensitive substring matched against login and display name,
+            plus email for global administrators.
         groups: Group names. Returns users who belong to at least one supplied group.
         offset: Zero-based offset within the matching users.
         limit: Maximum users to return. Values above 100 are capped at 100.
@@ -98,14 +102,20 @@ async def list_users(
     groups = _validate_group_names(groups)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
-    await require_admin()
+
+    try:
+        await require_admin()
+    except PermissionError:
+        fields = _BASIC_USER_FIELDS
+        raw_users = await run_blocking(
+            lambda: [user.get_raw() for user in get_dss_client().list_users_info()]
+        )
+    else:
+        fields = _USER_FIELDS
+        raw_users = await run_blocking(lambda: get_dss_client().list_users())
+
     await ctx.info("Listing Dataiku users...")
-
-    def _run():
-        return get_dss_client().list_users()
-
-    raw_users = await run_blocking(_run)
-    users = [_sanitize_user(raw_user, _USER_FIELDS) for raw_user in raw_users]
+    users = [_sanitize_user(raw_user, fields) for raw_user in raw_users]
     total_users = len(users)
 
     if search:
@@ -146,7 +156,7 @@ async def list_users(
             "matched_users": matched_users,
             "returned_users": returned_users,
             "next_offset": next_offset,
-            "users": columnar(page, _USER_COLUMNS),
+            "users": columnar(page, list(fields)),
         }
     )
 

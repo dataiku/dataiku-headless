@@ -5,7 +5,7 @@ description: Route instance-level Dataiku administration tasks, including user, 
 
 # Administration
 
-Use this routing guide for instance-level administrative tasks. These operations require Dataiku administrator credentials and must use the corresponding direct MCP tools.
+Use this routing guide for instance-level administrative tasks. User listing works with any valid Dataiku API credentials; all other operations here require Dataiku administrator credentials and use direct MCP tools.
 
 ## Guide Routing
 
