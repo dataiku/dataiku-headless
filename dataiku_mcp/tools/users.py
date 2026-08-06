@@ -88,7 +88,7 @@ async def list_users(
     limit: int = 20,
 ) -> str:
     """List Dataiku users, with optional search and offset pagination.
-    All callers receive basic user information; in addition, global administrators
+    All callers receive basic user information; global administrators also
     receive email, profile, and source type.
 
     Args:
