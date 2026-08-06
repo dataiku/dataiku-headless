@@ -8,9 +8,9 @@ and keep version fields in lockstep with ``[project].version``.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import re
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,15 +35,19 @@ PLUGIN_TOP_LEVEL = {
 # Plugin name constraints (Agent Plugins §5.5).
 PLUGIN_NAME_RE = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 
+# cwd forms allowed by Agent Plugins §7.2.1 (stdio).
+_CWD_RE = re.compile(
+    r"^(?:\./(?!\.\.)|\$\{PLUGIN_ROOT\}(?:/|$)|\$\{PLUGIN_DATA\}(?:/|$))"
+)
+
 
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _project_version() -> str:
-    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    return data["project"]["version"]
-
+    # Prefer the installed distribution so this works on Python 3.10 (no tomllib).
+    return importlib.metadata.version("dataiku-headless")
 
 def test_portable_plugin_manifest_is_agent_plugins_v1():
     manifest = _load_json(ROOT / "plugin.json")
@@ -92,7 +96,8 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
 
     cwd = server.get("cwd")
     if cwd is not None:
-        assert cwd.startswith(("./", "${PLUGIN_ROOT}", "${PLUGIN_DATA}"))
+        assert _CWD_RE.match(cwd), cwd
+        assert ".." not in cwd
 
 
 def test_plugin_and_mcp_schema_versions_match():
@@ -113,6 +118,24 @@ def test_skill_is_discovered_as_immediate_child_of_skills():
     ]
     assert [p.name for p in skill_dirs] == ["dataiku-headless"]
 
+    frontmatter = skill_md.read_text(encoding="utf-8").split("---", 2)
+    assert len(frontmatter) >= 3, "SKILL.md missing YAML frontmatter"
+    assert re.search(r"(?m)^name:\s*dataiku-headless\s*$", frontmatter[1])
+    assert re.search(r"(?m)^description:\s*\S", frontmatter[1])
+
+
+def test_mcp_launcher_path_exists_in_package():
+    """Portable mcp.json must point at a real package path after expansion."""
+    config = _load_json(ROOT / "mcp.json")
+    server = config["mcpServers"]["dataiku"]
+    for arg in server.get("args", []):
+        # Expand only the placeholders this package uses.
+        expanded = arg.replace("${PLUGIN_ROOT}", str(ROOT)).replace(
+            "${PLUGIN_DATA}", str(ROOT / ".deps")
+        )
+        if expanded.endswith("launcher.sh"):
+            assert Path(expanded).is_file(), expanded
+
 
 def test_plugin_versions_match_project_version():
     expected = _project_version()
@@ -120,6 +143,29 @@ def test_plugin_versions_match_project_version():
     claude = _load_json(ROOT / ".claude-plugin" / "plugin.json")["version"]
     codex = _load_json(ROOT / ".codex-plugin" / "plugin.json")["version"]
     assert portable == claude == codex == expected
+
+
+def test_commitizen_version_selector_preserves_schema_urls():
+    """Simulate commitizen's path:pattern rewrite so schema 1.0.0 is not clobbered."""
+    # Mirrors commitizen.bump.update_version_in_files: replace only on lines that
+    # match the configured regex (here the version key).
+    pattern = re.compile(r'"version":')
+    text = (ROOT / "plugin.json").read_text(encoding="utf-8")
+    current = _project_version()
+    # Force a synthetic package version that collides with the schema segment.
+    synthetic = text.replace(f'"version": "{current}"', '"version": "1.0.0"', 1)
+    assert '"version": "1.0.0"' in synthetic
+    assert PLUGIN_SCHEMA in synthetic
+
+    rewritten = []
+    for line in synthetic.splitlines(keepends=True):
+        if pattern.search(line):
+            rewritten.append(line.replace("1.0.0", "1.0.1"))
+        else:
+            rewritten.append(line)
+    result = "".join(rewritten)
+    assert '"version": "1.0.1"' in result
+    assert PLUGIN_SCHEMA in result  # schema URL must keep 1.0.0
 
 
 def test_launcher_prefers_agent_plugins_data_dir(tmp_path):
@@ -181,3 +227,17 @@ def test_launcher_prefers_agent_plugins_data_dir(tmp_path):
     root, data = out.splitlines()
     assert root == str(claude_root)
     assert data == str(claude_data)
+
+    # Local checkout fallback when no harness vars are set.
+    env.pop("CLAUDE_PLUGIN_ROOT")
+    env.pop("CLAUDE_PLUGIN_DATA")
+    # Put the probe under a fake bin/ so HERE/.. resolves like launcher.sh.
+    fake_bin = tmp_path / "checkout" / "bin"
+    fake_bin.mkdir(parents=True)
+    local_probe = fake_bin / "probe.sh"
+    local_probe.write_text(probe.read_text(encoding="utf-8"), encoding="utf-8")
+    local_probe.chmod(0o755)
+    out = subprocess.check_output(["sh", str(local_probe)], env=env, text=True)
+    root, data = out.splitlines()
+    assert root == str(tmp_path / "checkout")
+    assert data == str(tmp_path / "checkout" / ".deps")

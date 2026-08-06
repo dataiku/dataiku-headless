@@ -51,9 +51,9 @@ Each plugin bundles the skills and starts the same local `stdio` MCP server. The
 
 ### Agent Plugins (portable)
 
-This repository is an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package: root `plugin.json`, root `mcp.json`, and Agent Skills under `skills/`. Any client that implements the standard can load the portable core directly from this directory.
+This repository is an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package: root `plugin.json`, root `mcp.json`, and Agent Skills under `skills/`. Clients that implement the standard can load the portable core directly from this directory (stdio MCP currently assumes a POSIX host with `sh`, matching the existing Claude/Codex launch path).
 
-Harness-specific manifests (`.claude-plugin/`, `.codex-plugin/`, …) remain for install paths those clients already support. They are additive compatibility layers; the portable files are the cross-client floor.
+Harness-specific manifests (`.claude-plugin/`, `.codex-plugin/`, …) remain for install paths those clients already support. They are parallel legacy packaging, not reverse-domain Agent Plugins extension directories; the portable files are the cross-client floor.
 
 ### Claude Code CLI
 
