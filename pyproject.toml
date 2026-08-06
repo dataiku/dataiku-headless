@@ -67,9 +67,11 @@ tag_format = "v$version"
 update_changelog_on_bump = true
 major_version_zero = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
+# Match the version key specifically so schema URLs (…/1.0.0/…) are not rewritten.
 version_files = [
-    ".claude-plugin/plugin.json",
-    ".codex-plugin/plugin.json",
+    "plugin.json:\"version\":",
+    ".claude-plugin/plugin.json:\"version\":",
+    ".codex-plugin/plugin.json:\"version\":",
 ]
 
 [dependency-groups]

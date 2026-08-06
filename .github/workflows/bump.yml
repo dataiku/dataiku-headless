@@ -115,10 +115,11 @@ jobs:
         run: |
           set -euo pipefail
           project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          portable=$(jq -r '.version' plugin.json)
           claude=$(jq -r '.version' .claude-plugin/plugin.json)
           codex=$(jq -r '.version' .codex-plugin/plugin.json)
 
-          for pair in "claude:${claude}" "codex:${codex}"; do
+          for pair in "portable:${portable}" "claude:${claude}" "codex:${codex}"; do
             name=${pair%%:*}
             found=${pair#*:}
             if [ "${found}" != "${project}" ]; then

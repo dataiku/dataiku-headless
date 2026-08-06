@@ -64,6 +64,12 @@ codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 codex plugin add dataiku-headless@dataiku
 ```
 
+### Agent Plugins (portable)
+
+This repository is an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package: root `plugin.json`, root `mcp.json`, and Agent Skills under `skills/`. Any client that implements the standard can load the portable core directly from this directory.
+
+Harness-specific manifests (`.claude-plugin/`, `.codex-plugin/`, …) remain for install paths those clients already support. They are additive compatibility layers; the portable files are the cross-client floor.
+
 ### Claude Code CLI
 
 ```bash
@@ -77,12 +83,12 @@ claude plugin install dataiku-headless@dataiku
 grok plugin install dataiku/dataiku-headless --trust
 ```
 
-### Cursor Agent CLI
+### Cursor
 
-```bash
-cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
-# Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
-```
+Open **Customize** in the Cursor sidebar, add this GitHub repository as a
+plugin source, then install `dataiku-headless` at your preferred user or project
+scope. Cursor detects the root Agent Plugins manifest and loads the bundled
+skills and MCP server.
 
 ### Snowflake CoCo
 
@@ -107,6 +113,8 @@ Add the following to your `.mcp.json` from a checkout of this repository:
   }
 }
 ```
+
+Portable Agent Plugins clients read root `mcp.json` instead. It launches the same locked `uv` script entry point as the existing manifests.
 
 #### Skills
 
@@ -255,6 +263,8 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
+├── plugin.json                 # Agent Plugins v1.0.0 portable manifest
+├── mcp.json                    # Agent Plugins portable stdio MCP config
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
