@@ -49,6 +49,7 @@ def _project_version() -> str:
     # Prefer the installed distribution so this works on Python 3.10 (no tomllib).
     return importlib.metadata.version("dataiku-headless")
 
+
 def test_portable_plugin_manifest_is_agent_plugins_v1():
     manifest = _load_json(ROOT / "plugin.json")
 
@@ -114,7 +115,9 @@ def test_skill_is_discovered_as_immediate_child_of_skills():
     # Agent Plugins discovers only immediate children of skills/; nested
     # SKILL.md under references/ must not appear as sibling skills.
     skill_dirs = [
-        p for p in (ROOT / "skills").iterdir() if p.is_dir() and (p / "SKILL.md").is_file()
+        p
+        for p in (ROOT / "skills").iterdir()
+        if p.is_dir() and (p / "SKILL.md").is_file()
     ]
     assert [p.name for p in skill_dirs] == ["dataiku-headless"]
 
@@ -186,8 +189,8 @@ def test_launcher_prefers_agent_plugins_data_dir(tmp_path):
         "set -eu\n"
         'HERE=$(CDPATH=\'\' cd -- "$(dirname -- "$0")" && pwd)\n'
         f"{match.group(0)}\n"
-        'printf \'%s\\n\' "$PLUGIN_ROOT"\n'
-        'printf \'%s\\n\' "$DATA_DIR"\n',
+        "printf '%s\\n' \"$PLUGIN_ROOT\"\n"
+        "printf '%s\\n' \"$DATA_DIR\"\n",
         encoding="utf-8",
     )
     probe.chmod(0o755)
