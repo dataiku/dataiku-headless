@@ -49,6 +49,12 @@ Each plugin bundles the skills and starts the same local `stdio` MCP server. The
 
 `dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Either way the harness runs `bin/launcher.sh`, which provisions the runtime with whatever the host already has: [uv](https://docs.astral.sh/uv/) if it's on your `PATH`, otherwise a `pip` virtualenv built by any Python 3.10+, otherwise `uv` borrowed through `npx`/`pnpx`. Nothing needs to be installed up front, and only one of those three has to be present.
 
+### Agent Plugins (portable)
+
+This repository is an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package: root `plugin.json`, root `mcp.json`, and Agent Skills under `skills/`. Any client that implements the standard can load the portable core directly from this directory.
+
+Harness-specific manifests (`.claude-plugin/`, `.codex-plugin/`, …) remain for install paths those clients already support. They are additive compatibility layers; the portable files are the cross-client floor.
+
 ### Claude Code CLI
 
 ```bash
@@ -96,6 +102,8 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
   }
 }
 ```
+
+Portable Agent Plugins clients read root `mcp.json` instead (stdio server `dataiku`, launched via `sh ${PLUGIN_ROOT}/bin/launcher.sh`).
 
 #### Skills
 
@@ -225,6 +233,8 @@ uv run dataiku-headless
 ├── bin/
 │   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx/pnpx uv, then execs the server
 │   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
+├── plugin.json                 # Agent Plugins v1.0.0 portable manifest
+├── mcp.json                    # Agent Plugins portable stdio MCP config
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")

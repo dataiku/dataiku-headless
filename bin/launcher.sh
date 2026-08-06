@@ -10,7 +10,7 @@
 #
 #   1. uv on PATH        — `uv run` resolves run_mcp.py's PEP 723 block itself.
 #   2. python3 >= the block's requires-python — build a venv under
-#      $CLAUDE_PLUGIN_DATA and pip-install the same dependencies into it.
+#      $PLUGIN_DATA (or Claude/local fallbacks) and pip-install deps into it.
 #   3. npx or pnpx       — borrow uv from npm without installing anything.
 #
 # The first tier that works becomes the server process. If none do, we exit
@@ -25,11 +25,12 @@ SERVER="$HERE/run_mcp.py"
 NPM_UV_PACKAGE="@dataiku/uv@0.12.0"
 NPM_RUNNERS="npx pnpx"
 
-# CLAUDE_PLUGIN_DATA is the harness-provided directory that survives plugin
-# updates — the documented home for exactly this kind of generated venv. Outside
-# a plugin install it falls back to a dot-dir beside the checkout.
-PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(CDPATH='' cd -- "$HERE/.." && pwd)}
-DATA_DIR=${CLAUDE_PLUGIN_DATA:-$PLUGIN_ROOT/.deps}
+# Persistent state directory (venv, caches). Preference order:
+#   1. PLUGIN_DATA / PLUGIN_ROOT — Agent Plugins standard vars
+#   2. CLAUDE_PLUGIN_DATA / CLAUDE_PLUGIN_ROOT — Claude Code plugin install
+#   3. Local checkout defaults (repo root + .deps/)
+PLUGIN_ROOT=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-$(CDPATH='' cd -- "$HERE/.." && pwd)}}
+DATA_DIR=${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-$PLUGIN_ROOT/.deps}}
 VENV_DIR="$DATA_DIR/venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_MARKER="$VENV_DIR/.installed"

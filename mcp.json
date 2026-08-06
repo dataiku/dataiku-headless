@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "dataiku": {
+      "type": "stdio",
+      "command": "sh",
+      "args": ["${PLUGIN_ROOT}/bin/launcher.sh"],
+      "env": {
+        "UV_CACHE_DIR": "${PLUGIN_DATA}/uv-cache"
+      }
+    }
+  }
+}
