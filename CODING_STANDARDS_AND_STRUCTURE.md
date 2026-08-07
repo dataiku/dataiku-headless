@@ -108,7 +108,7 @@ When uv or the vendored uv provisions the environment, two things about it diffe
 - It resolves from the launcher's own inline metadata, **not** `uv.lock`. There is no script lockfile, so the `==` pins in that block are the only thing holding every install to one version — bump them deliberately. Transitive dependencies still float within the pinned packages' ranges.
 - It is an isolated, cached environment — not the project `.venv`. `dataiku_mcp` is imported from the working tree (the launcher puts the repo root on `sys.path`), so source edits take effect immediately, but a local edit to a *dependency* will not.
 
-The inline dependency list duplicates `[project].dependencies` minus the CLI-only ones; `tests/test_pep723_launcher.py` fails if the two drift apart.
+The inline dependency list duplicates `[project].dependencies`; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
 Inspect the MCP server interactively with MCP Inspector:
 

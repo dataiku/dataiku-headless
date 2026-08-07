@@ -155,14 +155,7 @@ Every install path above has your harness launch the server itself. Run it stand
 ```bash
 sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
 uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
-```
-
-The launcher's environment is built from the pinned dependencies in `bin/run_mcp.py`'s PEP 723 block, not from `uv.lock`. For the CLI entrypoints, use the project environment instead:
-
-```bash
-uv run dataiku-headless serve
-# or simply:
-uv run dataiku-headless
+uv run -m dataiku_mcp             # use the project environment directly
 ```
 
 ## Project Structure
