@@ -14,8 +14,11 @@ from .utils.validation import (
     require_positive_int as _require_positive_int,
 )
 
-_GROUP_FIELDS = {
+_BASIC_GROUP_FIELDS = {
     "name": "name",
+}
+_GROUP_FIELDS = {
+    **_BASIC_GROUP_FIELDS,
     "description": "description",
     "source_type": "sourceType",
     "is_admin": "admin",
@@ -92,15 +95,18 @@ async def list_groups(
     offset: int = 0,
     limit: int = 5,
 ) -> str:
-    """List Dataiku groups with optional name, source type, and admin filtering.
-    Requires global administrator rights on the target Dataiku instance.
+    """List Dataiku groups, with optional search and offset pagination.
+    All callers receive group names; global administrators also receive group
+    details, and optionally, group permissions.
 
     Args:
         search: Case-insensitive substring matched against group names.
         source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
-            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
+            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM. Requires global administrator rights.
         is_admin: Whether to return only administrator or non-administrator groups.
+            Requires global administrator rights.
         include_permissions: Retrieve all exposed permissions for returned groups.
+            Requires global administrator rights.
         offset: Zero-based offset within the matching groups.
         limit: Maximum groups to return. Values above 10 are capped at 10.
     """
@@ -109,14 +115,26 @@ async def list_groups(
         source_type = require_identity_source_type(source_type)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
-    await require_admin()
-    await ctx.info("Listing Dataiku groups...")
 
-    raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
+    try:
+        await require_admin()
+    except PermissionError:
+        if (source_type is not None) or (is_admin is not None) or include_permissions:
+            raise PermissionError(
+                "The `source_type`, `is_admin` and `include_permissions` options require "
+                "global administrator."
+            )
+        fields = _BASIC_GROUP_FIELDS
+        raw_groups = await run_blocking(
+            lambda: [group.get_raw() for group in get_dss_client().list_groups_info()]
+        )
+    else:
+        fields = _DETAIL_FIELDS if include_permissions else _GROUP_FIELDS
+        raw_groups = await run_blocking(lambda: get_dss_client().list_groups())
+
+    await ctx.info("Listing Dataiku groups...")
     total_groups = len(raw_groups)
-    fields = _DETAIL_FIELDS if include_permissions else _GROUP_FIELDS
     groups = [_sanitize_group(group, fields) for group in raw_groups]
-    columns = list(fields)
 
     if search:
         query = search.casefold()
@@ -149,7 +167,7 @@ async def list_groups(
             "matched_groups": matched_groups,
             "returned_groups": returned_groups,
             "next_offset": next_offset,
-            "groups": columnar(page, columns),
+            "groups": columnar(page, list(fields)),
         }
     )
 

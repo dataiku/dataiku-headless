@@ -5,12 +5,12 @@ description: List and administer Dataiku instance groups, external mappings, and
 
 # Groups
 
-Use these tools for instance-level Dataiku group administration. They require administrator credentials and are not routed through Cobuild.
+Use these tools for instance-level Dataiku group administration. `list_groups` works with any valid Dataiku API credentials and is not routed through Cobuild. Creating, updating, and deleting groups require administrator credentials.
 
 ## Workflow
 
-1. Use `list_groups` to locate groups by name, source type, or administrator status. It returns five groups by default and at most ten.
-2. Use `include_permissions=True` only when inspecting the global permissions of the returned page; it includes the exposed permission and mapping fields in the returned rows when Dataiku provides them.
+1. Use `list_groups` to locate groups by name. It returns five groups by default and at most ten.
+2. Administrator credentials are required to filter by `source_type` or `is_admin`, and to use `include_permissions=True` for permissions and external mappings.
 3. Before updating or deleting, confirm the exact group name and inspect permissions when the requested change affects access.
 4. Use `create_group`, `update_group`, or `delete_group` for the requested change.
 5. Verify the result with `list_groups` using the exact group name.
@@ -35,6 +35,7 @@ In the Dataiku UI, these implied child permissions may appear enabled even when 
 
 ## Safety Rules
 
+- Non-administrator `list_groups` results contain group names only. They do not expose source type, administrator status, external mappings, or permissions.
 - Group names are immutable; create a replacement group instead of renaming one.
 - Global permissions are security-sensitive. Inspect current permissions before changing them and set only the permissions requested.
 - The API-ticket cookie regex is intentionally not exposed by these tools and is preserved during updates.
