@@ -62,14 +62,15 @@ async def _require_licensed_user_profile(profile: str) -> None:
 async def _require_existing_groups(groups: list[str]) -> None:
     """Check that every supplied group exists on the Dataiku instance.
 
-    Note: assumes that caller has admin rights; this internal method should
-    ideally be called after checking the user is admin with `require_admin`.
+    Uses the basic group-information listing available to non-administrators.
     """
     if not groups:
         return
 
     def _run():
-        existing_groups = {group["name"] for group in get_dss_client().list_groups()}
+        existing_groups = {
+            group.get_raw()["name"] for group in get_dss_client().list_groups_info()
+        }
         missing_groups = [group for group in groups if group not in existing_groups]
         if missing_groups:
             raise ValueError(
@@ -102,6 +103,8 @@ async def list_users(
     groups = _validate_group_names(groups)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
+    if groups:
+        await _require_existing_groups(groups)
 
     try:
         await require_admin()

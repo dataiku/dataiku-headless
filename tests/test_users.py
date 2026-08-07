@@ -18,12 +18,29 @@ class FakeUserInfo:
         return self.raw
 
 
+class FakeGroupInfo:
+    def __init__(self, raw: dict):
+        self.raw = raw
+
+    def get_raw(self) -> dict:
+        return self.raw
+
+
 class FakeUsersClient:
-    def __init__(self, *, admin_users: list[dict] | None = None, user_info=None):
+    def __init__(
+        self,
+        *,
+        admin_users: list[dict] | None = None,
+        user_info=None,
+        group_info=None,
+    ):
         self.admin_users = admin_users or []
         self.user_info = user_info if user_info is not None else []
+        self.group_info = group_info if group_info is not None else []
         self.list_users_calls = 0
         self.list_users_info_calls = 0
+        self.list_groups_calls = 0
+        self.list_groups_info_calls = 0
 
     def list_users(self) -> list[dict]:
         self.list_users_calls += 1
@@ -34,6 +51,16 @@ class FakeUsersClient:
         if isinstance(self.user_info, Exception):
             raise self.user_info
         return self.user_info
+
+    def list_groups(self) -> list[dict]:
+        self.list_groups_calls += 1
+        return []
+
+    def list_groups_info(self):
+        self.list_groups_info_calls += 1
+        if isinstance(self.group_info, Exception):
+            raise self.group_info
+        return self.group_info
 
 
 def _load(coro) -> dict:
@@ -120,7 +147,8 @@ def test_list_users_falls_back_to_basic_info_and_filters(monkeypatch):
                     "enabled": True,
                 }
             ),
-        ]
+        ],
+        group_info=[FakeGroupInfo({"name": "team"})],
     )
     monkeypatch.setattr(users, "get_dss_client", lambda: client)
     monkeypatch.setattr(users, "require_admin", _deny_admin)
@@ -133,6 +161,8 @@ def test_list_users_falls_back_to_basic_info_and_filters(monkeypatch):
 
     assert client.list_users_calls == 0
     assert client.list_users_info_calls == 1
+    assert client.list_groups_calls == 0
+    assert client.list_groups_info_calls == 1
     assert result == {
         "total_users": 3,
         "matched_users": 2,
@@ -143,6 +173,19 @@ def test_list_users_falls_back_to_basic_info_and_filters(monkeypatch):
             "rows": [["amy", "Target Person", ["team"], False]],
         },
     }
+
+
+def test_list_users_rejects_unknown_group_filter(monkeypatch):
+    client = FakeUsersClient(group_info=[FakeGroupInfo({"name": "team"})])
+    monkeypatch.setattr(users, "get_dss_client", lambda: client)
+    monkeypatch.setattr(users, "require_admin", _deny_admin)
+
+    with pytest.raises(ValueError, match="missing"):
+        _load(users.list_users(FakeContext(), groups=["missing"]))
+
+    assert client.list_groups_calls == 0
+    assert client.list_groups_info_calls == 1
+    assert client.list_users_info_calls == 0
 
 
 def test_list_users_propagates_basic_info_failure(monkeypatch):
