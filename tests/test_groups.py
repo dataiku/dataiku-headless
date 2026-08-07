@@ -104,9 +104,7 @@ def test_list_groups_falls_back_to_basic_info_and_filters(monkeypatch):
         ({"include_permissions": True}, "include_permissions"),
     ],
 )
-def test_list_groups_rejects_unavailable_non_admin_options(
-    monkeypatch, kwargs, option
-):
+def test_list_groups_rejects_unavailable_non_admin_options(monkeypatch, kwargs, option):
     client = FakeGroupsClient()
     monkeypatch.setattr(groups, "get_dss_client", lambda: client)
     monkeypatch.setattr(groups, "require_admin", _deny_admin)
