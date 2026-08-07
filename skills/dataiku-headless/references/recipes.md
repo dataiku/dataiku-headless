@@ -57,7 +57,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 - ML analyses and saved models: `./machine-learning.md`
 - LLMs, Knowledge Banks, and RAG LLMs: `./llms-and-knowledge-banks.md`
 - Agent-backed prompts or agent evaluation: `./agents.md`
-- Explicitly requested code environments: `./code-environments.md`
+- Explicitly requested code environments: `./administration/code-environments.md`
 - Project-library code dependencies: `./project-libraries.md`
 - Active or uncertain execution: `./jobs.md`
 

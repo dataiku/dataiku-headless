@@ -37,7 +37,14 @@ EXPECTED_TOOLS_BY_MODULE = {
             "start_cobuild_conversation",
         }
     ),
-    "code_environments": frozenset({"list_code_envs"}),
+    "code_environments": frozenset(
+        {
+            "create_code_env",
+            "delete_code_env",
+            "list_code_envs",
+            "update_code_env",
+        }
+    ),
     "connections": frozenset(
         {"get_connection_info", "list_connections", "test_connection"}
     ),

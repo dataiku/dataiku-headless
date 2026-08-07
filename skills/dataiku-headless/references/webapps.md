@@ -38,7 +38,7 @@ Choose the framework that matches the requested application and existing project
 
 - Data and model integrations: `./datasets.md` and `./machine-learning.md`
 - File integrations: `./managed_folders.md`
-- Code environments: `./code-environments.md`
+- Code environments: `./administration/code-environments.md`
 - Shared application source: `./project-libraries.md`
 - External service connections: `./connections.md`
 
