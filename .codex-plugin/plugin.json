@@ -11,24 +11,7 @@
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
   "skills": "./skills/",
-  "mcpServers": {
-    "dataiku": {
-      "type": "stdio",
-      "command": "sh",
-      "args": ["./bin/launcher.sh"],
-      "cwd": ".",
-      "env": {
-        "DKU_MCP_TRANSPORT": "stdio"
-      },
-      "env_vars": [
-        "DKU_INSTANCE_NAME",
-        "DKU_DSS_URL",
-        "DKU_API_KEY",
-        "DKU_NO_CHECK_CERTIFICATE",
-        "DKU_CONFIG_FILE"
-      ]
-    }
-  },
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
     "shortDescription": "Inspect and build Dataiku projects with Cobuild",
