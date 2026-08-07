@@ -33,6 +33,7 @@ class SetupSession:
     browser_opened: bool
     completed: threading.Event
     result: dict | None = None
+    validated_connection: tuple[str, str, bool] | None = None
     expired: bool = False
 
     def close(self) -> None:
@@ -83,7 +84,13 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     }
 
 
-def _page(*, error: str = "", status: str = "", values: dict | None = None) -> str:
+def _page(
+    *,
+    error: str = "",
+    status: str = "",
+    values: dict | None = None,
+    connection_validated: bool = False,
+) -> str:
     error_markup = (
         f'<div class="error" role="alert">{escape(error)}</div>' if error else ""
     )
@@ -98,6 +105,7 @@ def _page(*, error: str = "", status: str = "", values: dict | None = None) -> s
     api_key = escape(values.get("api_key", ""))
     set_default = " checked" if is_initial_page or values.get("set_default") else ""
     no_check_certificate = " checked" if values.get("no_check_certificate") else ""
+    save_disabled = "" if connection_validated else " disabled"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -131,9 +139,13 @@ def _page(*, error: str = "", status: str = "", values: dict | None = None) -> s
     .checks {{ display:grid; gap:12px; margin:20px 0 24px; }}
     .check {{ display:flex; gap:10px; align-items:flex-start; font-weight:500; margin:0; }}
     .check input {{ margin-top:4px; accent-color:var(--teal); flex:0 0 auto; }}
+    details {{ margin-top:16px; }}
+    summary {{ color:var(--muted); cursor:pointer; font-size:13px; font-weight:650; }}
+    details .check {{ margin-top:12px; }}
     .actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
     button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
     button:hover {{ background:#00696c; }}
+    button:disabled, button:disabled:hover {{ color:#6f797d; background:#d9dfdf; cursor:not-allowed; }}
     button.secondary {{ color:var(--ink); background:var(--surface); border:1px solid var(--line); }}
     button.secondary:hover {{ background:var(--soft); }}
     button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
@@ -160,10 +172,10 @@ def _page(*, error: str = "", status: str = "", values: dict | None = None) -> s
         </div>
         <div class="checks">
           <label class="check"><input type="checkbox" name="set_default"{set_default}><span>Use this instance by default when Dataiku Headless starts.</span></label>
-          <label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label>
         </div>
+        <details><summary>Advanced options</summary><label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label></details>
         {status_markup}
-        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save">Save instance</button></div>
+        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save"{save_disabled}>Save instance</button></div>
       </form>
     </section>
   </main>
@@ -211,6 +223,10 @@ def _test_connection(values: dict) -> None:
         raise ValueError(
             "Could not connect. Check the URL, API key, and certificate settings."
         ) from exc
+
+
+def _connection_settings(values: dict) -> tuple[str, str, bool]:
+    return values["url"], values["api_key"], values["no_check_certificate"]
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):
@@ -264,20 +280,35 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                 action = form.get("action", ["save"])[0]
                 if action == "test":
                     _test_connection(values)
+                    if session_state:
+                        session_state.validated_connection = _connection_settings(
+                            values
+                        )
                     self._send_html(
                         200,
                         _page(
-                            status="Connection successful. Your instance has not been saved.",
+                            status="Connection successful. You can now save this instance.",
                             values=values,
+                            connection_validated=True,
                         ),
                     )
                     return
                 if action != "save":
                     raise ValueError("Unknown setup action.")
+                if (
+                    not session_state
+                    or session_state.validated_connection
+                    != _connection_settings(values)
+                ):
+                    raise ValueError(
+                        "Test the connection successfully before saving. Test again after changing the URL, API key, or certificate setting."
+                    )
                 result = config.add_instance_to_config(**values)
                 config.set_current_instance(result["name"])
             except (UnicodeDecodeError, ValueError, RuntimeError) as exc:
-                self._send_html(400, _page(error=str(exc)))
+                self._send_html(
+                    400, _page(error=str(exc), values=locals().get("values"))
+                )
                 return
 
             self._send_html(200, _success_page(result["name"]))

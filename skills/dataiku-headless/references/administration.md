@@ -16,3 +16,4 @@ direct MCP tools. Permissions vary by operation; follow the matching guide.
 | List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, or profile capacity | `./administration/licensing.md` |
 | Inspect, create, update, or delete code environments | `./administration/code-environments.md` |
+| Inspect container execution or Spark configurations | `./administration/general-settings.md` |

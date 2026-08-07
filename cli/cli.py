@@ -2,14 +2,9 @@
 
 Subcommand:
 
-* ``serve`` — run the FastMCP server (the default when no subcommand is given,
-  preserving the legacy ``dataiku-headless`` behavior).
+* ``serve`` — run the FastMCP server (the default when no subcommand is given, preserving the legacy ``dataiku-headless`` behavior).
 
-Skills are distributed via the Claude Code / Codex / Cortex Code plugin
-(``skills/`` referenced directly from ``.claude-plugin/plugin.json`` /
-``.codex-plugin/plugin.json`` / ``.cortex-plugin/plugin.json``). Anyone cloning
-this repo directly already has ``skills/`` on disk to point their
-harness at, so this CLI doesn't duplicate that as a copy command.
+Skills ship in the plugin's standard ``skills/`` directory. Claude Code discovers that directory automatically, Codex declares it in ``.codex-plugin/plugin.json``, and Cortex Code consumes the compatible Claude plugin layout. Anyone cloning this repo directly already has ``skills/`` on disk to point their harness at, so this CLI doesn't duplicate that as a copy command.
 """
 
 from __future__ import annotations
