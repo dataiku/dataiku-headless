@@ -77,7 +77,6 @@ major_version_zero = true
 version_files = [
     "plugin.json:\"version\":",
     ".claude-plugin/plugin.json:\"version\":",
-    ".codex-plugin/plugin.json:\"version\":",
 ]
 
 [dependency-groups]

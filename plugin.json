@@ -10,5 +10,25 @@
   "homepage": "https://github.com/dataiku/dataiku-headless",
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
-  "keywords": ["dataiku", "cobuild", "mcp", "agent"]
+  "keywords": ["dataiku", "cobuild", "mcp", "agent"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Dataiku Headless",
+        "shortDescription": "Inspect and build Dataiku projects with Cobuild",
+        "longDescription": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+        "developerName": "Dataiku",
+        "category": "developer-tools",
+        "capabilities": ["Interactive", "Write"],
+        "websiteURL": "https://github.com/dataiku/dataiku-headless",
+        "defaultPrompt": [
+          "Connect to a Dataiku instance",
+          "How many projects are in this Dataiku instance?"
+        ],
+        "brandColor": "#00A6A6",
+        "composerIcon": "./docs/assets/logo_black.png",
+        "logo": "./docs/assets/logo_black.png"
+      }
+    }
+  }
 }
