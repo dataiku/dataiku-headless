@@ -14,43 +14,22 @@ from .utils.validation import (
 )
 
 _CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
-_SENSITIVE_EXACT_KEYS = {
-    "apikey",
+_SENSITIVE_SUFFIXES = (
     "accesskey",
+    "apikey",
+    "credential",
     "credentials",
     "password",
     "privatekey",
     "secret",
     "secretkey",
-    "sessiontoken",
     "token",
-    "resolvedawscredential",
-    "resolvedbasiccredential",
-    "resolvedoauth2credential",
-}
-_SENSITIVE_SUFFIXES = (
-    "password",
-    "privatekey",
-    "secretkey",
-    "sessiontoken",
 )
 
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.replace("_", "").replace("-", "").lower()
-    if normalized in _SENSITIVE_EXACT_KEYS:
-        return True
-
-    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
-        return True
-
-    if normalized.endswith("credential"):
-        return True
-
-    if normalized.endswith("token"):
-        return True
-
-    return False
+    return normalized.endswith(_SENSITIVE_SUFFIXES)
 
 
 def _redact_sensitive_data(value: Any) -> Any:
