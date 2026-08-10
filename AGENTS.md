@@ -24,7 +24,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - Tool registration imports: `dataiku_mcp/__init__.py`.
 - Project dependencies, Python support, version, and CLI entry points: `pyproject.toml`.
 - Standalone server dependency pins and Python floor: the PEP 723 block in `bin/run_mcp.py`.
-- Portable Agent Plugins package: root `plugin.json` + `mcp.json` (skills under `skills/`). Harness-specific launch config: `.mcp.json` and `.claude-plugin/plugin.json`.
+- Portable Agent Plugins package: root `plugin.json` + `mcp.json` (skills under `skills/`). The Claude compatibility launch config is `.claude-plugin/plugin.json`.
 - User-facing installation and architecture overview: `README.md`.
 - Release behavior: `RELEASE.md` and `.github/workflows/bump.yml`.
 - CI behavior: `.github/workflows/ci.yml` and `.github/workflows/pr-title.yml`.

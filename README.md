@@ -240,7 +240,6 @@ uv run dataiku-headless
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
-├── .mcp.json                   # Shared MCP config (sh ./bin/launcher.sh) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```

@@ -95,7 +95,7 @@ uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
 There are two files, and the split matters:
 
 - **`bin/run_mcp.py`** is the server entry point. It carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata — pinned dependencies and `requires-python` — so uv can build its runtime environment with no project install.
-- **`bin/launcher.sh`** is what every manifest (`mcp.json`, `.mcp.json`, `.claude-plugin`, and the root Agent Plugins package) actually runs, and the only launcher. It picks a runtime in three tiers and `exec`s the server on the first that works, or exits non-zero with install instructions:
+- **`bin/launcher.sh`** is what every manifest (`mcp.json`, `.claude-plugin`, and the root Agent Plugins package) actually runs, and the only launcher. It picks a runtime in three tiers and `exec`s the server on the first that works, or exits non-zero with install instructions:
   1. `uv run`, if a `uv` on `PATH` answers `uv --version`.
   2. A venv under `${PLUGIN_DATA}` (falling back to `${CLAUDE_PLUGIN_DATA}`, then `$PLUGIN_ROOT/.deps`) with the pinned dependencies pip-installed into it, built by the first interpreter that satisfies `requires-python`. Candidates are deduplicated by resolved path, so aliases of one broken interpreter are not retried a dozen times.
   3. `@dataiku/uv@0.12.0` through `npx` or `pnpx`, probed with `--help` — a runner on `PATH` still has to be able to fetch the package.

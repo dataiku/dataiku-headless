@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "dataiku": {
-      "type": "stdio",
-      "command": "sh",
-      "args": ["./bin/launcher.sh"]
-    }
-  }
-}
