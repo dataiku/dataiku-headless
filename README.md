@@ -221,8 +221,8 @@ uv run -m dataiku_mcp             # use the project environment directly
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
-│   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
-├── .mcp.json                   # Shared MCP config (sh ./bin/launcher.sh) for contributor dogfooding
+│   └── plugin.json             # Codex plugin manifest
+├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
