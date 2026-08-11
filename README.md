@@ -47,7 +47,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
-`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. It requires [uv](https://docs.astral.sh/uv/) 0.12.0 or later on your `PATH`; uv provisions Python and the pinned runtime dependencies on first launch. On Windows, install it with `winget install --id=astral-sh.uv -e` or use the [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. It requires [uv](https://docs.astral.sh/uv/) 0.12.0 or later on your `PATH`; uv provisions Python and the pinned runtime dependencies on first launch. Use the [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ### Claude Code CLI
 
