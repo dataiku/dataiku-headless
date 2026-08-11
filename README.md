@@ -155,7 +155,6 @@ Every install path above has your harness launch the server itself. Run it stand
 ```bash
 sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
 uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
-uv run -m dataiku_mcp             # use the project environment directly
 ```
 
 ## Project Structure
@@ -196,8 +195,7 @@ uv run -m dataiku_mcp             # use the project environment directly
 │   ├── config.py              # Instance/profile loading from config file + env vars
 │   ├── config_mcp.py          # MCP configuration
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
-│   ├── __init__.py
-│   └── __main__.py
+│   └── __init__.py
 ├── skills/
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
