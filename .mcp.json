@@ -1,17 +1,19 @@
 {
-  "dataiku": {
-    "command": "sh",
-    "args": ["./bin/launcher.sh"],
-    "cwd": ".",
-    "env": {
-      "DKU_MCP_TRANSPORT": "stdio"
-    },
-    "env_vars": [
-      "DKU_INSTANCE_NAME",
-      "DKU_DSS_URL",
-      "DKU_API_KEY",
-      "DKU_NO_CHECK_CERTIFICATE",
-      "DKU_CONFIG_FILE"
-    ]
+  "mcpServers": {
+    "dataiku": {
+      "command": "sh",
+      "args": ["./bin/launcher.sh"],
+      "cwd": ".",
+      "env": {
+        "DKU_MCP_TRANSPORT": "stdio"
+      },
+      "env_vars": [
+        "DKU_INSTANCE_NAME",
+        "DKU_DSS_URL",
+        "DKU_API_KEY",
+        "DKU_NO_CHECK_CERTIFICATE",
+        "DKU_CONFIG_FILE"
+      ]
+    }
   }
 }
