@@ -160,9 +160,7 @@ async def poll(turn_id, conversation_id="conversation-1"):
 
 async def pending_action(conversation_id="conversation-1"):
     return json.loads(
-        await cobuild.get_cobuild_pending_action(
-            conversation_id, "PROJECT", Context()
-        )
+        await cobuild.get_cobuild_pending_action(conversation_id, "PROJECT", Context())
     )
 
 
