@@ -101,6 +101,13 @@ def _escape_csv_formula(value):
     return value
 
 
+def _serialize_csv_value(value, spreadsheet_safe: bool):
+    """Serialize one CSV cell, optionally neutralizing spreadsheet formulas."""
+    if value is None:
+        return ""
+    return _escape_csv_formula(value) if spreadsheet_safe else value
+
+
 def _resolve_export_columns(
     schema_columns: list[dict],
     requested_columns: list[str] | None,
@@ -276,8 +283,14 @@ async def export_dataset(
     limit: int = _MAX_EXPORT_ROWS,
     columns: list[str] | None = None,
     overwrite: bool = False,
+    spreadsheet_safe: bool = False,
 ) -> str:
-    """Export dataset rows to a local UTF-8 CSV file."""
+    """Export dataset rows to a local UTF-8 CSV file.
+
+    Args:
+        spreadsheet_safe: Escape text that spreadsheet software could evaluate
+            as a formula. Defaults to false so exports preserve their raw data.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")
@@ -331,9 +344,7 @@ async def export_dataset(
                         break
                     writer.writerow(
                         [
-                            ""
-                            if row[index] is None
-                            else _escape_csv_formula(row[index])
+                            _serialize_csv_value(row[index], spreadsheet_safe)
                             for index in selected_indices
                         ]
                     )
@@ -375,6 +386,7 @@ async def export_dataset(
             "sha256": digest.hexdigest(),
             "limit": limit,
             "has_more_rows": has_more_rows,
+            "spreadsheet_safe": spreadsheet_safe,
         }
 
     return compact_json(await run_blocking(_run))

@@ -61,5 +61,8 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 - Inspect an existing dataset before asking Cobuild to build from or modify it.
 - Use direct creation only for a new Uploaded Files dataset from user-supplied data.
 - Never set `overwrite=true` or replace existing data without explicit user intent.
+- `export_dataset` preserves raw CSV values by default. Set
+  `spreadsheet_safe=true` when the export may contain untrusted values and will
+  be opened in spreadsheet software.
 - Keep samples small unless the user requests a larger inspection.
 - Treat `export_dataset` as a heavier operation on large datasets, and bound it with `limit` when a complete export is unnecessary.
