@@ -54,6 +54,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | Inspect scenarios and automation history, or run an existing scenario | `./references/scenarios.md` |
 | Inspect semantic models | `./references/semantic-models.md` |
 | Inspect WebApps and backend state | `./references/webapps.md` |
+| Develop, package, install, update, or inspect Dataiku plugins | `./references/plugins.md` |
 | Inspect wiki hierarchy or article content | `./references/wikis.md` |
 | Inspect Data Quality rules and outcomes | `./references/data-quality.md` |
 | Inspect cross-project sharing | `./references/cross-project-sharing.md` |

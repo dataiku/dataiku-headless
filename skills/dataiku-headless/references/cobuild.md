@@ -17,6 +17,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
+- The current pending question or confirmation is also exposed by `list_cobuild_conversations` and `get_cobuild_pending_action`, including its exact `turn_id` and answer payload.
 
 ## When To Use This Skill
 
@@ -42,8 +43,9 @@ Do not use this guide when:
 6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, call `get_cobuild_turn_status` with its exact `turn_id`; never resend the instruction.
 7. If an interrupted call loses its response, use `list_cobuild_conversations` to recover the conversation's `current_turn_id`. When it is present, call `get_cobuild_turn_status` before doing anything else; when it is absent, a new message may be sent.
 8. Retain the returned `conversation_id` for follow-up work.
-9. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
-10. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
+9. If a listing shows `pending_action=question` or `pending_action=confirmation`, stop sending messages in that conversation. Retrieve the exact pending turn with `get_cobuild_pending_action` or `get_cobuild_turn_status`, then answer it immediately.
+10. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
+11. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
 
 ## Prompt Guidance
 
@@ -63,6 +65,7 @@ Do not use this guide when:
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
 | Answer a Cobuild question request | `answer_cobuild_question` |
 | Wait for or recover a retained Cobuild operation | `get_cobuild_turn_status` |
+| Discover a retained pending question or confirmation | `get_cobuild_pending_action` |
 | Rediscover retained conversations for a project | `list_cobuild_conversations` |
 
 ## Safety Rules

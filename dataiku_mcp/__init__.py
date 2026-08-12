@@ -45,6 +45,7 @@ from .tools import (  # noqa: F401,E402
     managed_folders,
     project_folders,
     project_libraries,
+    plugins,
     projects,
     recipes,
     scenarios,
