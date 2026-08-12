@@ -13,6 +13,7 @@ import fnmatch
 import os
 import re
 
+import regex as timeout_regex
 from fastmcp import Context
 
 from .. import mcp
@@ -20,6 +21,8 @@ from .utils.async_executor import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.auth import get_dss_client
 from .utils.validation import require_non_empty_string as _require_non_empty_string
+
+_REGEX_SEARCH_TIMEOUT_SECONDS = 0.1
 
 
 def _normalize_library_path(path: str) -> str:
@@ -238,6 +241,16 @@ def _ast_validate_python(content: str) -> dict:
     }
 
 
+def _search_regex(pattern, line: str) -> bool:
+    """Search one line with a strict timeout for pathological regex patterns."""
+    try:
+        return pattern.search(line, timeout=_REGEX_SEARCH_TIMEOUT_SECONDS) is not None
+    except TimeoutError as exc:
+        raise ValueError(
+            "Regex search timed out. Simplify the pattern or use substring search."
+        ) from exc
+
+
 @mcp.tool()
 async def list_project_library(
     project_key: str,
@@ -364,11 +377,11 @@ async def search_project_library(
     flags = re.IGNORECASE if case_insensitive else 0
     if is_regex:
         try:
-            regex = re.compile(query, flags)
-        except re.error as e:
+            search_pattern = timeout_regex.compile(query, flags)
+        except timeout_regex.error as e:
             raise ValueError(f"Invalid regex: {e}") from e
     else:
-        regex = re.compile(re.escape(query), flags)
+        search_pattern = re.compile(re.escape(query), flags)
 
     glob_re = re.compile(fnmatch.translate(file_glob)) if file_glob else None
 
@@ -403,7 +416,11 @@ async def search_project_library(
             except Exception:
                 continue
             for lineno, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
+                if (
+                    _search_regex(search_pattern, line)
+                    if is_regex
+                    else search_pattern.search(line)
+                ):
                     matches.append(
                         {
                             "path": entry["path"],

@@ -23,6 +23,7 @@ dependencies = [
     "fastmcp",
     "dataiku-api-client>=14.7.2",
     "python-dotenv",
+    "regex>=2026.7.19",
 ]
 
 [project.urls]
