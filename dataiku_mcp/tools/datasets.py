@@ -17,6 +17,7 @@ from .utils.validation import require_non_empty_string as _require_non_empty_str
 from .utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _create_uploaded_dataset_from_file(
@@ -89,6 +90,15 @@ def _serialize_preview_value(value, max_value_length: int | None):
             truncated_count += item_truncated
         return output, truncated_count
     return value, 0
+
+
+def _escape_csv_formula(value):
+    """Escape text that spreadsheet applications could evaluate as a formula."""
+    if not isinstance(value, str):
+        return value
+    if value.lstrip(" \t\r\n").startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
 
 
 def _resolve_export_columns(
@@ -321,7 +331,9 @@ async def export_dataset(
                         break
                     writer.writerow(
                         [
-                            "" if row[index] is None else row[index]
+                            ""
+                            if row[index] is None
+                            else _escape_csv_formula(row[index])
                             for index in selected_indices
                         ]
                     )
