@@ -19,6 +19,12 @@ Datasets are tied to connections. When creating a managed, external, or Uploaded
 
 A dataset schema includes column names, storage types, semantic meanings, and descriptions. Column descriptions and meanings document business intent; storage types control how values are interpreted. AI-generated metadata can accelerate documentation, but suggestions must be reviewed before they are applied.
 
+## Using a Dataset from Another Project
+
+Cobuild can share a dataset from another project into the project where its conversation is running. When a user wants to use a source-project dataset in the current project's Flow, identify the source project and dataset, then start or continue Cobuild in the target project and ask it to share that dataset into the target project. Cobuild may also choose to share a suitable source-project dataset into its current project when completing a broader Flow request, even when the user did not explicitly ask for sharing.
+
+The source project remains the dataset owner. The target project receives the dataset as a read-only input. After Cobuild completes the request, use `list_datasets` in the target project to verify that the shared dataset is available, then inspect it as needed with the normal dataset tools. Read [Cross-Project Sharing](./cross-project-sharing.md) first when existing sharing relationships or permissions need to be understood.
+
 ## Creation Routes
 
 | Dataset type | Creation path |
@@ -31,7 +37,7 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 
 ## Inspection Workflow
 
-1. Use `list_datasets` to discover exact dataset names, types, connections, and shared datasets.
+1. Use `list_datasets` to discover exact dataset names, types, connections, and shared datasets. Shared datasets are returned in the target project with `shared: true` and a source-project-qualified name.
 2. Use `get_dataset_info` to inspect a selected dataset's type, connection, schema, meanings, and descriptions.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
