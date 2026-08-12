@@ -158,6 +158,14 @@ async def poll(turn_id, conversation_id="conversation-1"):
     )
 
 
+async def pending_action(conversation_id="conversation-1"):
+    return json.loads(
+        await cobuild.get_cobuild_pending_action(
+            conversation_id, "PROJECT", Context()
+        )
+    )
+
+
 async def wait_for_terminal(turn_id, conversation_id="conversation-1"):
     for _ in range(100):
         result = await poll(turn_id, conversation_id)
@@ -226,6 +234,10 @@ def test_pending_confirmation_blocks_new_messages(environment):
     async def scenario():
         await start()
         confirmation = await send(allow_edit_project=True)
+        discovered = await pending_action()
+        assert discovered["pending_action"] == "confirmation"
+        assert discovered["turn_id"] == confirmation["turn_id"]
+        assert discovered["pending"]["objects_to_delete"] == [{"id": "dataset"}]
         with pytest.raises(ValueError, match="pending confirmation") as blocked:
             await send()
         assert "get_cobuild_turn_status with" in str(blocked.value)
@@ -293,6 +305,10 @@ def test_pending_question_blocks_new_messages(environment):
     async def scenario():
         await start()
         question = await send()
+        discovered = await pending_action()
+        assert discovered["pending_action"] == "question"
+        assert discovered["turn_id"] == question["turn_id"]
+        assert discovered["pending"]["question"] == {}
         with pytest.raises(ValueError, match="pending question") as blocked:
             await send()
         assert "get_cobuild_turn_status with" in str(blocked.value)
@@ -301,6 +317,44 @@ def test_pending_question_blocks_new_messages(environment):
 
     run(scenario())
     assert len(client.conversation.send_calls) == 1
+
+
+def test_listing_exposes_pending_action_and_exact_turn(environment):
+    client, _ = environment
+    client.conversation.next_send = Response(
+        "Choose a column", is_question_request=True, predefined_answers=["date"]
+    )
+
+    async def scenario():
+        await start()
+        question = await send()
+        listing = json.loads(
+            await cobuild.list_cobuild_conversations("PROJECT", Context())
+        )
+        columns = listing["conversations"]["columns"]
+        row = dict(zip(columns, listing["conversations"]["rows"][0]))
+        assert row["current_turn_id"] == question["turn_id"]
+        assert row["current_turn_status"] == "completed"
+        assert row["pending_action"] == "question"
+        assert row["pending"]["question"]["predefined_answers"] == ["date"]
+
+    run(scenario())
+
+
+def test_failed_turn_is_discoverable_and_does_not_look_pending(environment):
+    client, _ = environment
+    client.conversation.error = ConnectionError("connection failed")
+
+    async def scenario():
+        await start()
+        failed = await send()
+        discovered = await pending_action()
+        assert discovered["turn_id"] == failed["turn_id"]
+        assert discovered["status"] == "failed"
+        assert discovered["pending_action"] is None
+        assert "No question or confirmation" in discovered["next_action"]
+
+    run(scenario())
 
 
 def test_question_answer_validates_rejected_and_answers(environment):

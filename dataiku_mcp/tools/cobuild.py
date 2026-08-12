@@ -25,6 +25,7 @@ class _Turn:
     task: asyncio.Task[dict] = field(init=False)
     observed: bool = False
     started: threading.Event = field(default_factory=threading.Event)
+    result: dict | None = None
 
 
 @dataclass
@@ -121,6 +122,45 @@ def _pending_turn_result(
     }
 
 
+def _terminal_result(turn: _Turn) -> dict | None:
+    """Return the retained result without asking an unfinished task for result()."""
+    if turn.result is not None:
+        return turn.result
+    if turn.task.done() and not turn.task.cancelled():
+        return turn.task.result()
+    return None
+
+
+def _pending_action(result: dict | None) -> str | None:
+    if not result:
+        return None
+    if result.get("is_confirmation_request"):
+        return "confirmation"
+    if result.get("is_question_request"):
+        return "question"
+    return None
+
+
+def _pending_action_payload(result: dict | None) -> dict | None:
+    action = _pending_action(result)
+    if action is None or result is None:
+        return None
+    if action == "confirmation":
+        return omit_empty(
+            {
+                "type": action,
+                "objects_to_delete": result.get("objects_to_delete"),
+                "deletion_impacts": result.get("deletion_impacts"),
+                "message": result.get("message"),
+            }
+        )
+    return {
+        "type": action,
+        "question": result.get("question") or {},
+        "message": result.get("message", ""),
+    }
+
+
 def _turn_status_payload(
     conversation_id: str, entry: _Conversation, turn: _Turn
 ) -> str:
@@ -183,7 +223,7 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
         try:
             response = call()
         except Exception as exc:
-            return {
+            result = {
                 "status": "failed",
                 "conversation_id": conversation_id,
                 "turn_id": turn.id,
@@ -192,7 +232,10 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
                 "is_confirmation_request": False,
                 "is_question_request": False,
             }
-        return _terminal_turn_result(conversation_id, entry, turn, response)
+        else:
+            result = _terminal_turn_result(conversation_id, entry, turn, response)
+        turn.result = result
+        return result
 
     turn.task = asyncio.create_task(run_cobuild_blocking(run_turn))
     entry.turn = turn
@@ -257,7 +300,8 @@ async def send_cobuild_message(
 
     def check():
         current_turn = entry.turn
-        if current_turn and current_turn.task.result()["is_confirmation_request"]:
+        result = _terminal_result(current_turn) if current_turn else None
+        if current_turn and result and result["is_confirmation_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending confirmation "
@@ -265,7 +309,7 @@ async def send_cobuild_message(
                 f"get_cobuild_turn_status with {status_payload} and inspect the result, "
                 "then call answer_cobuild_confirmation."
             )
-        if current_turn and current_turn.task.result()["is_question_request"]:
+        if current_turn and result and result["is_question_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' has a pending question "
@@ -305,7 +349,8 @@ async def answer_cobuild_confirmation(
 
     def check():
         current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
-        if not current_turn.task.result()["is_confirmation_request"]:
+        result = _terminal_result(current_turn)
+        if not result or not result["is_confirmation_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
@@ -343,7 +388,8 @@ async def answer_cobuild_question(
 
     def check():
         current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
-        if not current_turn.task.result()["is_question_request"]:
+        result = _terminal_result(current_turn)
+        if not result or not result["is_question_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
                 f"Cobuild conversation '{conversation_id}' turn_id '{turn_id}' does not "
@@ -382,6 +428,35 @@ async def get_cobuild_turn_status(
 
 
 @mcp.tool()
+async def get_cobuild_pending_action(
+    conversation_id: str, project_key: str, ctx: Context
+) -> str:
+    """Discover the exact question or confirmation currently blocking a conversation."""
+    conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
+    project_key = _require_non_empty_string(project_key, "project_key")
+    entry = _require_conversation_entry(conversation_id, project_key)
+    turn = entry.turn
+    result = _terminal_result(turn) if turn else None
+    action = _pending_action(result)
+    return compact_json(
+        {
+            "conversation_id": conversation_id,
+            "project_key": project_key,
+            "turn_id": turn.id if turn else None,
+            "status": result.get("status") if result else None,
+            "pending_action": action,
+            "pending": _pending_action_payload(result),
+            "next_action": (
+                "Call answer_cobuild_confirmation or answer_cobuild_question "
+                "with this exact turn_id."
+                if action
+                else "No question or confirmation is currently pending."
+            ),
+        }
+    )
+
+
+@mcp.tool()
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List process-local Cobuild conversations for a project and their current turns."""
     project_key = _require_non_empty_string(project_key, "project_key")
@@ -392,6 +467,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
             continue
 
         turn = entry.turn
+        result = _terminal_result(turn) if turn else None
         rows.append(
             {
                 "conversation_id": conversation_id,
@@ -400,14 +476,16 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                 "created_at": entry.created_at,
                 "current_turn_id": turn.id if turn else None,
                 "current_turn_status": (
-                    turn.task.result()["status"]
-                    if turn and turn.task.done()
+                    result["status"]
+                    if result
                     else "in_progress"
                     if turn and turn.started.is_set()
                     else "queued"
                     if turn
                     else None
                 ),
+                "pending_action": _pending_action(result),
+                "pending": _pending_action_payload(result),
             }
         )
     return compact_json(
@@ -421,6 +499,8 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "created_at",
                     "current_turn_id",
                     "current_turn_status",
+                    "pending_action",
+                    "pending",
                 ],
             )
         }
