@@ -32,20 +32,32 @@ def _create_uploaded_dataset_from_file(
     project = get_dss_client().get_project(project_key)
     existing = {item.get("name") for item in project.list_datasets()}
     if dataset_name in existing:
-        if not overwrite:
+        if overwrite:
             raise ValueError(
-                f"Dataset '{dataset_name}' already exists in project '{project_key}'. "
-                "Set overwrite=true to replace it."
+                f"Cannot safely replace existing dataset '{dataset_name}' in "
+                f"project '{project_key}': the Dataiku client has no atomic "
+                "Uploaded Files replacement operation. The existing dataset has "
+                "not been changed; use a new dataset name instead."
             )
-        project.get_dataset(dataset_name).delete()
+        raise ValueError(
+            f"Dataset '{dataset_name}' already exists in project '{project_key}'. "
+            "Use a new dataset name."
+        )
 
-    dataset = project.create_upload_dataset(dataset_name, connection=connection)
-    with open(filepath, "rb") as handle:
+    try:
+        handle = open(filepath, "rb")
+    except OSError as exc:
+        raise ValueError(
+            f"Could not read local upload file '{filepath}': {exc}"
+        ) from exc
+
+    with handle:
+        dataset = project.create_upload_dataset(dataset_name, connection=connection)
         dataset.uploaded_add_file(handle, effective_filename)
 
-    settings = dataset.autodetect_settings()
-    settings.save()
-    schema = dataset.get_schema()
+        settings = dataset.autodetect_settings()
+        settings.save()
+        schema = dataset.get_schema()
     result = {
         "filename": effective_filename,
         "column_count": len(schema.get("columns", [])),
@@ -144,7 +156,17 @@ async def create_upload_dataset(
     overwrite: bool = False,
     include_schema: bool = True,
 ) -> str:
-    """Create an UploadedFiles dataset from a local file."""
+    """Create a new UploadedFiles dataset from a local file.
+
+    Existing datasets are never replaced because the Dataiku client does not
+    provide an atomic replacement operation for Uploaded Files datasets.
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
+    filepath = _require_non_empty_string(filepath, "filepath")
+    connection = _require_non_empty_string(connection, "connection")
+    if filename:
+        filename = _require_non_empty_string(filename, "filename")
     await ctx.info(f"Creating upload dataset '{dataset_name}' in {project_key}...")
 
     def _run():
