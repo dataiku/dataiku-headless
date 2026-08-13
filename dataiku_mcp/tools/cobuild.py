@@ -368,7 +368,7 @@ async def answer_cobuild_question(
 async def get_cobuild_turn_status(
     conversation_id: str, project_key: str, turn_id: str, ctx: Context
 ) -> str:
-    """Wait up to 240 seconds for the current retained Cobuild turn."""
+    """Return the current retained turn’s result if complete; otherwise wait up to 240 seconds."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
