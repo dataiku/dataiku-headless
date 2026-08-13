@@ -44,6 +44,7 @@ Do not use this guide when:
 8. Retain the returned `conversation_id` for follow-up work.
 9. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
 10. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
+11. If an answer returns "No pending question/confirmation found," do not retry. Inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 
 ## Prompt Guidance
 
@@ -75,6 +76,8 @@ Do not use this guide when:
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
 - When `rejected=true`, `answers` must be empty.
+- Cobuild conversations can continue concurrently in the Dataiku UI and through MCP/API. A question or deletion confirmation is a single DSS-side action; the first channel to answer consumes it.
+- If an MCP answer returns "No pending question/confirmation found," it may have been answered in the UI or invalidated server-side. Do not retry; inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 - Answer a question only when the user request or inspected context determines the answer. Otherwise, ask the user.
 - Honor `question.allow_multiple_answers` and `question.allow_custom_answer`; set `used_custom_answer=true` when supplying a custom free-text answer.
 - When a turn is `queued` or `in_progress`, call `get_cobuild_turn_status` with its current `turn_id`; do not submit a duplicate operation.
