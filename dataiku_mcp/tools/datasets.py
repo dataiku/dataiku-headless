@@ -17,6 +17,7 @@ from .utils.validation import require_non_empty_string as _require_non_empty_str
 from .utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _create_uploaded_dataset_from_file(
@@ -89,6 +90,19 @@ def _serialize_preview_value(value, max_value_length: int | None):
             truncated_count += item_truncated
         return output, truncated_count
     return value, 0
+
+
+def _serialize_csv_value(value, spreadsheet_safe: bool):
+    """Serialize one CSV cell, optionally neutralizing spreadsheet formulas."""
+    if value is None:
+        return ""
+    if (
+        spreadsheet_safe
+        and isinstance(value, str)
+        and value.lstrip(" \t\r\n").startswith(_CSV_FORMULA_PREFIXES)
+    ):
+        return "'" + value
+    return value
 
 
 def _resolve_export_columns(
@@ -266,8 +280,14 @@ async def export_dataset(
     limit: int = _MAX_EXPORT_ROWS,
     columns: list[str] | None = None,
     overwrite: bool = False,
+    spreadsheet_safe: bool = False,
 ) -> str:
-    """Export dataset rows to a local UTF-8 CSV file."""
+    """Export dataset rows to a local UTF-8 CSV file.
+
+    Args:
+        spreadsheet_safe: Escape text that spreadsheet software could evaluate
+            as a formula. Defaults to false so exports preserve their raw data.
+    """
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")
@@ -312,7 +332,12 @@ async def export_dataset(
             ) as output_file:
                 temporary_path = output_file.name
                 writer = csv.writer(output_file, lineterminator="\n")
-                writer.writerow(selected_columns)
+                writer.writerow(
+                    [
+                        _serialize_csv_value(column, spreadsheet_safe)
+                        for column in selected_columns
+                    ]
+                )
                 row_count = 0
                 has_more_rows = False
                 for row in dataset.iter_rows():
@@ -321,7 +346,7 @@ async def export_dataset(
                         break
                     writer.writerow(
                         [
-                            "" if row[index] is None else row[index]
+                            _serialize_csv_value(row[index], spreadsheet_safe)
                             for index in selected_indices
                         ]
                     )
@@ -363,6 +388,7 @@ async def export_dataset(
             "sha256": digest.hexdigest(),
             "limit": limit,
             "has_more_rows": has_more_rows,
+            "spreadsheet_safe": spreadsheet_safe,
         }
 
     return compact_json(await run_blocking(_run))
