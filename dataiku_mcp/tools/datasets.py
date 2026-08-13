@@ -30,14 +30,7 @@ def _create_uploaded_dataset_from_file(
 ):
     effective_filename = filename or os.path.basename(filepath)
     project = get_dss_client().get_project(project_key)
-    try:
-        handle = open(filepath, "rb")
-    except OSError as exc:
-        raise ValueError(
-            f"Could not read local upload file '{filepath}': {exc}"
-        ) from exc
-
-    with handle:
+    with open(filepath, "rb") as handle:
         existing = {item.get("name") for item in project.list_datasets()}
         if dataset_name in existing:
             if not overwrite:

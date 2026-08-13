@@ -71,7 +71,7 @@ def test_invalid_upload_file_does_not_create_a_dataset(monkeypatch, tmp_path):
     project = _FakeProject(has_existing_dataset=True)
     monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
 
-    with pytest.raises(ValueError, match="Could not read local upload file"):
+    with pytest.raises(FileNotFoundError):
         asyncio.run(
             datasets.create_upload_dataset(
                 "PROJECT",
