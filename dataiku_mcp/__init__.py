@@ -3,43 +3,36 @@
 Exposes Dataiku operations through FastMCP tools.
 """
 
-from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from mcp.types import CallToolRequestParams
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+from . import config, config_mcp  # noqa: E402
 
-class DataikuMCP(FastMCP):
-    """FastMCP server that pins the active Dataiku instance per request."""
 
-    def tool(self, *args, **kwargs):
-        register = super().tool(*args, **kwargs)
+class InstancePinningMiddleware(Middleware):
+    """Pin the active Dataiku instance for each MCP tool call."""
 
-        def decorate(handler):
-            @wraps(handler)
-            async def pinned_handler(*handler_args, **handler_kwargs):
-                token = config.pin_current_instance()
-                try:
-                    return await handler(*handler_args, **handler_kwargs)
-                finally:
-                    config.reset_pinned_instance(token)
-
-            return register(pinned_handler)
-
-        return decorate
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, Any],
+    ) -> Any:
+        token = config.pin_current_instance()
+        try:
+            return await call_next(context)
+        finally:
+            config.reset_pinned_instance(token)
 
 
 # Create MCP instance
-mcp = DataikuMCP("Dataiku")
-
-# Load MCP server and Dataiku instance configuration
-from . import (  # noqa: E402
-    config,
-    config_mcp,
-)
+mcp = FastMCP("Dataiku", middleware=[InstancePinningMiddleware()])
 
 config.initialize_current_instance()
 
