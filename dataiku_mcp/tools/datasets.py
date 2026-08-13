@@ -335,7 +335,12 @@ async def export_dataset(
             ) as output_file:
                 temporary_path = output_file.name
                 writer = csv.writer(output_file, lineterminator="\n")
-                writer.writerow(selected_columns)
+                writer.writerow(
+                    [
+                        _serialize_csv_value(column, spreadsheet_safe)
+                        for column in selected_columns
+                    ]
+                )
                 row_count = 0
                 has_more_rows = False
                 for row in dataset.iter_rows():
