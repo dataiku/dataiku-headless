@@ -21,7 +21,7 @@ A dataset schema includes column names, storage types, semantic meanings, and de
 
 ## Using a Dataset from Another Project
 
-Cobuild can share a dataset from another project into the project where its conversation is running, including when it chooses that input while completing a broader Flow request. Use [Cross-Project Sharing](./cross-project-sharing.md) for the workflow and verification steps.
+Cobuild can share a dataset from another project into the project where its conversation is running. It may also select and share that dataset as part of a broader Flow request. Use [Cross-Project Sharing](./cross-project-sharing.md) for the workflow and verification steps.
 
 ## Creation Routes
 
