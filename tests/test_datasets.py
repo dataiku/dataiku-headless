@@ -86,7 +86,9 @@ def test_invalid_upload_file_does_not_create_a_dataset(monkeypatch, tmp_path):
     assert project.existing_dataset.deleted is False
 
 
-def test_existing_dataset_is_replaced_when_overwrite_is_requested(monkeypatch, tmp_path):
+def test_existing_dataset_is_replaced_when_overwrite_is_requested(
+    monkeypatch, tmp_path
+):
     project = _FakeProject(has_existing_dataset=True)
     monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
     source_file = tmp_path / "source.csv"
