@@ -416,11 +416,11 @@ async def search_project_library(
             except Exception:
                 continue
             for lineno, line in enumerate(text.splitlines(), start=1):
-                if (
-                    _search_regex(search_pattern, line)
-                    if is_regex
-                    else search_pattern.search(line)
-                ):
+                if is_regex:
+                    matched = _search_regex(search_pattern, line)
+                else:
+                    matched = search_pattern.search(line) is not None
+                if matched:
                     matches.append(
                         {
                             "path": entry["path"],
