@@ -60,8 +60,7 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 
 - Inspect an existing dataset before asking Cobuild to build from or modify it.
 - Use direct creation only for a new Uploaded Files dataset from user-supplied data.
-- Direct upload creates new Uploaded Files datasets only; it intentionally does
-  not replace an existing dataset because the client has no atomic replacement
-  operation. Use a new dataset name when the target already exists.
+- Set `overwrite=true` only with explicit user intent: it deletes and recreates
+  an existing Uploaded Files dataset, and replacement is non-atomic.
 - Keep samples small unless the user requests a larger inspection.
 - Treat `export_dataset` as a heavier operation on large datasets, and bound it with `limit` when a complete export is unnecessary.

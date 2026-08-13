@@ -30,20 +30,6 @@ def _create_uploaded_dataset_from_file(
 ):
     effective_filename = filename or os.path.basename(filepath)
     project = get_dss_client().get_project(project_key)
-    existing = {item.get("name") for item in project.list_datasets()}
-    if dataset_name in existing:
-        if overwrite:
-            raise ValueError(
-                f"Cannot safely replace existing dataset '{dataset_name}' in "
-                f"project '{project_key}': the Dataiku client has no atomic "
-                "Uploaded Files replacement operation. The existing dataset has "
-                "not been changed; use a new dataset name instead."
-            )
-        raise ValueError(
-            f"Dataset '{dataset_name}' already exists in project '{project_key}'. "
-            "Use a new dataset name."
-        )
-
     try:
         handle = open(filepath, "rb")
     except OSError as exc:
@@ -52,6 +38,15 @@ def _create_uploaded_dataset_from_file(
         ) from exc
 
     with handle:
+        existing = {item.get("name") for item in project.list_datasets()}
+        if dataset_name in existing:
+            if not overwrite:
+                raise ValueError(
+                    f"Dataset '{dataset_name}' already exists in project "
+                    f"'{project_key}'. Set overwrite=true to replace it."
+                )
+            project.get_dataset(dataset_name).delete()
+
         dataset = project.create_upload_dataset(dataset_name, connection=connection)
         dataset.uploaded_add_file(handle, effective_filename)
 
@@ -156,10 +151,10 @@ async def create_upload_dataset(
     overwrite: bool = False,
     include_schema: bool = True,
 ) -> str:
-    """Create a new UploadedFiles dataset from a local file.
+    """Create an UploadedFiles dataset from a local file.
 
-    Existing datasets are never replaced because the Dataiku client does not
-    provide an atomic replacement operation for Uploaded Files datasets.
+    With ``overwrite=true``, an existing target is deleted before a new dataset
+    is created. This replacement is destructive and non-atomic.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")

@@ -13,6 +13,7 @@ class _FakeProject:
     def __init__(self, *, has_existing_dataset: bool):
         self.has_existing_dataset = has_existing_dataset
         self.create_called = False
+        self.existing_dataset = _ExistingDataset()
 
     def list_datasets(self) -> list[dict]:
         return [{"name": "existing"}] if self.has_existing_dataset else []
@@ -20,6 +21,18 @@ class _FakeProject:
     def create_upload_dataset(self, dataset_name: str, connection: str):
         self.create_called = True
         return _CreatedDataset()
+
+    def get_dataset(self, dataset_name: str):
+        assert dataset_name == "existing"
+        return self.existing_dataset
+
+
+class _ExistingDataset:
+    def __init__(self):
+        self.deleted = False
+
+    def delete(self) -> None:
+        self.deleted = True
 
 
 class _Settings:
@@ -55,7 +68,7 @@ class _FakeClient:
 
 
 def test_invalid_upload_file_does_not_create_a_dataset(monkeypatch, tmp_path):
-    project = _FakeProject(has_existing_dataset=False)
+    project = _FakeProject(has_existing_dataset=True)
     monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
 
     with pytest.raises(ValueError, match="Could not read local upload file"):
@@ -70,29 +83,28 @@ def test_invalid_upload_file_does_not_create_a_dataset(monkeypatch, tmp_path):
         )
 
     assert project.create_called is False
+    assert project.existing_dataset.deleted is False
 
 
-def test_existing_dataset_is_not_replaced_when_overwrite_is_requested(
-    monkeypatch, tmp_path
-):
+def test_existing_dataset_is_replaced_when_overwrite_is_requested(monkeypatch, tmp_path):
     project = _FakeProject(has_existing_dataset=True)
     monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
     source_file = tmp_path / "source.csv"
     source_file.write_text("value\n1\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Cannot safely replace existing dataset"):
-        asyncio.run(
-            datasets.create_upload_dataset(
-                "PROJECT",
-                "existing",
-                str(source_file),
-                FakeContext(),
-                connection="upload-connection",
-                overwrite=True,
-            )
+    asyncio.run(
+        datasets.create_upload_dataset(
+            "PROJECT",
+            "existing",
+            str(source_file),
+            FakeContext(),
+            connection="upload-connection",
+            overwrite=True,
         )
+    )
 
-    assert project.create_called is False
+    assert project.existing_dataset.deleted is True
+    assert project.create_called is True
 
 
 def test_new_upload_dataset_is_created_from_the_source_file(monkeypatch, tmp_path):
