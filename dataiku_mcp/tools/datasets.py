@@ -92,20 +92,17 @@ def _serialize_preview_value(value, max_value_length: int | None):
     return value, 0
 
 
-def _escape_csv_formula(value):
-    """Escape text that spreadsheet applications could evaluate as a formula."""
-    if not isinstance(value, str):
-        return value
-    if value.lstrip(" \t\r\n").startswith(_CSV_FORMULA_PREFIXES):
-        return "'" + value
-    return value
-
-
 def _serialize_csv_value(value, spreadsheet_safe: bool):
     """Serialize one CSV cell, optionally neutralizing spreadsheet formulas."""
     if value is None:
         return ""
-    return _escape_csv_formula(value) if spreadsheet_safe else value
+    if (
+        spreadsheet_safe
+        and isinstance(value, str)
+        and value.lstrip(" \t\r\n").startswith(_CSV_FORMULA_PREFIXES)
+    ):
+        return "'" + value
+    return value
 
 
 def _resolve_export_columns(
