@@ -56,7 +56,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | Inspect WebApps and backend state | `./references/webapps.md` |
 | Inspect wiki hierarchy or article content | `./references/wikis.md` |
 | Inspect Data Quality rules and outcomes | `./references/data-quality.md` |
-| Inspect cross-project sharing | `./references/cross-project-sharing.md` |
+| Share a dataset from another project into the current project, or inspect cross-project sharing | `./references/cross-project-sharing.md` |
 | Discover datasets through Data Collections | `./references/data-collections.md` |
 | Port logic from Alteryx, SAS, Excel, or similar tools into Dataiku | `./references/migrations.md` |
 
