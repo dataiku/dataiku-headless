@@ -45,6 +45,19 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_code_env",
         }
     ),
+    "code_studios": frozenset(
+        {
+            "build_code_studio_template",
+            "create_code_studio",
+            "get_code_studio",
+            "get_code_studio_template_settings",
+            "list_code_studio_templates",
+            "list_code_studios",
+            "start_code_studio",
+            "stop_code_studio",
+            "update_code_studio_template",
+        }
+    ),
     "connections": frozenset(
         {"get_connection_info", "list_connections", "test_connection"}
     ),
