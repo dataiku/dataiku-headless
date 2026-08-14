@@ -2,7 +2,12 @@
   "mcpServers": {
     "dataiku": {
       "command": "uv",
-      "args": ["run", "--quiet", "./bin/run_mcp.py"],
+      "args": [
+        "run",
+        "--quiet",
+        "--script",
+        "./bin/run_mcp.py"
+      ],
       "cwd": ".",
       "env": {
         "DKU_MCP_TRANSPORT": "stdio"
