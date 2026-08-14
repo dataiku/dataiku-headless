@@ -109,8 +109,12 @@ class FakeClient:
         if method == "PUT" and path == "/admin/code-studios/phoenix":
             self.template = body
             return body
+        raise AssertionError((method, path, body))
+
+    def _perform_empty(self, method, path, body=None):
+        self.calls.append((method, path, body))
         if method == "POST" and path.endswith("/build"):
-            return {"jobId": "build-1"}
+            return None
         raise AssertionError((method, path, body))
 
     def get_project(self, project_key):
@@ -149,7 +153,7 @@ def test_list_and_get_template_redacts_sensitive_values(monkeypatch):
     assert settings["nested"]["clientSecret"] == tools._REDACTED
 
 
-def test_update_template_deep_merges_and_build_returns_future(monkeypatch):
+def test_update_template_deep_merges_and_requests_build(monkeypatch):
     client = FakeClient()
     _install(monkeypatch, client)
 
@@ -168,8 +172,8 @@ def test_update_template_deep_merges_and_build_returns_future(monkeypatch):
     )
     assert built == {
         "template_id": "phoenix",
-        "status": "build_started",
-        "future_id": "build-1",
+        "status": "build_requested",
+        "hint": "The DSS build endpoint returns no future ID. Start or inspect a Code Studio after the image build completes.",
     }
     assert client.calls[-1] == (
         "POST",

@@ -142,8 +142,8 @@ async def build_code_studio_template(
     template_id = _require_non_empty_string(template_id, "template_id")
     await require_admin()
     await ctx.info(f"Starting build for Code Studio template {template_id}...")
-    response = await run_blocking(
-        lambda: get_dss_client()._perform_json(
+    await run_blocking(
+        lambda: get_dss_client()._perform_empty(
             "POST",
             f"/admin/code-studios/{template_id}/build",
             body={"disableDockerCache": disable_docker_cache},
@@ -152,8 +152,8 @@ async def build_code_studio_template(
     return compact_json(
         {
             "template_id": template_id,
-            "status": "build_started",
-            "future_id": response.get("jobId"),
+            "status": "build_requested",
+            "hint": "The DSS build endpoint returns no future ID. Start or inspect a Code Studio after the image build completes.",
         }
     )
 
