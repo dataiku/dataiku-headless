@@ -27,7 +27,7 @@ Install the plugin, then ask Codex or Claude Code to set up your Dataiku instanc
 
 Here's how to do it in Codex; Claude Code has a similar plugin-install flow.
 
-![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/headless_codex_install_setup.gif)
+![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/headless_install_setup.gif)
 
 Once connected, you can build in Dataiku.
 
