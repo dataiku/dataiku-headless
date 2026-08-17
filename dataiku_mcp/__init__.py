@@ -4,20 +4,35 @@ Exposes Dataiku operations through FastMCP tools.
 """
 
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from mcp.types import CallToolRequestParams
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-# Create MCP instance
-mcp = FastMCP("Dataiku")
+from . import config, config_mcp  # noqa: E402
 
-# Load MCP server and Dataiku instance configuration
-from . import (  # noqa: E402
-    config,
-    config_mcp,
-)
+
+class InstancePinningMiddleware(Middleware):
+    """Pin the active Dataiku instance for each MCP tool call."""
+
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, Any],
+    ) -> Any:
+        token = config.pin_current_instance()
+        try:
+            return await call_next(context)
+        finally:
+            config.reset_pinned_instance(token)
+
+
+# Create MCP instance
+mcp = FastMCP("Dataiku", middleware=[InstancePinningMiddleware()])
 
 config.initialize_current_instance()
 

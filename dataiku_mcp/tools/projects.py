@@ -22,14 +22,20 @@ async def count_projects(ctx: Context) -> str:
 
 @mcp.tool()
 async def list_projects(ctx: Context, search: str = "") -> str:
-    """List the projects on the Dataiku instance."""
+    """List projects with ownership, description, and last-modified context."""
     await ctx.info("Listing Dataiku projects...")
     raw_projects = await run_blocking(lambda: get_dss_client().list_projects())
     projects = [
         {
             "projectKey": project["projectKey"],
             "name": project.get("name", ""),
+            "ownerLogin": project.get("ownerLogin", ""),
+            "ownerDisplayName": project.get("ownerDisplayName", ""),
             "shortDesc": project.get("shortDesc", ""),
+            "lastModifiedOn": project.get("versionTag", {}).get("lastModifiedOn"),
+            "lastModifiedBy": project.get("versionTag", {})
+            .get("lastModifiedBy", {})
+            .get("login", ""),
         }
         for project in raw_projects
     ]
@@ -40,10 +46,25 @@ async def list_projects(ctx: Context, search: str = "") -> str:
             for project in projects
             if q in project["projectKey"].lower()
             or q in project["name"].lower()
+            or q in project["ownerLogin"].lower()
+            or q in project["ownerDisplayName"].lower()
             or q in project["shortDesc"].lower()
         ]
     return compact_json(
-        {"projects": columnar(projects, ["projectKey", "name", "shortDesc"])}
+        {
+            "projects": columnar(
+                projects,
+                [
+                    "projectKey",
+                    "name",
+                    "ownerLogin",
+                    "ownerDisplayName",
+                    "shortDesc",
+                    "lastModifiedOn",
+                    "lastModifiedBy",
+                ],
+            )
+        }
     )
 
 

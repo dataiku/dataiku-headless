@@ -154,7 +154,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet ./bin/run_mcp.py   # same command the plugin manifests use
+uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests use
 uv run -m dataiku_mcp             # use the project environment directly
 ```
 
@@ -196,8 +196,7 @@ uv run -m dataiku_mcp             # use the project environment directly
 │   ├── config.py              # Instance/profile loading from config file + env vars
 │   ├── config_mcp.py          # MCP configuration
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
-│   ├── __init__.py
-│   └── __main__.py
+│   └── __init__.py
 ├── skills/
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify

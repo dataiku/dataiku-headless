@@ -157,7 +157,7 @@ async def list_code_envs(
             for each returned environment. Requires global Create code envs or
             Manage all code envs permission.
         offset: Zero-based offset within the matching environments.
-        limit: Maximum environments to return. Values above 10 are capped at 10.
+        limit: Maximum environments to return. Values above 100 are capped at 100.
     """
     search = search.strip()
     if search:
@@ -165,7 +165,7 @@ async def list_code_envs(
     if language is not None:
         language = _require_allowed_value(language, "language", _LANGUAGES)
     offset = _require_non_negative_int(offset, "offset")
-    limit = min(_require_positive_int(limit, "limit"), 10)
+    limit = min(_require_positive_int(limit, "limit"), 100)
     await ctx.info("Listing Dataiku code environments...")
 
     def _run():

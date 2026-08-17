@@ -153,13 +153,13 @@ def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
         )
 
 
-def _require_current_answer_turn(
+def _require_current_turn(
     conversation_id: str, entry: _Conversation, turn_id: str
 ) -> _Turn:
     current_turn = entry.turn
     if current_turn is None:
         raise ValueError(
-            f"Cobuild conversation '{conversation_id}' has no current turn to answer. "
+            f"Cobuild conversation '{conversation_id}' has no current retained turn. "
             "Send a Cobuild message first."
         )
     if current_turn.id != turn_id:
@@ -304,7 +304,7 @@ async def answer_cobuild_confirmation(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
+        current_turn = _require_current_turn(conversation_id, entry, turn_id)
         if not current_turn.task.result()["is_confirmation_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
@@ -342,7 +342,7 @@ async def answer_cobuild_question(
     entry = _require_conversation_entry(conversation_id, project_key)
 
     def check():
-        current_turn = _require_current_answer_turn(conversation_id, entry, turn_id)
+        current_turn = _require_current_turn(conversation_id, entry, turn_id)
         if not current_turn.task.result()["is_question_request"]:
             status_payload = _turn_status_payload(conversation_id, entry, current_turn)
             raise ValueError(
@@ -368,16 +368,12 @@ async def answer_cobuild_question(
 async def get_cobuild_turn_status(
     conversation_id: str, project_key: str, turn_id: str, ctx: Context
 ) -> str:
-    """Wait up to 240 seconds for the current retained Cobuild turn."""
+    """Return the current retained turn’s result if complete; otherwise wait up to 240 seconds."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
     entry = _require_conversation_entry(conversation_id, project_key)
-    turn = entry.turn
-    if turn is None or turn.id != turn_id:
-        raise ValueError(
-            f"turn_id '{turn_id}' is not the current turn_id for Cobuild conversation '{conversation_id}'."
-        )
+    turn = _require_current_turn(conversation_id, entry, turn_id)
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 

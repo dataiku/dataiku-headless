@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +36,12 @@ class NoActiveInstanceError(ValueError):
 
 _current_instance: DSSInstance | None = None
 _config_file: Path | None = None
+
+_UNPINNED = object()
+_pinned_instance: ContextVar[DSSInstance | None | object] = ContextVar(
+    "dataiku_mcp_pinned_instance",
+    default=_UNPINNED,
+)
 
 
 def _resolve_config_file() -> Path:
@@ -194,9 +201,29 @@ def get_instances() -> dict[str, DSSInstance]:
     return all_instances
 
 
+def pin_current_instance() -> Token:
+    """Bind the active instance to the current MCP request context.
+
+    Tool requests can overlap while a blocking SDK call is queued. Snapshotting
+    here keeps a later ``switch_instance`` call from redirecting that request.
+    ``None`` is intentionally pinned too, so a request that began without a
+    configured instance cannot silently pick up one configured concurrently.
+    """
+    return _pinned_instance.set(_current_instance)
+
+
+def reset_pinned_instance(token: Token) -> None:
+    """Restore the request-local instance binding after a tool returns."""
+    _pinned_instance.reset(token)
+
+
 def get_current_instance() -> DSSInstance:
     """Return the currently active Dataiku instance."""
-    if _current_instance:
+    pinned_instance = _pinned_instance.get()
+    if pinned_instance is not _UNPINNED:
+        if pinned_instance is not None:
+            return pinned_instance
+    elif _current_instance:
         return _current_instance
 
     if get_instances():
