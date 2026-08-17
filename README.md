@@ -21,9 +21,9 @@
 
 ---
 
-## Get started with Codex
+## Get started with Codex or Claude Code
 
-Install the plugin, then ask Codex to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then ask Codex or Claude Code to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
 
 Here's how to do it in Codex; Claude Code has a similar plugin-install flow.
 
