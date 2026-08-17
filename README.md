@@ -21,15 +21,21 @@
 
 ---
 
-## Get started with Codex and Claude Code
+## Get started with Codex
 
-Install the plugin, then ask Codex / Claude Code to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then ask Codex to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+
+Here's how to do it in Codex; Claude Code has a similar plugin-install flow.
 
 ![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/headless_codex_install_setup.gif)
 
 Once connected, you can build in Dataiku.
 
-Dataiku Headless requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`. Install uv, then try connecting again.
+Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital admissions data, train a model to predict readmission within 30 days, then make predictions for new patients:
+
+![Building a Dataiku project with Dataiku Headless and Claude Code](docs/assets/headless_claude_code_cli_demo.gif)
+
+Dataiku Headless requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`. Connecting to Dataiku will fail if you don't have it. Install uv, then try connecting again.
 
 ## Install with another agent
 
