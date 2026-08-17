@@ -6,8 +6,10 @@
       "command": "sh",
       "args": ["${PLUGIN_ROOT}/bin/launcher.sh"],
       "env": {
+        "DKU_MCP_TRANSPORT": "stdio",
         "UV_CACHE_DIR": "${PLUGIN_DATA}/uv-cache"
-      }
+      },
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }

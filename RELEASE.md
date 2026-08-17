@@ -19,7 +19,7 @@ artifacts:
 
 The version number still matters even without an index: Commitizen keeps it in
 lockstep across `pyproject.toml` and the plugin manifests (portable Agent Plugins
-`plugin.json`, plus the Claude Code and Codex compatibility manifests), and the
+`plugin.json` plus the Claude Code compatibility manifest), and the
 manifest version is how a harness notices there's a newer plugin to install.
 `bump.yml` bumps locally first (`push: false`), verifies that lockstep held
 across all manifests (and that Agent Plugins `$schema` URLs were not rewritten),

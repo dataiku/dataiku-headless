@@ -1,9 +1,9 @@
 """Agent Plugins v1.0.0 portable package contract.
 
 This repo ships as an Agent Plugins package (root ``plugin.json`` + ``mcp.json``
-+ ``skills/``) while retaining harness-specific manifests under
-``.claude-plugin/`` and ``.codex-plugin/``. These tests pin the portable floor
-and keep version fields in lockstep with ``[project].version``.
++ ``skills/``) while retaining a Claude Code compatibility manifest under
+``.claude-plugin/``. These tests pin the portable floor and keep version fields
+in lockstep with ``[project].version``.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+MARKETPLACE_PATH = ROOT / ".agents" / "plugins" / "marketplace.json"
 
 # Closed portable manifest fields (Agent Plugins §5.2).
 PLUGIN_TOP_LEVEL = {
@@ -71,6 +72,27 @@ def test_portable_plugin_manifest_is_agent_plugins_v1():
         assert set(author) <= {"name", "email", "url"}
         assert all(isinstance(v, str) for v in author.values())
 
+    assert manifest["extensions"] == {
+        "com.openai": {
+            "interface": {
+                "displayName": "Dataiku Headless",
+                "shortDescription": "Inspect and build Dataiku projects with Cobuild",
+                "longDescription": manifest["description"],
+                "developerName": "Dataiku",
+                "category": "developer-tools",
+                "capabilities": ["Interactive", "Write"],
+                "websiteURL": "https://github.com/dataiku/dataiku-headless",
+                "defaultPrompt": [
+                    "Connect to a Dataiku instance",
+                    "How many projects are in this Dataiku instance?",
+                ],
+                "brandColor": "#00A6A6",
+                "composerIcon": "./docs/assets/logo_black.png",
+                "logo": "./docs/assets/logo_black.png",
+            }
+        }
+    }
+
 
 def test_portable_mcp_config_is_agent_plugins_v1_stdio():
     config = _load_json(ROOT / "mcp.json")
@@ -93,12 +115,32 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
     # Reserved names are client-supplied only (Agent Plugins §9.2).
     assert "PLUGIN_ROOT" not in env
     assert "PLUGIN_DATA" not in env
+    assert env.get("DKU_MCP_TRANSPORT") == "stdio"
     assert env.get("UV_CACHE_DIR") == "${PLUGIN_DATA}/uv-cache"
+    assert server["cwd"] == "${PLUGIN_ROOT}"
+    assert _CWD_RE.match(server["cwd"])
 
-    cwd = server.get("cwd")
-    if cwd is not None:
-        assert _CWD_RE.match(cwd), cwd
-        assert ".." not in cwd
+
+def test_codex_marketplace_loads_the_repository_root_plugin():
+    marketplace = _load_json(MARKETPLACE_PATH)
+
+    assert marketplace == {
+        "name": "dataiku",
+        "interface": {"displayName": "Dataiku"},
+        "plugins": [
+            {
+                "name": "dataiku-headless",
+                "source": {"source": "local", "path": "./"},
+                "policy": {
+                    "installation": "AVAILABLE",
+                    "authentication": "ON_USE",
+                },
+                "category": "developer-tools",
+            }
+        ],
+    }
+    assert (MARKETPLACE_PATH.parents[2] / "plugin.json").is_file()
+    assert not (ROOT / ".codex-plugin" / "plugin.json").exists()
 
 
 def test_plugin_and_mcp_schema_versions_match():
@@ -144,8 +186,7 @@ def test_plugin_versions_match_project_version():
     expected = _project_version()
     portable = _load_json(ROOT / "plugin.json")["version"]
     claude = _load_json(ROOT / ".claude-plugin" / "plugin.json")["version"]
-    codex = _load_json(ROOT / ".codex-plugin" / "plugin.json")["version"]
-    assert portable == claude == codex == expected
+    assert portable == claude == expected
 
 
 def test_commitizen_version_selector_preserves_schema_urls():

@@ -53,7 +53,7 @@ Each plugin bundles the skills and starts the same local `stdio` MCP server. The
 
 This repository is an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package: root `plugin.json`, root `mcp.json`, and Agent Skills under `skills/`. Clients that implement the standard can load the portable core directly from this directory (stdio MCP currently assumes a POSIX host with `sh`, matching the existing Claude/Codex launch path).
 
-Harness-specific manifests (`.claude-plugin/`, `.codex-plugin/`, …) remain for install paths those clients already support. They are parallel legacy packaging, not reverse-domain Agent Plugins extension directories; the portable files are the cross-client floor.
+The remaining `.claude-plugin/` directory is Claude Code compatibility packaging. Codex uses the portable package and the repository marketplace at `.agents/plugins/marketplace.json`; Codex-specific presentation metadata is kept in the portable manifest's `com.openai` extension.
 
 ### Claude Code CLI
 
@@ -235,12 +235,11 @@ uv run dataiku-headless
 │   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── plugin.json                 # Agent Plugins v1.0.0 portable manifest
 ├── mcp.json                    # Agent Plugins portable stdio MCP config
+├── .agents/plugins/
+│   └── marketplace.json         # Codex repository marketplace (single-plugin, source: "./")
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
-├── .codex-plugin/
-│   └── plugin.json             # Codex manifest with skills, stdio MCP, and env_vars passthrough
-├── .mcp.json                   # Shared MCP config (sh ./bin/launcher.sh) for contributor dogfooding
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
