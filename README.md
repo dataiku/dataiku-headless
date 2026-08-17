@@ -155,7 +155,6 @@ Every install path above has your harness launch the server itself. Run it stand
 
 ```bash
 uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests use
-uv run -m dataiku_mcp             # use the project environment directly
 ```
 
 ## Project Structure
