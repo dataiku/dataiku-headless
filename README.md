@@ -21,33 +21,28 @@
 
 ---
 
-An MCP server and agent skill library for operating Dataiku with an AI agent harness (Claude Code, Codex, Snowflake CoCo (Cortex Code), Cursor, OpenCode, or a custom agent). Connect your agent to a Dataiku instance to inspect projects, gather context, and drive Cobuild. Cobuild is Dataiku's agent that can build data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines inside Dataiku.
+## Get started with Codex and Claude Code
 
-Cobuild is exposed here as a retained conversation, driven through MCP tools. This repo's own tool surface stays deliberately thin around it: read/list/get/inspect tools for grounding, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), plus a handful of bootstrap operations Cobuild cannot do because they are cross-project, instance-level, or precede a project/conversation existing (creating a project, uploading a local file into a dataset or managed folder or project library).
+Install the plugin, then ask Codex / Claude Code to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
 
-## MCP Server
+![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/headless_codex_install_setup.gif)
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
+Once connected, you can build in Dataiku.
 
-- Async execution for all Dataiku API calls
-- Progress notifications for long-running operations
-- Server-side authentication (env API key or `.dataiku/config.json`)
-- Modular architecture by functional domain
-- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
+Dataiku Headless requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`. Install uv, then try connecting again.
 
-Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
+## Install with another agent
 
-## Agent Skills
+`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
-`skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
+The server starts without credentials. It requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`; uv provisions Python and the pinned runtime dependencies on first launch.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
+### Codex CLI
 
-## Install
-
-Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
-
-`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Either way the harness runs `bin/launcher.sh`, which provisions the runtime with whatever the host already has: [uv](https://docs.astral.sh/uv/) if it's on your `PATH`, otherwise a `pip` virtualenv built by any Python 3.10+, otherwise `uv` borrowed through `npx`/`pnpx`. Nothing needs to be installed up front, and only one of those three has to be present.
+```bash
+codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
+codex plugin add dataiku-headless@dataiku
+```
 
 ### Claude Code CLI
 
@@ -56,12 +51,6 @@ claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 claude plugin install dataiku-headless@dataiku
 ```
 
-### Codex CLI
-
-```bash
-codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-codex plugin add dataiku-headless@dataiku
-```
 ### Grok CLI
 
 ```bash
@@ -81,16 +70,18 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 cortex plugin install dataiku/dataiku-headless
 ```
 
-### Other AI Assistants
+### Other AI assistants
 
 #### MCP
-Add the following to your `.mcp.json` to enable the Dataiku MCP server for any agent harness that reads it from a checkout of this repo:
+
+Add the following to your `.mcp.json` from a checkout of this repository:
+
 ```json
 {
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["sh", "./bin/launcher.sh"],
+      "command": ["uv", "run", "--quiet", "./bin/run_mcp.py"],
       "enabled": true
     }
   }
@@ -99,13 +90,35 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
 
 #### Skills
 
-The skills/*/SKILL.md files follow the universal skill format and work with any tool that reads it.  
+The `skills/*/SKILL.md` files follow the universal skill format:
 
-Install the skill for your agent harness:
 ```bash
 npx skills add dataiku/dataiku-headless
 ```
 
+## What it does
+
+Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
+
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+
+## MCP Server
+
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
+
+- Async execution for all Dataiku API calls
+- Progress notifications for long-running operations
+- Server-side authentication (env API key or `.dataiku/config.json`)
+- Modular architecture by functional domain
+- Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
+
+Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
+
+## Agent Skills
+
+`skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
+
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
 ## Onboarding and authentication
 
@@ -153,8 +166,8 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
-uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
+uv run --quiet ./bin/run_mcp.py   # same command the plugin manifests use
+uv run -m dataiku_mcp             # use the project environment directly
 ```
 
 ## Project Structure
@@ -213,7 +226,7 @@ uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
-│   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx/pnpx uv, then execs the server
+│   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
 │   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
