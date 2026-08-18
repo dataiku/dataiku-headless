@@ -1,12 +1,12 @@
-"""The PEP 723 launcher must stay in lockstep with the project's metadata.
+"""The PEP 723 server script must stay in lockstep with the project's metadata.
 
 ``bin/run_mcp.py`` declares its own dependencies inline so a harness can start
-the server with a throwaway uv (``npx -y @dataiku/uv@… run --quiet …``) instead of
-a pre-built environment. That duplicated dependency list silently rots when
-``pyproject.toml`` changes, and the failure only surfaces at server startup on a
-user's machine — so pin it down here instead.
+the server through ``uv run --quiet`` instead of a pre-built environment. That
+duplicated dependency list silently rots when ``pyproject.toml`` changes, and
+the failure only surfaces at server startup on a user's machine — so pin it
+down here instead.
 
-The launcher pins exact versions while ``[project].dependencies`` stays a range,
+The script pins exact versions while ``[project].dependencies`` stays a range,
 so the two are checked for compatibility rather than equality: same package set,
 and every pin has to satisfy the project's specifier for that package.
 """
@@ -17,14 +17,14 @@ from pathlib import Path
 
 from packaging.requirements import Requirement
 
-LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
 
 
 def _inline_metadata() -> str:
-    """Return the PEP 723 block of the launcher with its comment prefix removed."""
+    """Return the PEP 723 block of the script with its comment prefix removed."""
     block = re.search(
         r"^# /// script$\n(.*?)^# ///$",
-        LAUNCHER.read_text(encoding="utf-8"),
+        SCRIPT.read_text(encoding="utf-8"),
         re.DOTALL | re.MULTILINE,
     )
     assert block, "bin/run_mcp.py lost its PEP 723 inline metadata block"
@@ -60,7 +60,7 @@ def test_inline_dependencies_are_pinned():
         specifiers = list(req.specifier)
         assert len(specifiers) == 1 and specifiers[0].operator == "==", (
             f"{name} must be pinned to an exact version in bin/run_mcp.py: the "
-            "launcher has no lockfile, so these pins are what keeps every "
+            "script has no lockfile, so these pins are what keeps every "
             f"install on one version (got {str(req.specifier) or 'no specifier'})"
         )
 

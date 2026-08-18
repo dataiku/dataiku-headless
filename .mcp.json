@@ -1,12 +1,14 @@
 {
   "mcpServers": {
     "dataiku": {
-      "command": "sh",
-      "args": ["./bin/launcher.sh"],
+      "command": "uv",
+      "args": [
+        "run",
+        "--quiet",
+        "--script",
+        "./bin/run_mcp.py"
+      ],
       "cwd": ".",
-      "env": {
-        "DKU_MCP_TRANSPORT": "stdio"
-      },
       "env_vars": [
         "DKU_INSTANCE_NAME",
         "DKU_DSS_URL",

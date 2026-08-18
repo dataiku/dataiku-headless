@@ -47,7 +47,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Each plugin bundles the skills and starts the same local `stdio` MCP server. The server intentionally starts without credentials; onboarding happens after installation through the `configure_instance` tool.
 
-`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. Either way the harness runs `bin/launcher.sh`, which provisions the runtime with whatever the host already has: [uv](https://docs.astral.sh/uv/) if it's on your `PATH`, otherwise a `pip` virtualenv built by any Python 3.10+, otherwise `uv` borrowed through `npx`/`pnpx`. Nothing needs to be installed up front, and only one of those three has to be present.
+`dataiku-headless` is not published to PyPI; it's installed as a harness plugin or run from a checkout. It requires [uv](https://docs.astral.sh/uv/) 0.12.0 or later on your `PATH`; uv provisions Python and the pinned runtime dependencies on first launch. Use the [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ### Claude Code CLI
 
@@ -90,7 +90,7 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["sh", "./bin/launcher.sh"],
+      "command": ["uv", "run", "--quiet", "./bin/run_mcp.py"],
       "enabled": true
     }
   }
@@ -138,6 +138,7 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
+`.env` only fills in variables not already set in your shell or launcher — a real environment variable of the same name always wins, even if it's empty.
 
 **Connect to multiple instances:**
 Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
@@ -153,8 +154,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-sh ./bin/launcher.sh              # same three-tier bootstrap the harness uses
-uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
+uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests use
 ```
 
 ## Project Structure
@@ -213,7 +213,7 @@ uv run --quiet ./bin/run_mcp.py   # skip the launcher, straight to the server
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
-│   ├── launcher.sh             # What the manifests run: picks uv → python venv → npx/pnpx uv, then execs the server
+│   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
 │   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
