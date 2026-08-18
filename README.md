@@ -29,7 +29,7 @@ Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugi
 
 ## Requirements
 
-Install [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) and make sure it is available on your `PATH`. Dataiku Headless uses uv to provide its Python runtime and pinned dependencies.
+Install [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) and make sure it is available on your `PATH`. Dataiku Headless uses `uv` to provide its Python runtime and pinned dependencies.
 
 ## Get started with the Codex app or Claude Desktop app
 
