@@ -21,11 +21,21 @@
 
 ---
 
-## Get started with Codex or Claude Code
+## About Dataiku Headless
 
-Install the plugin, then ask Codex or Claude Code to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Here's how to do it in Codex; Claude Code has a similar plugin-install flow.
+Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+
+## Requirements
+
+Install [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) and make sure it is available on your `PATH`. Dataiku Headless uses uv to provide its Python runtime and pinned dependencies.
+
+## Get started with the Codex app or Claude Desktop app
+
+Install the plugin, then ask Codex or Claude to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+
+Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
 ![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/codex_headless_install_setup.gif)
 
@@ -34,8 +44,6 @@ Once connected, you can build in Dataiku.
 Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital admissions data, train a model to predict readmission within 30 days, then make predictions for new patients:
 
 ![Building a Dataiku project with Dataiku Headless and Claude Code](docs/assets/headless_claude_code_cli_demo.gif)
-
-Dataiku Headless requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`. Connecting to Dataiku will fail if you don't have it. Install uv, then try connecting again.
 
 ## Install with another agent
 
