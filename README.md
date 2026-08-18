@@ -165,6 +165,7 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
+`.env` only fills in variables not already set in your shell or launcher — a real environment variable of the same name always wins, even if it's empty.
 
 **Connect to multiple instances:**
 Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
@@ -180,8 +181,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet ./bin/run_mcp.py   # same command the plugin manifests use
-uv run -m dataiku_mcp             # use the project environment directly
+uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests use
 ```
 
 ## Project Structure

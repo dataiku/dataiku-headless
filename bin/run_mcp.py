@@ -9,15 +9,14 @@
 # ///
 """PEP 723 entry point for the Dataiku MCP server.
 
-The inline script metadata above lets any uv build the runtime environment on
-the fly, so a harness can start the server without uv, Python, or the project
-dependencies being installed first:
+The inline script metadata above lets uv build the runtime environment on the
+fly, so a harness with uv 0.12.0 or later can start the server without a
+project install:
 
-    npx -y @dataiku/uv@0.12.0 run --quiet bin/run_mcp.py
+    uv run --quiet bin/run_mcp.py
 
-The manifests do not call this file directly; they run ``bin/launcher.sh``,
-which reads the block above and provisions the runtime with whichever of uv, a
-pip venv, or npx-vendored uv the host can offer.
+The plugin manifests invoke this script directly through uv. ``bin/launcher.sh``
+is retained as inactive legacy code for a possible future fallback path.
 
 uv resolves the dependencies into a cached, isolated environment on the first
 launch and reuses it afterwards. There is no script lockfile, so the ``==``

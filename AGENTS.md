@@ -16,7 +16,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - `dataiku_mcp/tools/cobuild.py` owns retained Cobuild conversations. Cobuild is the default path for constructing or modifying project-level flow and analytic assets.
 - Cobuild owns construction and modification of project-level flow and analytic assets. Direct writes are allowed only for the fixed exception categories defined by the **Cobuild Write-Routing Convention** in `CODING_STANDARDS_AND_STRUCTURE.md`; do not infer permission for a new direct write from existing implementation.
 - `skills/dataiku-headless/SKILL.md` is the operator-facing router. Its `references/` directory owns object-specific inspection, mutation, and verification workflows.
-- `bin/launcher.sh` is the entry point used by manifests. It chooses a runtime and then executes the PEP 723 server script in `bin/run_mcp.py`. Stdout is reserved for MCP JSON-RPC; launcher and server diagnostics belong on stderr.
+- `bin/run_mcp.py` is the entry point used by manifests through `uv run --quiet`. It owns the PEP 723 runtime metadata. Stdout is reserved for MCP JSON-RPC; diagnostics belong on stderr. `bin/launcher.sh` is inactive legacy fallback code retained for possible future use.
 
 ## Sources of truth
 
@@ -47,7 +47,7 @@ Do not copy volatile inventories, versions, or command details into this file wh
 
 - Preserve Cobuild conversation ownership by instance and project, one active turn per conversation, exact turn IDs for answers, and recoverable polling after timeouts or cancellation.
 - Keep general SDK work and long-running Cobuild calls on their separate executors.
-- Keep `bin/launcher.sh` POSIX `/bin/sh` compatible and silent on stdout.
+- Keep `bin/launcher.sh` POSIX `/bin/sh` compatible and silent on stdout if modifying its retained legacy fallback behavior.
 - When runtime dependencies or the Python floor change, update both `pyproject.toml` and the PEP 723 block in `bin/run_mcp.py`; `tests/test_pep723_launcher.py` enforces their relationship.
 - When manifest behavior changes, inspect every manifest rather than assuming their schemas or path interpolation rules are identical.
 - When changing package contents or entry points, build the distributions and smoke-test the wheel as CI does.
