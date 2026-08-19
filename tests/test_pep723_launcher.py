@@ -1,14 +1,15 @@
 """The PEP 723 server script must stay in lockstep with the project's metadata.
 
 ``bin/run_mcp.py`` declares its own dependencies inline so a harness can start
-the server through ``uv run --quiet`` instead of a pre-built environment. That
+the server through ``uv run --quiet --locked --script`` instead of a pre-built environment. That
 duplicated dependency list silently rots when ``pyproject.toml`` changes, and
 the failure only surfaces at server startup on a user's machine — so pin it
 down here instead.
 
 The script pins exact versions while ``[project].dependencies`` stays a range,
 so the two are checked for compatibility rather than equality: same package set,
-and every pin has to satisfy the project's specifier for that package.
+and every pin has to satisfy the project's specifier for that package. Its
+adjacent lockfile captures the full direct and transitive resolution.
 """
 
 import importlib.metadata
@@ -18,6 +19,7 @@ from pathlib import Path
 from packaging.requirements import Requirement
 
 SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
+SCRIPT_LOCK = SCRIPT.with_suffix(".py.lock")
 
 
 def _inline_metadata() -> str:
@@ -60,9 +62,16 @@ def test_inline_dependencies_are_pinned():
         specifiers = list(req.specifier)
         assert len(specifiers) == 1 and specifiers[0].operator == "==", (
             f"{name} must be pinned to an exact version in bin/run_mcp.py: the "
-            "script has no lockfile, so these pins are what keeps every "
-            f"install on one version (got {str(req.specifier) or 'no specifier'})"
+            "script's direct dependency constraints must be explicit (got "
+            f"{str(req.specifier) or 'no specifier'})"
         )
+
+
+def test_script_lockfile_exists():
+    assert SCRIPT_LOCK.is_file(), (
+        "bin/run_mcp.py.lock is required because launchers use uv --locked; "
+        "regenerate it with `uv lock --script bin/run_mcp.py`"
+    )
 
 
 def test_inline_pins_satisfy_project_constraints():

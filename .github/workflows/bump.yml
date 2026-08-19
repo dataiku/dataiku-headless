@@ -64,6 +64,23 @@ jobs:
           # Full history and tags: commitizen derives the next version by
           # diffing against the last tag.
           fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      # Release only from a lock that is both valid and fresh for its exact
+      # direct script pins. --upgrade may update the runner's working tree;
+      # any resulting diff must be reviewed, tested, and committed in a PR.
+      - name: Verify PEP 723 script lockfile is current
+        run: |
+          set -euo pipefail
+          uv lock --script bin/run_mcp.py --check
+          uv lock --script bin/run_mcp.py --upgrade
+          if ! git diff --quiet -- bin/run_mcp.py.lock; then
+            echo "::error::bin/run_mcp.py.lock is stale. Regenerate, test, and commit it before releasing."
+            git --no-pager diff -- bin/run_mcp.py.lock
+            exit 1
+          fi
       - id: before
         name: Record current tag
         run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"

@@ -90,7 +90,7 @@ Add the following to your `.mcp.json` to enable the Dataiku MCP server for any a
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uv", "run", "--quiet", "./bin/run_mcp.py"],
+      "command": ["uv", "run", "--quiet", "--locked", "--script", "./bin/run_mcp.py"],
       "enabled": true
     }
   }
@@ -154,7 +154,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests use
+uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin manifests use
 ```
 
 ## Project Structure
@@ -214,7 +214,8 @@ uv run --quiet --script ./bin/run_mcp.py   # same command the plugin manifests u
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── bin/
 │   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
-│   └── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
+│   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
+│   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")

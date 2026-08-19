@@ -5,6 +5,7 @@
       "args": [
         "run",
         "--quiet",
+        "--locked",
         "--script",
         "./bin/run_mcp.py"
       ],

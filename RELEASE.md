@@ -45,6 +45,13 @@ would otherwise ship a release whose manifests still advertise the old version.
 `ci.yml` (pre-commit hooks + pytest on Python 3.10–3.14) runs on every push and
 PR and is the gate before anything merges to `main`.
 
+Before Commitizen can create a version, `bump.yml` also verifies the PEP 723
+script lockfile is valid and refreshes it in the disposable runner. If the
+latest allowed transitive dependency resolution differs from
+`bin/run_mcp.py.lock`, the workflow fails before changing the version or
+creating tags. Regenerate the lock, run the normal checks, and commit it in a
+PR; direct dependencies remain deliberately pinned in `bin/run_mcp.py`.
+
 ### Workflow files
 
 | File | Trigger | Does |
