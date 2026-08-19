@@ -25,7 +25,6 @@ def _create_uploaded_dataset_from_file(
     filepath: str,
     connection: str,
     filename: str,
-    overwrite: bool,
     include_schema: bool,
 ):
     effective_filename = filename or os.path.basename(filepath)
@@ -33,12 +32,10 @@ def _create_uploaded_dataset_from_file(
     with open(filepath, "rb") as handle:
         existing = {item.get("name") for item in project.list_datasets()}
         if dataset_name in existing:
-            if not overwrite:
-                raise ValueError(
-                    f"Dataset '{dataset_name}' already exists in project "
-                    f"'{project_key}'. Set overwrite=true to replace it."
-                )
-            project.get_dataset(dataset_name).delete()
+            raise ValueError(
+                f"Dataset '{dataset_name}' already exists in project '{project_key}'. "
+                "Use a new dataset name or route changes through Cobuild."
+            )
 
         dataset = project.create_upload_dataset(dataset_name, connection=connection)
         dataset.uploaded_add_file(handle, effective_filename)
@@ -141,14 +138,9 @@ async def create_upload_dataset(
     ctx: Context,
     connection: str,
     filename: str = "",
-    overwrite: bool = False,
     include_schema: bool = True,
 ) -> str:
-    """Create an UploadedFiles dataset from a local file.
-
-    With ``overwrite=true``, an existing target is deleted before a new dataset
-    is created. This replacement is destructive and non-atomic.
-    """
+    """Create a new UploadedFiles dataset from a local file."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     filepath = _require_non_empty_string(filepath, "filepath")
@@ -164,7 +156,6 @@ async def create_upload_dataset(
             filepath=filepath,
             connection=connection,
             filename=filename,
-            overwrite=overwrite,
             include_schema=include_schema,
         )
 
