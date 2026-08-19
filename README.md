@@ -49,8 +49,6 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 `dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
-The server starts without credentials. It requires [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) on your `PATH`; uv provisions Python and the pinned runtime dependencies on first launch.
-
 > **First launch:** The plugin may take a little longer to get ready the first time you use it. If Codex or Claude says that Dataiku Headless could not start, wait a minute, then restart the Codex or Claude app (or your agent) once. You should only need to do this once.
 
 ### Codex CLI
