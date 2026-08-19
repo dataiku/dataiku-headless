@@ -118,6 +118,7 @@ def test_new_upload_dataset_is_created_from_the_source_file(monkeypatch, tmp_pat
         "columns": {"columns": ["name", "type"], "rows": [["value", "bigint"]]},
     }
 
+
 @pytest.mark.parametrize(
     "value",
     ["=1+1", "+1+1", "-1+1", "@SUM(A1:A2)", "\t=1+1", "\r=1+1", " =1+1"],
