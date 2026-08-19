@@ -165,6 +165,63 @@ def test_list_code_envs_ignores_search_mode_without_a_search(monkeypatch):
     assert result["matched_code_envs"] == 1
 
 
+def test_list_code_envs_filters_for_all_declared_packages_before_pagination(
+    monkeypatch,
+):
+    alpha = _raw("ALPHA")
+    alpha["specPackageList"] = "pandas==2.2\nnumpy\nscikit_learn"
+    beta = _raw("beta")
+    beta["specPackageList"] = "pandas\nnumpy"
+    gamma = _raw("gamma", "R")
+    gamma["specPackageList"] = '"pandas","2.2"\n"numpy","1.0"'
+    client = FakeClient([FakeCodeEnv(alpha), FakeCodeEnv(beta), FakeCodeEnv(gamma)])
+    _patch_client(monkeypatch, client)
+
+    result = _result(
+        tools.list_code_envs(
+            FakeContext(),
+            packages=["PANDAS", "numpy", "scikit-learn"],
+            offset=0,
+            limit=1,
+        )
+    )
+
+    assert result["matched_code_envs"] == 1
+    assert result["returned_code_envs"] == 1
+    row = dict(zip(result["code_envs"]["columns"], result["code_envs"]["rows"][0]))
+    assert row["name"] == "ALPHA"
+
+
+def test_list_code_envs_package_filter_composes_with_language_and_details(monkeypatch):
+    python_env = _raw("python")
+    python_env["specPackageList"] = "requests"
+    r_env = _raw("r", "R")
+    r_env["specPackageList"] = '"RJSONIO","1.3"'
+    client = FakeClient([FakeCodeEnv(python_env), FakeCodeEnv(r_env)])
+    _patch_client(monkeypatch, client)
+
+    result = _result(
+        tools.list_code_envs(
+            FakeContext(),
+            language="R",
+            packages=["rjsonio"],
+            include_details=True,
+        )
+    )
+
+    row = dict(zip(result["code_envs"]["columns"], result["code_envs"]["rows"][0]))
+    assert row["name"] == "r"
+    assert row["requested_packages"] == ['"RJSONIO","1.3"']
+
+
+@pytest.mark.parametrize(
+    "packages", [[], ["pandas>=2"], ["pandas[performance]"], [" "]]
+)
+def test_list_code_envs_rejects_non_name_package_filters(packages):
+    with pytest.raises(ValueError, match="packages"):
+        _result(tools.list_code_envs(FakeContext(), packages=packages))
+
+
 def test_create_code_env_applies_baseline_and_builds_selected_images(monkeypatch):
     client = FakeClient([])
     _patch_client(monkeypatch, client)
