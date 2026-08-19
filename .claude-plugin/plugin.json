@@ -1,7 +1,7 @@
 {
   "name": "dataiku-headless",
   "displayName": "Dataiku Headless",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "author": {
     "name": "Dataiku",
@@ -14,16 +14,8 @@
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/launcher.sh"],
-      "env": {
-        "UV_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/uv-cache",
-        "DKU_INSTANCE_NAME": "${DKU_INSTANCE_NAME:-}",
-        "DKU_DSS_URL": "${DKU_DSS_URL:-}",
-        "DKU_API_KEY": "${DKU_API_KEY:-}",
-        "DKU_NO_CHECK_CERTIFICATE": "${DKU_NO_CHECK_CERTIFICATE:-}",
-        "DKU_CONFIG_FILE": "${DKU_CONFIG_FILE:-}"
-      }
+      "command": "uv",
+      "args": ["run", "--quiet", "--script", "${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.py"]
     }
   }
 }

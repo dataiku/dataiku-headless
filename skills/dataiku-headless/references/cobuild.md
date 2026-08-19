@@ -39,11 +39,13 @@ Do not use this guide when:
 3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
 4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
-6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, call `get_cobuild_turn_status` with its exact `turn_id`; never resend the instruction.
+6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, keep calling `get_cobuild_turn_status` with its exact `turn_id` until it returns a terminal result; never resend the instruction. Cobuild has a finite server-side timeout, so this polling does not continue indefinitely.
 7. If an interrupted call loses its response, use `list_cobuild_conversations` to recover the conversation's `current_turn_id`. When it is present, call `get_cobuild_turn_status` before doing anything else; when it is absent, a new message may be sent.
-8. Retain the returned `conversation_id` for follow-up work.
-9. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
-10. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
+8. Independent work may continue while a turn is pending. Retain its `conversation_id` and `turn_id`, then poll again after each bounded unit of independent work and before any dependent action or completion report.
+9. Retain the returned `conversation_id` for follow-up work.
+10. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
+11. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
+12. If an answer returns "No pending question/confirmation found," do not retry. Inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 
 ## Prompt Guidance
 
@@ -75,9 +77,11 @@ Do not use this guide when:
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
 - When `rejected=true`, `answers` must be empty.
+- Cobuild conversations can continue concurrently in the Dataiku UI and through MCP/API. A question or deletion confirmation is a single DSS-side action; the first channel to answer consumes it.
+- If an MCP answer returns "No pending question/confirmation found," it may have been answered in the UI or invalidated server-side. Do not retry; inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 - Answer a question only when the user request or inspected context determines the answer. Otherwise, ask the user.
 - Honor `question.allow_multiple_answers` and `question.allow_custom_answer`; set `used_custom_answer=true` when supplying a custom free-text answer.
-- When a turn is `queued` or `in_progress`, call `get_cobuild_turn_status` with its current `turn_id`; do not submit a duplicate operation.
+- When a turn is `queued` or `in_progress`, retain its exact IDs and continue polling until its terminal result. Independent work is allowed, but do not send another message in the same conversation, take an action that depends on the turn succeeding, or report the relevant Cobuild work complete while it remains pending.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `./jobs.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
 - If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.

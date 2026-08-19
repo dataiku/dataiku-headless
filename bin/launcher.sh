@@ -1,10 +1,16 @@
 #!/bin/sh
+# LEGACY / INACTIVE: Plugin manifests now invoke ``uv run --quiet
+# bin/run_mcp.py`` directly so that native Windows hosts are supported. This
+# launcher is retained for possible future fallback use, but no supported
+# installation path invokes it. Do not treat it as the active server entry
+# point without explicitly restoring manifest support and reviewing its
+# platform behavior.
 # Bootstrap the runtime for the Dataiku MCP server, then hand off to it.
 #
-# This is what the plugin manifests run. It is a shell script rather than Python
-# on purpose: its job is to find a runtime, so it cannot be written in the
-# language it is looking for. /bin/sh exists on every macOS and Linux host,
-# including minimal containers with no python3 at all.
+# This legacy fallback is a shell script rather than Python on purpose: its job
+# is to find a runtime, so it cannot be written in the language it is looking
+# for. /bin/sh exists on every macOS and Linux host, including minimal
+# containers with no python3 at all.
 #
 # Three tiers, in descending order of preference:
 #
