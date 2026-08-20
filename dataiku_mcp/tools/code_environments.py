@@ -1,5 +1,7 @@
 """Dataiku code environment administration tools."""
 
+import re
+
 from fastmcp import Context
 from pydantic import BaseModel
 
@@ -10,12 +12,18 @@ from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
+    require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
 
 _LANGUAGES = {"PYTHON", "R"}
 _SEARCH_MODES = {"partial", "exact"}
+_PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_PACKAGE_SPEC_NAME_PATTERN = re.compile(
+    r'^\s*(?:["\'](?P<quoted>[A-Za-z0-9][A-Za-z0-9._-]*)["\']|'
+    r"(?P<plain>[A-Za-z0-9][A-Za-z0-9._-]*))"
+)
 _PYTHON_INTERPRETERS = {
     "PYTHON39",
     "PYTHON310",
@@ -46,6 +54,40 @@ class CodeEnvGroupPermission(BaseModel):
     use: bool
     update: bool
     manage_users: bool
+
+
+def _normalize_package_name(name: str, language: str) -> str:
+    """Normalize a package name for comparison in one code-environment language."""
+    if language == "PYTHON":
+        return re.sub(r"[-_.]+", "-", name).casefold()
+    return name.casefold()
+
+
+def _validate_package_names(packages: list[str] | None) -> list[str] | None:
+    """Validate query package names rather than requirement/version specifications."""
+    if packages is None:
+        return None
+    if not packages:
+        raise ValueError("'packages' must be a non-empty list")
+    packages = _require_non_empty_strings(packages, "packages")
+    invalid = [
+        package for package in packages if not _PACKAGE_NAME_PATTERN.fullmatch(package)
+    ]
+    if invalid:
+        raise ValueError(
+            "'packages' must contain package names only, without version constraints "
+            f"or extras: {invalid}"
+        )
+    return packages
+
+
+def _requested_package_names(raw: dict, language: str) -> set[str]:
+    """Return normalized names from an environment's declared package specifications."""
+    return {
+        _normalize_package_name(match.group("quoted") or match.group("plain"), language)
+        for spec in raw.get("specPackageList", "").splitlines()
+        if (match := _PACKAGE_SPEC_NAME_PATTERN.match(spec)) is not None
+    }
 
 
 def _serialize_code_env_summary(raw: dict) -> dict:
@@ -142,6 +184,7 @@ async def list_code_envs(
     search: str = "",
     search_mode: str = "partial",
     language: str | None = None,
+    packages: list[str] | None = None,
     include_details: bool = False,
     offset: int = 0,
     limit: int = 5,
@@ -153,6 +196,8 @@ async def list_code_envs(
         search_mode: ``partial`` for case-insensitive name matching, or ``exact``
             to retrieve one named environment. Ignored when ``search`` is empty.
         language: Exact language filter: ``PYTHON`` or ``R``.
+        packages: Return only environments that declare every listed package name.
+            Requires the same permission as ``include_details``.
         include_details: Return owner, access, packages, and image-build targets
             for each returned environment. Requires global Create code envs or
             Manage all code envs permission.
@@ -164,6 +209,7 @@ async def list_code_envs(
         search_mode = _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
     if language is not None:
         language = _require_allowed_value(language, "language", _LANGUAGES)
+    packages = _validate_package_names(packages)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
     await ctx.info("Listing Dataiku code environments...")
@@ -180,9 +226,23 @@ async def list_code_envs(
                 matched = [env for env in matched if query in env["name"].casefold()]
         if language is not None:
             matched = [env for env in matched if env["language"] == language]
+        if packages is not None:
+            rows = []
+            for env in matched:
+                code_env = client.get_code_env(env["language"], env["name"])
+                raw = code_env.get_settings().get_raw()
+                details = _serialize_code_env_details(raw)
+                requested = _requested_package_names(raw, env["language"])
+                query = {
+                    _normalize_package_name(package, env["language"])
+                    for package in packages
+                }
+                if query <= requested:
+                    rows.append(details if include_details else env)
+            matched = rows
         matched.sort(key=lambda env: (env["name"].casefold(), env["name"]))
         page = matched[offset : offset + limit]
-        if include_details:
+        if include_details and packages is None:
             rows = []
             for env in page:
                 code_env = client.get_code_env(env["language"], env["name"])
