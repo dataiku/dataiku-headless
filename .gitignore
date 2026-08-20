@@ -26,6 +26,7 @@ tmp
 # Design / rationale docs — local working notes, except committed brand assets
 docs/*
 !docs/assets/
+!docs/capabilities.md
 
 # Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
 test-data/

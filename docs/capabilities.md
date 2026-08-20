@@ -1,6 +1,9 @@
-# Headless Capabilities
+# Headless capability matrix
 
-Reference: what Headless inspects, what Cobuild builds, what can be re-run.
+Quick reference for what Headless inspects, what Cobuild builds, and what can be
+re-run. For the operating workflow, start with
+[`skills/dataiku-headless/SKILL.md`](../skills/dataiku-headless/SKILL.md) and load
+its object-specific references as directed.
 
 ## The rule
 
@@ -8,26 +11,31 @@ Reference: what Headless inspects, what Cobuild builds, what can be re-run.
 or modify a recipe, ML analysis, dashboard, insight, agent, agent tool, scenario, webapp,
 wiki article, data quality rule, knowledge bank, semantic model, or evaluation store.
 
-Headless writes directly in three cases: **bootstrap** (get a project or local content
-onto the instance so Cobuild has something to work with), **cross-project**, and
-**instance-level administration**. It also re-runs assets that already exist. Some
-bootstrap writes do land inside a project — see the table below.
+Headless writes Dataiku objects directly in three cases: **bootstrap** (get a project
+or local content onto the instance so Cobuild has something to work with),
+**cross-project**, and **instance-level administration**. It also re-runs assets that
+already exist. Some bootstrap writes do land inside a project — see the table below.
+Local profile actions are listed separately because they only change which Dataiku
+instance the local client targets.
 
 
 ## Surface
 
-**121 tools** · 90 read · 19 write · 6 Cobuild · 3 execute · 3 connect & test
+**121 tools** · 90 read · 18 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
+profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 90 | Never mutates |
-| Direct write | 19 | Bootstrap, cross-project, admin only |
+| Direct Dataiku write | 18 | Bootstrap, cross-project, admin only |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 3 | `build_datasets`, `run_recipe`, `run_scenario` |
-| Connect & test | 3 | `configure_instance`, `switch_instance`, `test_connection` |
+| Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
+| Connection test | 1 | `test_connection` |
 
 Buckets count each tool once by what it does. The tables below group by area instead, so a
-tool can sit in the **Instance targeting** section while counting as a read or a write here.
+tool can appear in the **Local instance targeting** section while counting in a different
+bucket here.
 
 ## Built by Cobuild — Headless only inspects
 
@@ -86,7 +94,7 @@ The **in-project** writes above are containers and content, not built logic: an 
 folder, an uploaded file, a library file, a variable, a dataset pointing at a file you
 supplied. None of them build a recipe, a model, or an agent.
 
-## Instance targeting
+## Local instance targeting
 
 Local client configuration, not Dataiku objects.
 
@@ -96,14 +104,3 @@ Local client configuration, not Dataiku objects.
 | `switch_instance` | Change which configured instance subsequent calls target |
 | `list_instances`, `get_current_instance` | Show configured instances and the active one |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |
-
-
-## Requirements and Installation
-
-[README](README.md).
-
----
-
-**Maintenance.** `tests/test_capabilities_doc.py` fails if a tool named here is not
-registered, if a registered tool is missing from this file, or if the **N tools** total is
-wrong. Those three are enforced, so a failing run tells you exactly what to change.

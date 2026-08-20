@@ -1,4 +1,4 @@
-"""``CAPABILITIES.md`` must stay in lockstep with the registered tool surface.
+"""``docs/capabilities.md`` must stay in lockstep with the registered tool surface.
 
 The doc is the user-facing answer to "can Headless do X, and does Cobuild or
 Headless do it". Its tool names and total are maintained by hand, so they rot
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import dataiku_mcp
 
-DOC = Path(__file__).resolve().parent.parent / "CAPABILITIES.md"
+DOC = Path(__file__).resolve().parent.parent / "docs" / "capabilities.md"
 
 # Tool names are lowercase snake_case. Paths and prose keep punctuation or stay
 # short, so shape alone separates a tool reference from `uv` or `README.md`.
@@ -42,7 +42,7 @@ def _documented_tools() -> set[str]:
 def test_documented_tools_are_registered():
     unknown = sorted(_documented_tools() - _registered_tools())
     assert not unknown, (
-        f"CAPABILITIES.md references tools that are not registered: {unknown}. "
+        f"docs/capabilities.md references tools that are not registered: {unknown}. "
         "They were renamed or removed; update the doc so the field is not told "
         "to call something that does not exist."
     )
@@ -51,15 +51,15 @@ def test_documented_tools_are_registered():
 def test_registered_tools_are_documented():
     undocumented = sorted(_registered_tools() - _documented_tools())
     assert not undocumented, (
-        f"CAPABILITIES.md is missing registered tools: {undocumented}. Add each "
+        f"docs/capabilities.md is missing registered tools: {undocumented}. Add each "
         "to the table for its area, and refresh the tool total."
     )
 
 
 def test_documented_tool_total_matches_registered():
     total = re.search(r"\*\*(\d+) tools\*\*", DOC.read_text(encoding="utf-8"))
-    assert total, "CAPABILITIES.md lost its '**N tools**' headline total"
+    assert total, "docs/capabilities.md lost its '**N tools**' headline total"
     assert int(total.group(1)) == len(_registered_tools()), (
-        f"CAPABILITIES.md says {total.group(1)} tools but "
+        f"docs/capabilities.md says {total.group(1)} tools but "
         f"{len(_registered_tools())} are registered"
     )
