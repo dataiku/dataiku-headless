@@ -35,7 +35,7 @@ def _create_uploaded_dataset_from_file(
         if dataset_name in existing:
             raise ValueError(
                 f"Dataset '{dataset_name}' already exists in project '{project_key}'. "
-                "Use a new dataset name or route changes through Cobuild."
+                "Use a new dataset name or first delete existing dataset through Cobuild."
             )
 
         dataset = project.create_upload_dataset(dataset_name, connection=connection)

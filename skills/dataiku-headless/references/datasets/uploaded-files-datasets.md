@@ -8,9 +8,7 @@ This reference covers the generic upload surface only. Excel ingest configuratio
 
 Direct upload is the exception to the Cobuild route. Use it only to create a new Uploaded Files dataset from user-supplied local data or tabular rows.
 
-Do not use it to replace an existing dataset. Use a new name or route changes
-through Cobuild. Do not use it as a general substitute for creating managed or
-external datasets.
+Do not use it to replace an existing dataset. Use a new name or, to re-use a name, first delete the existing dataset through Cobuild. Do not use it as a general substitute for creating managed or external datasets.
 
 ## Connection Selection
 
