@@ -204,11 +204,8 @@ async def list_code_envs(
         search_mode: ``partial`` for case-insensitive name matching, or ``exact``
             to retrieve one named environment. Ignored when ``search`` is empty.
         language: Exact language filter: ``PYTHON`` or ``R``.
-        packages: Package names every returned environment must declare. Package
-            names only; version constraints and extras are not accepted. Matching
-            uses declared/requested package specifications, not transitive
-            installations. Filtering reads each candidate's settings and requires
-            the same permission as ``include_details``.
+        packages: Return only environments that declare every listed package name.
+            Requires the same permission as ``include_details``.
         include_details: Return owner, access, packages, and image-build targets
             for each returned environment. Requires global Create code envs or
             Manage all code envs permission.
