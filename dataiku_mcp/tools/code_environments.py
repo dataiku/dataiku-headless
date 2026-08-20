@@ -63,14 +63,6 @@ def _normalize_package_name(name: str, language: str) -> str:
     return name.casefold()
 
 
-def _package_name_from_spec(spec: str) -> str | None:
-    """Extract the leading package name from a Python or R package-spec line."""
-    match = _PACKAGE_SPEC_NAME_PATTERN.match(spec)
-    if match is None:
-        return None
-    return match.group("quoted") or match.group("plain")
-
-
 def _validate_package_names(packages: list[str] | None) -> list[str] | None:
     """Validate query package names rather than requirement/version specifications."""
     if packages is None:
@@ -92,9 +84,9 @@ def _validate_package_names(packages: list[str] | None) -> list[str] | None:
 def _requested_package_names(raw: dict, language: str) -> set[str]:
     """Return normalized names from an environment's declared package specifications."""
     return {
-        _normalize_package_name(name, language)
+        _normalize_package_name(match.group("quoted") or match.group("plain"), language)
         for spec in raw.get("specPackageList", "").splitlines()
-        if (name := _package_name_from_spec(spec)) is not None
+        if (match := _PACKAGE_SPEC_NAME_PATTERN.match(spec)) is not None
     }
 
 
