@@ -25,6 +25,8 @@ jobs:
           enable-cache: true
       - name: Install locked dependencies
         run: uv sync --locked
+      - name: Verify PEP 723 script lockfile
+        run: uv lock --script bin/run_mcp.py --check
       # Runs every hook in .pre-commit-config.yaml (ruff lint, file hygiene,
       # uv-lock) against all files. commit-msg hooks are skipped by --all-files.
       - name: Run pre-commit
