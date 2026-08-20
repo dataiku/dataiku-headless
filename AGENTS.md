@@ -21,6 +21,7 @@ Use this file when changing this repository. It is not an operating guide for us
 ## Sources of truth
 
 - Registered MCP surface: `tests/test_tool_surface.py`.
+- User-facing capability boundary and tool inventory: `docs/capabilities.md`, enforced by `tests/test_capabilities_doc.py`.
 - Tool registration imports: `dataiku_mcp/__init__.py`.
 - Project dependencies, Python support, version, and CLI entry points: `pyproject.toml`.
 - Standalone server dependency pins and Python floor: the PEP 723 block in `bin/run_mcp.py`.

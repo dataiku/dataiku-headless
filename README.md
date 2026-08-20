@@ -122,6 +122,12 @@ Dataiku Headless is an MCP server and agent skill library for operating Dataiku 
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
+## Capability reference
+
+For a quick reference to what Headless can inspect, what Cobuild builds, and the
+limited direct actions Headless supports, see the
+[Headless capability matrix](docs/capabilities.md).
+
 ## MCP Server
 
 `dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
