@@ -15,21 +15,33 @@ from .utils.validation import (
 
 _CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
 _SENSITIVE_SUFFIXES = (
-    "accesskey",
     "apikey",
     "credential",
     "credentials",
     "password",
-    "privatekey",
     "secret",
-    "secretkey",
     "token",
+)
+_SENSITIVE_EXACT_KEYS = ("key",)
+_SENSITIVE_KEY_FRAGMENTS = (
+    "accesskey",
+    "appsecret",
+    "keybase64data",
+    "keyjsondata",
+    "passphrase",
+    "privatekey",
+    "secretkey",
+    "tokenkey",
 )
 
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.replace("_", "").replace("-", "").lower()
-    return normalized.endswith(_SENSITIVE_SUFFIXES)
+    return (
+        normalized in _SENSITIVE_EXACT_KEYS
+        or normalized.endswith(_SENSITIVE_SUFFIXES)
+        or any(fragment in normalized for fragment in _SENSITIVE_KEY_FRAGMENTS)
+    )
 
 
 def _redact_sensitive_data(value: Any) -> Any:

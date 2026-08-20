@@ -12,12 +12,19 @@ from dataiku_mcp.tools import connections
         "clientPassword",
         "clientSecret",
         "openaiApiKey",
-        "awsAccessKey",
+        "awsAccessKeyId",
         "userCredentials",
-        "sshPrivateKey",
-        "awsSecretKey",
+        "privateKeyB64",
+        "sshPrivateKeyB64",
+        "awsSecretKeyB64",
+        "keyPassphrase",
+        "appSecretContent",
+        "keyJsonData",
+        "keyBase64Data",
         "sessionToken",
+        "token_key",
         "resolvedOAuth2Credential",
+        "key",
     ],
 )
 def test_redacts_sensitive_connection_fields(key):
@@ -32,7 +39,9 @@ def test_redacts_sensitive_connection_fields(key):
     }
 
 
-@pytest.mark.parametrize("key", ["authorizationEndpoint", "tokenEndpoint"])
+@pytest.mark.parametrize(
+    "key", ["authorizationEndpoint", "encryptionKeyId", "tokenEndpoint"]
+)
 def test_preserves_non_sensitive_connection_fields(key):
     assert connections._redact_sensitive_data({key: "https://example.com"}) == {
         key: "https://example.com"
