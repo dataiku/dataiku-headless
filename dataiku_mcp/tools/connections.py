@@ -22,18 +22,25 @@ _SENSITIVE_SUFFIXES = (
     "secret",
     "token",
 )
+_SENSITIVE_EXACT_KEYS = ("key",)
 _SENSITIVE_KEY_FRAGMENTS = (
     "accesskey",
+    "appsecret",
+    "keybase64data",
+    "keyjsondata",
     "passphrase",
     "privatekey",
     "secretkey",
+    "tokenkey",
 )
 
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.replace("_", "").replace("-", "").lower()
-    return normalized.endswith(_SENSITIVE_SUFFIXES) or any(
-        fragment in normalized for fragment in _SENSITIVE_KEY_FRAGMENTS
+    return (
+        normalized in _SENSITIVE_EXACT_KEYS
+        or normalized.endswith(_SENSITIVE_SUFFIXES)
+        or any(fragment in normalized for fragment in _SENSITIVE_KEY_FRAGMENTS)
     )
 
 
