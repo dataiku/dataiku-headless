@@ -27,8 +27,6 @@ Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills
 
 Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
-See the [Headless capability matrix](docs/capabilities.md) for the complete tool boundary by area.
-
 ## Requirements
 
 Install [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) and make sure it is available on your `PATH`. Dataiku Headless uses `uv` to provide its Python runtime and pinned dependencies.
@@ -117,6 +115,12 @@ npx skills add dataiku/dataiku-headless
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+
+## Capability reference
+
+For a quick reference to what Headless can inspect, what Cobuild builds, and the
+limited direct actions Headless supports, see the
+[Headless capability matrix](docs/capabilities.md).
 
 ## MCP Server
 
