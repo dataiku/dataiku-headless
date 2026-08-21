@@ -21,13 +21,13 @@ instance the local client targets.
 
 ## Surface
 
-**124 tools** · 91 read · 20 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
+**133 tools** · 93 read · 27 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 91 | Never mutates |
-| Direct Dataiku write | 20 | Bootstrap, cross-project, admin only |
+| Read / inspect | 93 | Never mutates |
+| Direct Dataiku write | 27 | Bootstrap, cross-project, admin only |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 3 | `build_datasets`, `run_recipe`, `run_scenario` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -83,7 +83,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — needs your filesystem |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
-| Plugins | `list_plugins` | `install_plugin_from_store`, `update_plugin_from_store` | Instance-level |
+| Plugins | `list_plugins`, `get_plugin`, `list_plugin_usages` | `install_plugin_from_store`, `update_plugin_from_store`, `install_plugin_from_local_path`, `update_plugin_from_local_path`, `update_plugin_settings`, `delete_plugin`, `create_plugin_code_env`, `set_plugin_code_env`, `update_plugin_code_env` | Instance-level |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario` | Execution — re-runs assets that already exist |

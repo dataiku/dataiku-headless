@@ -150,9 +150,18 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "plugins": frozenset(
         {
+            "create_plugin_code_env",
+            "delete_plugin",
+            "get_plugin",
+            "install_plugin_from_local_path",
             "install_plugin_from_store",
+            "list_plugin_usages",
             "list_plugins",
+            "set_plugin_code_env",
+            "update_plugin_code_env",
+            "update_plugin_from_local_path",
             "update_plugin_from_store",
+            "update_plugin_settings",
         }
     ),
     "project_folders": frozenset(
