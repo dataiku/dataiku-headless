@@ -45,6 +45,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
+| Discover installed plugins or install and update Store plugins | `./references/plugins.md` |
 | Dataiku administrative tasks: (e.g. users, groups, code environments, general settings, etc.) | `./references/administration.md` |
 | Inspect ML analyses, trained models, or saved models | `./references/machine-learning.md` |
 | Inspect LLMs, Knowledge Banks, or RAG LLMs | `./references/llms-and-knowledge-banks.md` |

@@ -148,6 +148,13 @@ EXPECTED_TOOLS_BY_MODULE = {
             "upload_file_to_managed_folder",
         }
     ),
+    "plugins": frozenset(
+        {
+            "install_plugin_from_store",
+            "list_plugins",
+            "update_plugin_from_store",
+        }
+    ),
     "project_folders": frozenset(
         {
             "create_project_folder",

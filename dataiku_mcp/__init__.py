@@ -58,6 +58,7 @@ from .tools import (  # noqa: F401,E402
     licensing,
     llms_and_knowledge_banks,
     managed_folders,
+    plugins,
     project_folders,
     project_libraries,
     projects,

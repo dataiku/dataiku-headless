@@ -218,6 +218,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │   │   ├── jobs.py            # Async job status/log/wait tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
+│   │   ├── plugins.py         # Installed-plugin discovery and Store lifecycle tools
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection tools + create_project write
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
@@ -247,6 +248,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
 │           ├── jobs.md             # Dataiku job tracking, waiting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
+│           ├── plugins.md          # Plugin discovery and Store lifecycle
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
