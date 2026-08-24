@@ -11,48 +11,71 @@ from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 
-_SUPPORTED_PROJECT_SETTING_PATHS = {
-    "flowDisplaySettings.zonesGraphRenderingAlgorithm",
-    "flowDisplaySettings.zonesGraphConnectZones",
-    "flowDisplaySettings.zonesGraphForJobs",
-    "flowDisplaySettings.respectTraversalOrder",
-    "flowDisplaySettings.zonesManualPositioning",
-    "flowDisplaySettings.showFlowZoneDescriptions",
-    "flowBuildSettings.mergeSqlPipelines",
-    "flowBuildSettings.pruneBeforeSqlPipelines",
-    "flowBuildSettings.mergeSparkPipelines",
-    "flowBuildSettings.pruneBeforeSparkPipelines",
-    "flowBuildSettings.mergeCdePipelines",
-    "flowBuildSettings.pruneBeforeCdePipelines",
-    "codeEnvs.python.mode",
-    "codeEnvs.python.envName",
-    "codeEnvs.python.preventOverride",
-    "codeEnvs.r.mode",
-    "codeEnvs.r.envName",
-    "codeEnvs.r.preventOverride",
-    "container.containerMode",
-    "container.containerConf",
-    "containerForVisualRecipesWorkloads.containerMode",
-    "containerForVisualRecipesWorkloads.containerConf",
+_CODE_ENV_MODES = {"INHERIT", "USE_BUILTIN_MODE", "EXPLICIT_ENV"}
+_CONTAINER_MODES = {"INHERIT", "NONE", "EXPLICIT_CONTAINER"}
+_SUPPORTED_PROJECT_SETTINGS = {
+    "flowDisplaySettings.zonesGraphRenderingAlgorithm": {
+        "DOT_OLDRANK",
+        "DOT_NEWRANK_FREERANK",
+    },
+    "codeEnvs.python.mode": _CODE_ENV_MODES,
+    "codeEnvs.r.mode": _CODE_ENV_MODES,
+    "codeEnvs.python.envName": str,
+    "codeEnvs.r.envName": str,
+    "container.containerMode": _CONTAINER_MODES,
+    "container.containerConf": str,
+    "containerForVisualRecipesWorkloads.containerMode": _CONTAINER_MODES,
+    "containerForVisualRecipesWorkloads.containerConf": str,
+    **{
+        path: bool
+        for path in (
+            "flowDisplaySettings.zonesGraphConnectZones",
+            "flowDisplaySettings.zonesGraphForJobs",
+            "flowDisplaySettings.respectTraversalOrder",
+            "flowDisplaySettings.zonesManualPositioning",
+            "flowDisplaySettings.showFlowZoneDescriptions",
+            "flowBuildSettings.mergeSqlPipelines",
+            "flowBuildSettings.pruneBeforeSqlPipelines",
+            "flowBuildSettings.mergeSparkPipelines",
+            "flowBuildSettings.pruneBeforeSparkPipelines",
+            "flowBuildSettings.mergeCdePipelines",
+            "flowBuildSettings.pruneBeforeCdePipelines",
+            "codeEnvs.python.preventOverride",
+            "codeEnvs.r.preventOverride",
+        )
+    },
 }
 
 
-def _leaf_paths(value: dict, prefix: str = ""):
+def _leaf_items(value: dict, prefix: str = ""):
     for key, child in value.items():
         path = f"{prefix}.{key}" if prefix else key
         if isinstance(child, dict):
-            yield from _leaf_paths(child, path)
+            yield from _leaf_items(child, path)
         else:
-            yield path
+            yield path, child
 
 
 def _validate_project_settings_patch(patch: dict) -> None:
-    paths = list(_leaf_paths(patch))
-    unsupported = sorted(set(paths) - _SUPPORTED_PROJECT_SETTING_PATHS)
-    if unsupported:
-        raise ValueError(f"Unsupported project settings: {unsupported}")
-    if not paths:
+    items = list(_leaf_items(patch))
+    if not items:
         raise ValueError("'settings_patch' must contain at least one setting")
+    for path, value in items:
+        rule = _SUPPORTED_PROJECT_SETTINGS.get(path)
+        if rule is None:
+            raise ValueError(f"Unsupported project setting: '{path}'")
+        if value is None:
+            continue
+        if rule is bool and value is not True and value is not False:
+            raise ValueError(f"'{path}' must be a boolean")
+        if rule is str:
+            _require_non_empty_string(value, path)
+        elif isinstance(rule, set) and (
+            not isinstance(value, str) or value not in rule
+        ):
+            raise ValueError(
+                f"Invalid '{path}': {value!r}. Allowed values: {sorted(rule)}"
+            )
 
 
 def _apply_json_merge_patch(base: dict, patch: dict) -> dict:

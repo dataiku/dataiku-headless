@@ -118,4 +118,18 @@ def test_update_project_settings_rejects_invalid_patch(monkeypatch):
                 "PROJ", {"codeEnvs": {"python": {"unknown": True}}}, FakeContext()
             )
         )
+    with pytest.raises(ValueError, match="must be a boolean"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ",
+                {"flowBuildSettings": {"mergeSqlPipelines": "yes"}},
+                FakeContext(),
+            )
+        )
+    with pytest.raises(ValueError, match="Allowed values"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ", {"container": {"containerMode": "BANANA"}}, FakeContext()
+            )
+        )
     assert project.settings.save_calls == 0
