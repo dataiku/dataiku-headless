@@ -13,7 +13,7 @@ from .utils.validation import (
 
 
 def _apply_json_merge_patch(base: dict, patch: dict) -> dict:
-    """Apply a JSON Merge Patch, with null values removing keys."""
+    """Recursively apply a JSON Merge Patch, with null values removing keys."""
     merged = dict(base)
     for key, value in patch.items():
         if value is None:
