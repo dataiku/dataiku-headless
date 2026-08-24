@@ -160,8 +160,9 @@ async def update_project_settings(
 ) -> str:
     """Merge a partial object into the project's editable settings.
 
-    Nested objects are merged; scalar and list values are replaced. Use
-    get_project_settings first to inspect the current shape and values.
+    Nested objects are merged, scalar and list values are replaced, and null
+    values remove fields. Use get_project_settings first to inspect the current
+    shape and values.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     patch = _coerce_json_object(settings_patch, "settings_patch")

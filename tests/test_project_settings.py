@@ -60,8 +60,8 @@ def test_update_project_settings_merges_nested_patch(monkeypatch):
             },
             "flowBuildSettings": {"mergeSqlPipelines": False},
             "codeEnvs": {
-                "python": {"mode": "INHERIT"},
-                "r": {"mode": "INHERIT"},
+                "python": {"mode": "INHERIT", "preventOverride": False},
+                "r": {"mode": "INHERIT", "preventOverride": False},
             },
         },
         "permissions": [{"group": "data-team"}],
@@ -73,8 +73,8 @@ def test_update_project_settings_merges_nested_patch(monkeypatch):
         "codeEnvs": {
             "python": {
                 "mode": "EXPLICIT_ENV",
-                "useBuiltinEnv": False,
                 "envName": "PYTHON_ENV",
+                "preventOverride": True,
             }
         },
     }
@@ -92,10 +92,10 @@ def test_update_project_settings_merges_nested_patch(monkeypatch):
         "codeEnvs": {
             "python": {
                 "mode": "EXPLICIT_ENV",
-                "useBuiltinEnv": False,
                 "envName": "PYTHON_ENV",
+                "preventOverride": True,
             },
-            "r": {"mode": "INHERIT"},
+            "r": {"mode": "INHERIT", "preventOverride": False},
         },
     }
     assert raw["permissions"] == [{"group": "data-team"}]
@@ -105,14 +105,22 @@ def test_update_project_settings_merges_nested_patch(monkeypatch):
 def test_update_project_settings_accepts_json_string(monkeypatch):
     project = _install_fake_project(
         monkeypatch,
-        {"settings": {"container": {"containerMode": "INHERIT"}}},
+        {
+            "settings": {
+                "container": {"containerMode": "INHERIT"},
+                "containerForVisualRecipesWorkloads": {"containerMode": "INHERIT"},
+            }
+        },
     )
 
     asyncio.run(
         projects.update_project_settings(
             "PROJ",
             '{"container": {"containerMode": "EXPLICIT_CONTAINER", '
-            '"containerConf": "container-config"}}',
+            '"containerConf": "container-config"}, '
+            '"containerForVisualRecipesWorkloads": {'
+            '"containerMode": "EXPLICIT_CONTAINER", '
+            '"containerConf": "visual-container-config"}}',
             FakeContext(),
         )
     )
@@ -120,6 +128,64 @@ def test_update_project_settings_accepts_json_string(monkeypatch):
     assert project.settings.raw["settings"]["container"] == {
         "containerMode": "EXPLICIT_CONTAINER",
         "containerConf": "container-config",
+    }
+    assert project.settings.raw["settings"]["containerForVisualRecipesWorkloads"] == {
+        "containerMode": "EXPLICIT_CONTAINER",
+        "containerConf": "visual-container-config",
+    }
+
+
+def test_update_project_settings_null_removes_explicit_selection_fields(monkeypatch):
+    project = _install_fake_project(
+        monkeypatch,
+        {
+            "settings": {
+                "codeEnvs": {
+                    "python": {
+                        "mode": "EXPLICIT_ENV",
+                        "envName": "PYTHON_ENV",
+                        "preventOverride": True,
+                    }
+                },
+                "container": {
+                    "containerMode": "EXPLICIT_CONTAINER",
+                    "containerConf": "container-config",
+                },
+            }
+        },
+    )
+
+    patch = {
+        "codeEnvs": {
+            "python": {
+                "mode": "USE_BUILTIN_MODE",
+                "envName": None,
+                "preventOverride": False,
+            }
+        },
+        "container": {"containerMode": "NONE", "containerConf": None},
+    }
+    asyncio.run(projects.update_project_settings("PROJ", patch, FakeContext()))
+
+    assert project.settings.raw["settings"] == {
+        "codeEnvs": {
+            "python": {
+                "mode": "USE_BUILTIN_MODE",
+                "preventOverride": False,
+            }
+        },
+        "container": {"containerMode": "NONE"},
+    }
+
+
+def test_update_project_settings_does_not_add_nested_null_fields(monkeypatch):
+    project = _install_fake_project(monkeypatch, {"settings": {}})
+
+    patch = {"codeEnvs": {"python": {"mode": "INHERIT", "envName": None}}}
+    asyncio.run(projects.update_project_settings("PROJ", patch, FakeContext()))
+
+    assert project.settings.raw["settings"] == {
+        "codeEnvs": {"python": {"mode": "INHERIT"}}
     }
 
 

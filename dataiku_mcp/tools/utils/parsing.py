@@ -61,11 +61,16 @@ def parse_non_empty_string_list(raw_json: str, field_name: str) -> list[str]:
 
 
 def deep_merge_dict(base: dict, patch: dict) -> dict:
-    """Recursively merge dict objects. Non-dict values are replaced by patch values."""
+    """Apply a JSON Merge Patch to a dict, with null values removing keys."""
     merged = dict(base)
     for key, value in patch.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = deep_merge_dict(merged[key], value)
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict):
+            current = merged.get(key)
+            merged[key] = deep_merge_dict(
+                current if isinstance(current, dict) else {}, value
+            )
         else:
             merged[key] = value
     return merged
