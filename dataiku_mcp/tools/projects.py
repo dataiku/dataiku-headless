@@ -1,9 +1,6 @@
 """Project exploration, listing, and limited creation tools."""
 
-from typing import Annotated, Literal
-
 from fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -14,63 +11,48 @@ from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 
-_NonEmptyString = Annotated[str, StringConstraints(min_length=1, pattern=r"\S")]
+_SUPPORTED_PROJECT_SETTING_PATHS = {
+    "flowDisplaySettings.zonesGraphRenderingAlgorithm",
+    "flowDisplaySettings.zonesGraphConnectZones",
+    "flowDisplaySettings.zonesGraphForJobs",
+    "flowDisplaySettings.respectTraversalOrder",
+    "flowDisplaySettings.zonesManualPositioning",
+    "flowDisplaySettings.showFlowZoneDescriptions",
+    "flowBuildSettings.mergeSqlPipelines",
+    "flowBuildSettings.pruneBeforeSqlPipelines",
+    "flowBuildSettings.mergeSparkPipelines",
+    "flowBuildSettings.pruneBeforeSparkPipelines",
+    "flowBuildSettings.mergeCdePipelines",
+    "flowBuildSettings.pruneBeforeCdePipelines",
+    "codeEnvs.python.mode",
+    "codeEnvs.python.envName",
+    "codeEnvs.python.preventOverride",
+    "codeEnvs.r.mode",
+    "codeEnvs.r.envName",
+    "codeEnvs.r.preventOverride",
+    "container.containerMode",
+    "container.containerConf",
+    "containerForVisualRecipesWorkloads.containerMode",
+    "containerForVisualRecipesWorkloads.containerConf",
+}
 
 
-class _SettingsPatchModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+def _leaf_paths(value: dict, prefix: str = ""):
+    for key, child in value.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(child, dict):
+            yield from _leaf_paths(child, path)
+        else:
+            yield path
 
 
-class FlowDisplaySettingsPatch(_SettingsPatchModel):
-    zonesGraphRenderingAlgorithm: (
-        Literal["DOT_OLDRANK", "DOT_NEWRANK_FREERANK"] | None
-    ) = None
-    zonesGraphConnectZones: bool | None = None
-    zonesGraphForJobs: bool | None = None
-    respectTraversalOrder: bool | None = None
-    zonesManualPositioning: bool | None = None
-    showFlowZoneDescriptions: bool | None = None
-
-
-class FlowBuildSettingsPatch(_SettingsPatchModel):
-    mergeSqlPipelines: bool | None = None
-    pruneBeforeSqlPipelines: bool | None = None
-    mergeSparkPipelines: bool | None = None
-    pruneBeforeSparkPipelines: bool | None = None
-    mergeCdePipelines: bool | None = None
-    pruneBeforeCdePipelines: bool | None = None
-
-
-class ProjectCodeEnvPatch(_SettingsPatchModel):
-    mode: Literal["INHERIT", "USE_BUILTIN_MODE", "EXPLICIT_ENV"] | None = None
-    envName: _NonEmptyString | None = None
-    preventOverride: bool | None = None
-
-
-class ProjectCodeEnvsPatch(_SettingsPatchModel):
-    python: ProjectCodeEnvPatch = Field(default_factory=ProjectCodeEnvPatch)
-    r: ProjectCodeEnvPatch = Field(default_factory=ProjectCodeEnvPatch)
-
-
-class ProjectContainerPatch(_SettingsPatchModel):
-    containerMode: Literal["INHERIT", "NONE", "EXPLICIT_CONTAINER"] | None = None
-    containerConf: _NonEmptyString | None = None
-
-
-class ProjectSettingsPatch(_SettingsPatchModel):
-    """Project settings supported by ``update_project_settings``."""
-
-    flowDisplaySettings: FlowDisplaySettingsPatch = Field(
-        default_factory=FlowDisplaySettingsPatch
-    )
-    flowBuildSettings: FlowBuildSettingsPatch = Field(
-        default_factory=FlowBuildSettingsPatch
-    )
-    codeEnvs: ProjectCodeEnvsPatch = Field(default_factory=ProjectCodeEnvsPatch)
-    container: ProjectContainerPatch = Field(default_factory=ProjectContainerPatch)
-    containerForVisualRecipesWorkloads: ProjectContainerPatch = Field(
-        default_factory=ProjectContainerPatch
-    )
+def _validate_project_settings_patch(patch: dict) -> None:
+    paths = list(_leaf_paths(patch))
+    unsupported = sorted(set(paths) - _SUPPORTED_PROJECT_SETTING_PATHS)
+    if unsupported:
+        raise ValueError(f"Unsupported project settings: {unsupported}")
+    if not paths:
+        raise ValueError("'settings_patch' must contain at least one setting")
 
 
 def _apply_json_merge_patch(base: dict, patch: dict) -> dict:
@@ -229,7 +211,7 @@ async def get_project_settings(project_key: str, ctx: Context) -> str:
 @mcp.tool()
 async def update_project_settings(
     project_key: str,
-    settings_patch: ProjectSettingsPatch | str,
+    settings_patch: dict | str,
     ctx: Context,
 ) -> str:
     """Merge supported fields into the project's editable settings.
@@ -239,14 +221,10 @@ async def update_project_settings(
     inspect the current values.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
-    if isinstance(settings_patch, ProjectSettingsPatch):
-        validated_patch = settings_patch
-    else:
-        patch = _coerce_json_object(settings_patch, "settings_patch")
-        validated_patch = ProjectSettingsPatch.model_validate(patch)
-    patch = validated_patch.model_dump(exclude_unset=True)
+    patch = _coerce_json_object(settings_patch, "settings_patch")
     if not patch:
         raise ValueError("'settings_patch' must not be empty")
+    _validate_project_settings_patch(patch)
     await ctx.info(f"Updating settings for project {project_key}...")
 
     def _run():
