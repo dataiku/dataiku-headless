@@ -5,7 +5,10 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.parsing import coerce_json_object as _coerce_json_object
+from .utils.parsing import (
+    coerce_json_object as _coerce_json_object,
+    deep_merge_dict as _deep_merge_dict,
+)
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -134,6 +137,47 @@ async def get_project_variables(project_key: str, ctx: Context) -> str:
         lambda: get_dss_client().get_project(project_key).get_variables()
     )
     return compact_json(variables)
+
+
+@mcp.tool()
+async def get_project_settings(project_key: str, ctx: Context) -> str:
+    """Get the project's editable settings."""
+    project_key = _require_non_empty_string(project_key, "project_key")
+    await ctx.info(f"Fetching settings for project {project_key}...")
+
+    def _run():
+        raw = get_dss_client().get_project(project_key).get_settings().get_raw()
+        return raw["settings"]
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool()
+async def update_project_settings(
+    project_key: str,
+    settings_patch: dict | str,
+    ctx: Context,
+) -> str:
+    """Merge a partial object into the project's editable settings.
+
+    Nested objects are merged; scalar and list values are replaced. Use
+    get_project_settings first to inspect the current shape and values.
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    patch = _coerce_json_object(settings_patch, "settings_patch")
+    if not patch:
+        raise ValueError("'settings_patch' must not be empty")
+    await ctx.info(f"Updating settings for project {project_key}...")
+
+    def _run():
+        project = get_dss_client().get_project(project_key)
+        settings = project.get_settings()
+        raw = settings.get_raw()
+        raw["settings"] = _deep_merge_dict(raw["settings"], patch)
+        settings.save()
+        return project.get_settings().get_raw()["settings"]
+
+    return compact_json(await run_blocking(_run))
 
 
 @mcp.tool()
