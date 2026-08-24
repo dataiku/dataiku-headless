@@ -13,9 +13,8 @@ Project settings are a narrow direct-write exception for configuration that Cobu
 
 1. Confirm the project key with `list_projects`.
 2. Read the current values with `get_project_settings`.
-3. Discover exact code environment or container configuration names before selecting them; do not invent names.
-4. Pass only the requested fields to `update_project_settings`. Use `null` to remove a field left by an explicit selection.
-5. Read the settings again and verify the changed values.
+3. Pass only the requested fields to `update_project_settings`. Use `null` to remove a field left by an explicit selection.
+4. Read the settings again and verify the changed values.
 
 ## Flow Display and Pipelines
 
@@ -37,6 +36,8 @@ Project settings are a narrow direct-write exception for configuration that Cobu
 
 Configure Python under `codeEnvs.python` and R under `codeEnvs.r`.
 
+Before using `EXPLICIT_ENV`, call `list_code_envs(language="PYTHON")` or `list_code_envs(language="R")` and copy the returned environment name exactly into `envName`.
+
 | Mode | Fields |
 | --- | --- |
 | Inherit the instance default | `{"mode":"INHERIT","envName":null}` |
@@ -48,6 +49,8 @@ Configure Python under `codeEnvs.python` and R under `codeEnvs.r`.
 ## Container Execution
 
 `container` controls user-code workloads. `containerForVisualRecipesWorkloads` controls visual-recipe workloads. Patch either or both with the same shape.
+
+Before using `EXPLICIT_CONTAINER`, call `list_container_exec_configs` and copy the returned `name` exactly into `containerConf`. This list tool requires global administrator rights; if it is unavailable, ask the user for the exact name instead of guessing.
 
 | Mode | Fields |
 | --- | --- |
