@@ -1,6 +1,9 @@
 """Project exploration, listing, and limited creation tools."""
 
+from typing import Annotated, Literal
+
 from fastmcp import Context
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -10,6 +13,64 @@ from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
+
+_NonEmptyString = Annotated[str, StringConstraints(min_length=1, pattern=r"\S")]
+
+
+class _SettingsPatchModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class FlowDisplaySettingsPatch(_SettingsPatchModel):
+    zonesGraphRenderingAlgorithm: (
+        Literal["DOT_OLDRANK", "DOT_NEWRANK_FREERANK"] | None
+    ) = None
+    zonesGraphConnectZones: bool | None = None
+    zonesGraphForJobs: bool | None = None
+    respectTraversalOrder: bool | None = None
+    zonesManualPositioning: bool | None = None
+    showFlowZoneDescriptions: bool | None = None
+
+
+class FlowBuildSettingsPatch(_SettingsPatchModel):
+    mergeSqlPipelines: bool | None = None
+    pruneBeforeSqlPipelines: bool | None = None
+    mergeSparkPipelines: bool | None = None
+    pruneBeforeSparkPipelines: bool | None = None
+    mergeCdePipelines: bool | None = None
+    pruneBeforeCdePipelines: bool | None = None
+
+
+class ProjectCodeEnvPatch(_SettingsPatchModel):
+    mode: Literal["INHERIT", "USE_BUILTIN_MODE", "EXPLICIT_ENV"] | None = None
+    envName: _NonEmptyString | None = None
+    preventOverride: bool | None = None
+
+
+class ProjectCodeEnvsPatch(_SettingsPatchModel):
+    python: ProjectCodeEnvPatch = Field(default_factory=ProjectCodeEnvPatch)
+    r: ProjectCodeEnvPatch = Field(default_factory=ProjectCodeEnvPatch)
+
+
+class ProjectContainerPatch(_SettingsPatchModel):
+    containerMode: Literal["INHERIT", "NONE", "EXPLICIT_CONTAINER"] | None = None
+    containerConf: _NonEmptyString | None = None
+
+
+class ProjectSettingsPatch(_SettingsPatchModel):
+    """Project settings supported by ``update_project_settings``."""
+
+    flowDisplaySettings: FlowDisplaySettingsPatch = Field(
+        default_factory=FlowDisplaySettingsPatch
+    )
+    flowBuildSettings: FlowBuildSettingsPatch = Field(
+        default_factory=FlowBuildSettingsPatch
+    )
+    codeEnvs: ProjectCodeEnvsPatch = Field(default_factory=ProjectCodeEnvsPatch)
+    container: ProjectContainerPatch = Field(default_factory=ProjectContainerPatch)
+    containerForVisualRecipesWorkloads: ProjectContainerPatch = Field(
+        default_factory=ProjectContainerPatch
+    )
 
 
 def _apply_json_merge_patch(base: dict, patch: dict) -> dict:
@@ -168,17 +229,22 @@ async def get_project_settings(project_key: str, ctx: Context) -> str:
 @mcp.tool()
 async def update_project_settings(
     project_key: str,
-    settings_patch: dict | str,
+    settings_patch: ProjectSettingsPatch | str,
     ctx: Context,
 ) -> str:
-    """Merge a partial object into the project's editable settings.
+    """Merge supported fields into the project's editable settings.
 
-    Nested objects are merged, scalar and list values are replaced, and null
-    values remove fields. Use get_project_settings first to inspect the current
-    shape and values.
+    Nested objects are merged, scalar values are replaced, and null values remove
+    fields. Undocumented fields are rejected. Use get_project_settings first to
+    inspect the current values.
     """
     project_key = _require_non_empty_string(project_key, "project_key")
-    patch = _coerce_json_object(settings_patch, "settings_patch")
+    if isinstance(settings_patch, ProjectSettingsPatch):
+        validated_patch = settings_patch
+    else:
+        patch = _coerce_json_object(settings_patch, "settings_patch")
+        validated_patch = ProjectSettingsPatch.model_validate(patch)
+    patch = validated_patch.model_dump(exclude_unset=True)
     if not patch:
         raise ValueError("'settings_patch' must not be empty")
     await ctx.info(f"Updating settings for project {project_key}...")

@@ -106,9 +106,24 @@ def test_update_project_settings_applies_merge_patch(monkeypatch):
 
 
 def test_update_project_settings_rejects_invalid_patch(monkeypatch):
-    _install_fake_project(monkeypatch, {"settings": {}})
+    project = _install_fake_project(monkeypatch, {"settings": {}})
 
     with pytest.raises(ValueError, match="must not be empty"):
         asyncio.run(projects.update_project_settings("PROJ", {}, FakeContext()))
     with pytest.raises(ValueError, match="must be a JSON object"):
         asyncio.run(projects.update_project_settings("PROJ", "[1,2]", FakeContext()))
+    with pytest.raises(ValueError, match="codeEnvs.python.unknown"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ", {"codeEnvs": {"python": {"unknown": True}}}, FakeContext()
+            )
+        )
+    with pytest.raises(ValueError, match="container.containerMode"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ",
+                {"container": {"containerMode": "UNSUPPORTED"}},
+                FakeContext(),
+            )
+        )
+    assert project.settings.save_calls == 0
