@@ -18,19 +18,20 @@ Project settings are a narrow direct-write exception for configuration that Cobu
 
 ## Flow Display and Pipelines
 
-| Setting | Values and behavior |
-| --- | --- |
-| `flowDisplaySettings.zonesGraphRenderingAlgorithm` | `DOT_OLDRANK` (**Standard**) usually produces a compact, less messy layout but can fail on complex flows with many zones. Use `DOT_NEWRANK_FREERANK` (**New rank**) when the Flow does not display correctly. |
-| `flowDisplaySettings.zonesGraphConnectZones` | Boolean; draw arrows for inter-zone dependencies. Disable when those arrows make the graph hard to read. |
-| `flowDisplaySettings.zonesGraphForJobs` | Boolean; show Flow zones in job graphs. Disable to show job graphs without zones. |
-| `flowDisplaySettings.respectTraversalOrder` | Boolean; experimental. Usually improves layouts for flows containing loops. |
-| `flowDisplaySettings.zonesManualPositioning` | Boolean; enable manual positioning of Flow zones. |
-| `flowDisplaySettings.showFlowZoneDescriptions` | Boolean; show each zone's short description at the top of the zone in the Flow. |
-| `flowBuildSettings.mergeSqlPipelines` | Boolean; enable SQL pipelines |
-| `flowBuildSettings.mergeSparkPipelines` | Boolean; enable Spark pipelines |
-| `flowBuildSettings.mergeCdePipelines` | Boolean; enable CDE pipelines |
-
-`pruneBeforeSqlPipelines`, `pruneBeforeSparkPipelines`, and `pruneBeforeCdePipelines` control pruning for those pipeline families.
+| Setting | Accepted values | Behavior |
+| --- | --- | --- |
+| `flowDisplaySettings.zonesGraphRenderingAlgorithm` | `DOT_OLDRANK` (**Standard**), `DOT_NEWRANK_FREERANK` (**New rank**) | Standard is usually more compact but can fail on complex flows with many zones. Use New rank when the Flow does not display correctly. |
+| `flowDisplaySettings.zonesGraphConnectZones` | `true`, `false` | Draw arrows for inter-zone dependencies. Disable when those arrows make the graph hard to read. |
+| `flowDisplaySettings.zonesGraphForJobs` | `true`, `false` | Show Flow zones in job graphs. Disable to show job graphs without zones. |
+| `flowDisplaySettings.respectTraversalOrder` | `true`, `false` | Experimental. Usually improves layouts for flows containing loops. |
+| `flowDisplaySettings.zonesManualPositioning` | `true`, `false` | Enable manual positioning of Flow zones. |
+| `flowDisplaySettings.showFlowZoneDescriptions` | `true`, `false` | Show each zone's short description at the top of the zone in the Flow. |
+| `flowBuildSettings.mergeSqlPipelines` | `true`, `false` | Enable SQL pipelines. |
+| `flowBuildSettings.pruneBeforeSqlPipelines` | `true`, `false` | Prune before SQL pipelines. |
+| `flowBuildSettings.mergeSparkPipelines` | `true`, `false` | Enable Spark pipelines. |
+| `flowBuildSettings.pruneBeforeSparkPipelines` | `true`, `false` | Prune before Spark pipelines. |
+| `flowBuildSettings.mergeCdePipelines` | `true`, `false` | Enable CDE pipelines. |
+| `flowBuildSettings.pruneBeforeCdePipelines` | `true`, `false` | Prune before CDE pipelines. |
 
 ## Default Code Environments
 
