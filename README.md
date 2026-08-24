@@ -37,13 +37,13 @@ Install the plugin, then ask Codex or Claude to set up your Dataiku instance. Th
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
-![Installing and setting up the Dataiku Headless plugin with Codex](docs/assets/codex_headless_install_setup.gif)
+![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v1/headless_install_setup_codex.gif)
 
 Once connected, you can build in Dataiku.
 
 Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital admissions data, train a model to predict readmission within 30 days, then make predictions for new patients:
 
-![Building a Dataiku project with Dataiku Headless and Claude Code](docs/assets/headless_claude_code_cli_demo.gif)
+![Building a Dataiku project with Dataiku Headless and Claude Code](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v1/headless_demo_claude_code.gif)
 
 ## Install with another agent
 
