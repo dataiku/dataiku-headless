@@ -36,7 +36,8 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 | User intent | Guide to read next |
 | --- | --- |
-| Discover projects, inspect project metadata, variables, or settings, orient in a flow, or create a new project | `./references/projects.md` |
+| Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
+| Inspect or update project settings, including Flow display, pipelines, default code envs, or container execution | `./references/project-settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
 | Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
