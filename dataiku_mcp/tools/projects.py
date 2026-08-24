@@ -5,14 +5,27 @@ from fastmcp import Context
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
-from .utils.parsing import (
-    coerce_json_object as _coerce_json_object,
-    deep_merge_dict as _deep_merge_dict,
-)
+from .utils.parsing import coerce_json_object as _coerce_json_object
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
+
+
+def _apply_json_merge_patch(base: dict, patch: dict) -> dict:
+    """Apply a JSON Merge Patch, with null values removing keys."""
+    merged = dict(base)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict):
+            current = merged.get(key)
+            merged[key] = _apply_json_merge_patch(
+                current if isinstance(current, dict) else {}, value
+            )
+        else:
+            merged[key] = value
+    return merged
 
 
 @mcp.tool()
@@ -174,7 +187,7 @@ async def update_project_settings(
         project = get_dss_client().get_project(project_key)
         settings = project.get_settings()
         raw = settings.get_raw()
-        raw["settings"] = _deep_merge_dict(raw["settings"], patch)
+        raw["settings"] = _apply_json_merge_patch(raw["settings"], patch)
         settings.save()
         return project.get_settings().get_raw()["settings"]
 

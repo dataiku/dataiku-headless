@@ -58,19 +58,3 @@ def parse_non_empty_string_list(raw_json: str, field_name: str) -> list[str]:
         raise ValueError(f"'{field_name}' must be a non-empty JSON array")
 
     return require_non_empty_strings(parsed, field_name)
-
-
-def deep_merge_dict(base: dict, patch: dict) -> dict:
-    """Apply a JSON Merge Patch to a dict, with null values removing keys."""
-    merged = dict(base)
-    for key, value in patch.items():
-        if value is None:
-            merged.pop(key, None)
-        elif isinstance(value, dict):
-            current = merged.get(key)
-            merged[key] = deep_merge_dict(
-                current if isinstance(current, dict) else {}, value
-            )
-        else:
-            merged[key] = value
-    return merged
