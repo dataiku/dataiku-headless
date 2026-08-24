@@ -18,14 +18,14 @@ Project settings are a narrow direct-write exception for configuration that Cobu
 
 ## Flow Display and Pipelines
 
-| Setting | Values |
+| Setting | Values and behavior |
 | --- | --- |
-| `flowDisplaySettings.showFlowZoneDescriptions` | Boolean; show zone descriptions on the Flow |
-| `flowDisplaySettings.zonesGraphRenderingAlgorithm` | `DOT_OLDRANK` or `DOT_NEWRANK_FREERANK` |
-| `flowDisplaySettings.zonesGraphConnectZones` | Boolean |
-| `flowDisplaySettings.zonesGraphForJobs` | Boolean |
-| `flowDisplaySettings.respectTraversalOrder` | Boolean |
-| `flowDisplaySettings.zonesManualPositioning` | Boolean |
+| `flowDisplaySettings.zonesGraphRenderingAlgorithm` | `DOT_OLDRANK` (**Standard**) usually produces a compact, less messy layout but can fail on complex flows with many zones. Use `DOT_NEWRANK_FREERANK` (**New rank**) when the Flow does not display correctly. |
+| `flowDisplaySettings.zonesGraphConnectZones` | Boolean; draw arrows for inter-zone dependencies. Disable when those arrows make the graph hard to read. |
+| `flowDisplaySettings.zonesGraphForJobs` | Boolean; show Flow zones in job graphs. Disable to show job graphs without zones. |
+| `flowDisplaySettings.respectTraversalOrder` | Boolean; experimental. Usually improves layouts for flows containing loops. |
+| `flowDisplaySettings.zonesManualPositioning` | Boolean; enable manual positioning of Flow zones. |
+| `flowDisplaySettings.showFlowZoneDescriptions` | Boolean; show each zone's short description at the top of the zone in the Flow. |
 | `flowBuildSettings.mergeSqlPipelines` | Boolean; enable SQL pipelines |
 | `flowBuildSettings.mergeSparkPipelines` | Boolean; enable Spark pipelines |
 | `flowBuildSettings.mergeCdePipelines` | Boolean; enable CDE pipelines |
