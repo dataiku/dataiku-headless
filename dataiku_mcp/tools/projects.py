@@ -94,6 +94,28 @@ def _apply_json_merge_patch(base: dict, patch: dict) -> dict:
     return merged
 
 
+def _normalize_code_env_settings(settings: dict, patch: dict) -> None:
+    """Keep code environment fields consistent with their selected mode."""
+    code_envs_patch = patch.get("codeEnvs")
+    if not isinstance(code_envs_patch, dict):
+        return
+    code_envs = settings.get("codeEnvs", {})
+    for language in code_envs_patch:
+        code_env = code_envs.get(language, {})
+        mode = code_env.get("mode")
+        if mode == "EXPLICIT_ENV":
+            _require_non_empty_string(
+                code_env.get("envName"), f"codeEnvs.{language}.envName"
+            )
+            code_env["useBuiltinEnv"] = False
+        elif mode == "USE_BUILTIN_MODE":
+            code_env["useBuiltinEnv"] = True
+            code_env.pop("envName", None)
+        elif mode == "INHERIT":
+            code_env["useBuiltinEnv"] = False
+            code_env.pop("envName", None)
+
+
 @mcp.tool()
 async def count_projects(ctx: Context) -> str:
     """Count projects on the Dataiku instance without listing project metadata."""
@@ -255,6 +277,7 @@ async def update_project_settings(
         settings = project.get_settings()
         raw = settings.get_raw()
         raw["settings"] = _apply_json_merge_patch(raw["settings"], patch)
+        _normalize_code_env_settings(raw["settings"], patch)
         settings.save()
         return project.get_settings().get_raw()["settings"]
 

@@ -61,11 +61,16 @@ def test_update_project_settings_applies_merge_patch(monkeypatch):
             },
             "codeEnvs": {
                 "python": {
-                    "mode": "EXPLICIT_ENV",
-                    "envName": "PYTHON_ENV",
+                    "mode": "USE_BUILTIN_MODE",
+                    "useBuiltinEnv": True,
                     "preventOverride": True,
                 },
-                "r": {"mode": "INHERIT", "preventOverride": False},
+                "r": {
+                    "mode": "EXPLICIT_ENV",
+                    "envName": "R_ENV",
+                    "useBuiltinEnv": True,
+                    "preventOverride": False,
+                },
             },
             "container": {
                 "containerMode": "EXPLICIT_CONTAINER",
@@ -78,8 +83,8 @@ def test_update_project_settings_applies_merge_patch(monkeypatch):
     patch = {
         "flowDisplaySettings": {"showFlowZoneDescriptions": True},
         "codeEnvs": {
-            "python": {"mode": "USE_BUILTIN_MODE", "envName": None},
-            "r": {"envName": None},
+            "python": {"mode": "EXPLICIT_ENV", "envName": "PYTHON_ENV"},
+            "r": {"mode": "USE_BUILTIN_MODE"},
         },
         "container": {"containerMode": "NONE", "containerConf": None},
     }
@@ -96,8 +101,17 @@ def test_update_project_settings_applies_merge_patch(monkeypatch):
             "zonesGraphConnectZones": True,
         },
         "codeEnvs": {
-            "python": {"mode": "USE_BUILTIN_MODE", "preventOverride": True},
-            "r": {"mode": "INHERIT", "preventOverride": False},
+            "python": {
+                "mode": "EXPLICIT_ENV",
+                "envName": "PYTHON_ENV",
+                "useBuiltinEnv": False,
+                "preventOverride": True,
+            },
+            "r": {
+                "mode": "USE_BUILTIN_MODE",
+                "useBuiltinEnv": True,
+                "preventOverride": False,
+            },
         },
         "container": {"containerMode": "NONE"},
     }
@@ -130,6 +144,14 @@ def test_update_project_settings_rejects_invalid_patch(monkeypatch):
         asyncio.run(
             projects.update_project_settings(
                 "PROJ", {"container": {"containerMode": "BANANA"}}, FakeContext()
+            )
+        )
+    with pytest.raises(ValueError, match="codeEnvs.python.envName"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ",
+                {"codeEnvs": {"python": {"mode": "EXPLICIT_ENV"}}},
+                FakeContext(),
             )
         )
     assert project.settings.save_calls == 0

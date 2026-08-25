@@ -45,6 +45,8 @@ Before using `EXPLICIT_ENV`, call `list_code_envs(language="PYTHON")` or `list_c
 | Use the built-in environment | `{"mode":"USE_BUILTIN_MODE","envName":null}` |
 | Select an environment | `{"mode":"EXPLICIT_ENV","envName":"ENV_NAME"}` |
 
+The tool automatically synchronizes the underlying `useBuiltinEnv` flag with `mode`: it is `true` only for `USE_BUILTIN_MODE`. `EXPLICIT_ENV` requires a non-empty `envName`; the other modes clear it.
+
 `preventOverride` is independent of the mode. Set it to `true` to prevent project objects from overriding the project default.
 
 ## Container Execution
