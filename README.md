@@ -240,7 +240,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
 │       └── references/
-│           ├── administration.md   # Route instance-level user, group, and licensing tasks
+│           ├── administration.md   # Route instance-level user, group, plugin, and licensing tasks
 │           ├── cobuild.md          # Default in-project write path via Cobuild
 │           ├── project-folders.md  # Project folder hierarchy inspection and organization
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
@@ -248,7 +248,6 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
 │           ├── jobs.md             # Dataiku job tracking, waiting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
-│           ├── plugins.md          # Plugin discovery and Store lifecycle
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
