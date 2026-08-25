@@ -11,23 +11,24 @@ its object-specific references as directed.
 or modify a recipe, ML analysis, dashboard, insight, agent, agent tool, scenario, webapp,
 wiki article, data quality rule, knowledge bank, semantic model, or evaluation store.
 
-Headless writes Dataiku objects directly in three cases: **bootstrap** (get a project
-or local content onto the instance so Cobuild has something to work with),
-**cross-project**, and **instance-level administration**. It also re-runs assets that
-already exist. Some bootstrap writes do land inside a project — see the table below.
+Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
+or local content onto the instance so Cobuild has something to work with), **project
+configuration**, **cross-project**, and **instance-level administration**. It also
+re-runs assets that already exist. Some bootstrap writes do land inside a project —
+see the table below.
 Local profile actions are listed separately because they only change which Dataiku
 instance the local client targets.
 
 
 ## Surface
 
-**121 tools** · 90 read · 18 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
+**123 tools** · 91 read · 19 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 90 | Never mutates |
-| Direct Dataiku write | 18 | Bootstrap, cross-project, admin only |
+| Read / inspect | 91 | Never mutates |
+| Direct Dataiku write | 19 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 3 | `build_datasets`, `run_recipe`, `run_scenario` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -77,7 +78,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
-| Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables` | `create_project`, `set_project_variables` | Bootstrap — `create_project` precedes the conversation, variables are **in-project** |
+| Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
 | Datasets from local files | — | `create_upload_dataset` | Bootstrap, **in-project** — needs your filesystem |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — needs your filesystem |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — needs your filesystem |
@@ -90,9 +91,8 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
-The **in-project** writes above are containers and content, not built logic: an empty
-folder, an uploaded file, a library file, a variable, a dataset pointing at a file you
-supplied. None of them build a recipe, a model, or an agent.
+The **in-project** writes above configure or supply a project; they do not build its
+analytic logic. None of them build a recipe, a model, or an agent.
 
 ## Local instance targeting
 

@@ -36,7 +36,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 
 1. Use `count_projects` and `list_projects` to discover projects and confirm the exact project key. `list_projects` includes each project's owner, short description, and last-modified context; use `search` to narrow by project name, key, owner, or short description.
 2. For existing-project context, use `get_project_metadata` and `get_project_variables` to inspect metadata and configuration.
-3. To update project variables, first read the current variables with `get_project_variables`, modify only the requested keys, then pass the complete replacement object to `set_project_variables`.
+3. To update project variables, first read them, modify only the requested keys, then pass the complete replacement object to `set_project_variables`.
 4. Use `get_flow_graph` to orient in the Flow when dependencies matter, and `list_flow_zones` when visual organization matters.
 5. Use `get_flow_object_metadata` to inspect metadata for a specific project object.
 6. For a new project, confirm the unique project key and display name with the user, then use `create_project`. When the user specifies a project folder, discover its `folder_id` with `list_project_folders` first and use `get_project_folder` when you need to confirm the exact folder contents, then pass that `folder_id`.

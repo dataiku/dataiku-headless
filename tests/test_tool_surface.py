@@ -171,9 +171,11 @@ EXPECTED_TOOLS_BY_MODULE = {
             "count_projects",
             "create_project",
             "get_project_metadata",
+            "get_project_settings",
             "get_project_variables",
-            "set_project_variables",
             "list_projects",
+            "set_project_variables",
+            "update_project_settings",
         }
     ),
     "recipes": frozenset({"get_recipe_settings", "list_recipes"}),

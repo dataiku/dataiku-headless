@@ -219,7 +219,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
-│   │   ├── projects.py        # Project inspection tools + create_project write
+│   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
 │   │   ├── semantic_models.py # Semantic model inspection tools
 │   │   ├── groups.py          # Instance group administration tools
