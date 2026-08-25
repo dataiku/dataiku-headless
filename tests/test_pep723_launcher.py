@@ -16,28 +16,33 @@ import importlib.metadata
 import re
 from pathlib import Path
 
+import pytest
 from packaging.requirements import Requirement
 
-SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
-SCRIPT_LOCK = SCRIPT.with_suffix(".py.lock")
+SCRIPTS = [
+    Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py",
+    Path(__file__).resolve().parent.parent / "bin" / "run_http_mcp.py",
+]
 
 
-def _inline_metadata() -> str:
+def _inline_metadata(script: Path) -> str:
     """Return the PEP 723 block of the script with its comment prefix removed."""
     block = re.search(
         r"^# /// script$\n(.*?)^# ///$",
-        SCRIPT.read_text(encoding="utf-8"),
+        script.read_text(encoding="utf-8"),
         re.DOTALL | re.MULTILINE,
     )
-    assert block, "bin/run_mcp.py lost its PEP 723 inline metadata block"
+    assert block, f"{script} lost its PEP 723 inline metadata block"
     return "\n".join(
         line.removeprefix("#").strip() for line in block.group(1).splitlines()
     )
 
 
-def _inline_requirements() -> dict:
-    array = re.search(r"dependencies\s*=\s*\[(.*?)\]", _inline_metadata(), re.DOTALL)
-    assert array, "bin/run_mcp.py declares no inline dependencies"
+def _inline_requirements(script: Path) -> dict:
+    array = re.search(
+        r"dependencies\s*=\s*\[(.*?)\]", _inline_metadata(script), re.DOTALL
+    )
+    assert array, f"{script} declares no inline dependencies"
     parsed = [Requirement(spec) for spec in re.findall(r'"([^"]+)"', array.group(1))]
     return {req.name.lower().replace("_", "-"): req for req in parsed}
 
@@ -50,33 +55,37 @@ def _project_requirements() -> dict:
     return {req.name.lower().replace("_", "-"): req for req in parsed}
 
 
-def test_inline_dependencies_cover_the_same_packages():
-    assert set(_inline_requirements()) == set(_project_requirements()), (
-        "bin/run_mcp.py inline dependencies drifted from [project].dependencies "
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_inline_dependencies_cover_the_same_packages(script):
+    assert set(_inline_requirements(script)) == set(_project_requirements()), (
+        f"{script} inline dependencies drifted from [project].dependencies "
         "in pyproject.toml"
     )
 
 
-def test_inline_dependencies_are_pinned():
-    for name, req in _inline_requirements().items():
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_inline_dependencies_are_pinned(script):
+    for name, req in _inline_requirements(script).items():
         specifiers = list(req.specifier)
         assert len(specifiers) == 1 and specifiers[0].operator == "==", (
-            f"{name} must be pinned to an exact version in bin/run_mcp.py: the "
+            f"{name} must be pinned to an exact version in {script}: the "
             "script's direct dependency constraints must be explicit (got "
             f"{str(req.specifier) or 'no specifier'})"
         )
 
 
-def test_script_lockfile_exists():
-    assert SCRIPT_LOCK.is_file(), (
-        "bin/run_mcp.py.lock is required because launchers use uv --locked; "
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_script_lockfile_exists(script):
+    assert script.with_suffix(".py.lock").is_file(), (
+        f"{script}.lock is required because launchers use uv --locked; "
         "regenerate it with `uv lock --script bin/run_mcp.py`"
     )
 
 
-def test_inline_pins_satisfy_project_constraints():
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_inline_pins_satisfy_project_constraints(script):
     project = _project_requirements()
-    for name, req in _inline_requirements().items():
+    for name, req in _inline_requirements(script).items():
         pinned = str(req.specifier).removeprefix("==")
         assert project[name].specifier.contains(pinned, prereleases=True), (
             f"bin/run_mcp.py pins {name}=={pinned}, which violates "
@@ -84,9 +93,10 @@ def test_inline_pins_satisfy_project_constraints():
         )
 
 
-def test_inline_requires_python_matches_project():
-    inline = re.search(r'requires-python\s*=\s*"([^"]+)"', _inline_metadata())
-    assert inline, "bin/run_mcp.py declares no inline requires-python"
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_inline_requires_python_matches_project(script):
+    inline = re.search(r'requires-python\s*=\s*"([^"]+)"', _inline_metadata(script))
+    assert inline, f"{script} declares no inline requires-python"
 
     expected = importlib.metadata.metadata("dataiku-headless")["Requires-Python"]
     assert inline.group(1) == expected

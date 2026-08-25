@@ -7,6 +7,7 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+from dataiku_mcp import config
 from dataiku_mcp.tools import cobuild
 
 
@@ -124,6 +125,16 @@ def run(coroutine):
 
 async def start():
     return json.loads(await cobuild.start_cobuild_conversation("PROJECT", Context()))
+
+
+def test_conversation_cannot_be_reused_by_another_http_user(environment):
+    result = run(start())
+    identity = config.bind_http_identity("https://idp.example", "other-user")
+    try:
+        with pytest.raises(ValueError, match="belongs to another user"):
+            run(send(result["conversation_id"]))
+    finally:
+        config.reset_http_identity(identity)
 
 
 async def send(conversation_id="conversation-1", **kwargs):

@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import threading
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,8 @@ class DSSInstance:
     no_check_certificate: bool
     source: str
     description: str = ""
+    jwt_audience: str = ""
+    jwt_scope: str = ""
 
 
 @dataclass
@@ -36,12 +39,31 @@ class NoActiveInstanceError(ValueError):
 
 _current_instance: DSSInstance | None = None
 _config_file: Path | None = None
+_http_config_file: Path | None = None
+_http_config_lock = threading.Lock()
 
 _UNPINNED = object()
 _pinned_instance: ContextVar[DSSInstance | None | object] = ContextVar(
     "dataiku_mcp_pinned_instance",
     default=_UNPINNED,
 )
+_http_identity: ContextVar[tuple[str, str] | None] = ContextVar(
+    "dataiku_mcp_http_identity", default=None
+)
+_http_dss_token: ContextVar[str | None] = ContextVar(
+    "dataiku_mcp_http_dss_token", default=None
+)
+
+
+_HTTP_AUTH_ENVIRONMENT = {
+    "issuer": "DKU_MCP_OIDC_ISSUER",
+    "jwks_uri": "DKU_MCP_OIDC_JWKS_URI",
+    "audience": "DKU_MCP_OIDC_AUDIENCE",
+    "scope": "DKU_MCP_OIDC_SCOPE",
+    "token_exchange_url": "DKU_MCP_TOKEN_EXCHANGE_URL",
+    "client_id": "DKU_MCP_TOKEN_EXCHANGE_CLIENT_ID",
+    "client_secret": "DKU_MCP_TOKEN_EXCHANGE_CLIENT_SECRET",
+}
 
 
 def _resolve_config_file() -> Path:
@@ -73,6 +95,155 @@ def get_config_path() -> Path:
     if _config_file is None:
         _config_file = _resolve_config_file()
     return _config_file
+
+
+def get_http_auth_settings(*, required: bool = False) -> dict[str, str] | None:
+    """Return HTTP authentication settings, or ``None`` when HTTP is not configured."""
+    settings = {
+        name: os.environ.get(env, "") for name, env in _HTTP_AUTH_ENVIRONMENT.items()
+    }
+    configured = [name for name, value in settings.items() if value]
+    if not configured and not required:
+        return None
+
+    missing = [
+        env for name, env in _HTTP_AUTH_ENVIRONMENT.items() if not settings[name]
+    ]
+    if missing:
+        raise ValueError(
+            "HTTP authentication is incomplete. Set: " + ", ".join(missing)
+        )
+    return settings
+
+
+def get_http_server_settings() -> dict[str, str | int]:
+    """Return validated Streamable HTTP launch settings."""
+    get_http_auth_settings(required=True)
+    config_path = os.environ.get("DKU_MCP_HTTP_CONFIG_FILE", "")
+    if not config_path:
+        raise ValueError("HTTP mode requires DKU_MCP_HTTP_CONFIG_FILE.")
+    try:
+        port = int(os.environ.get("DKU_MCP_HTTP_PORT", "8000"))
+    except ValueError as err:
+        raise ValueError("DKU_MCP_HTTP_PORT must be an integer.") from err
+    return {
+        "host": os.environ.get("DKU_MCP_HTTP_HOST", "127.0.0.1"),
+        "port": port,
+        "path": os.environ.get("DKU_MCP_HTTP_PATH", "/mcp"),
+    }
+
+
+def _resolve_http_config_file() -> Path:
+    path = os.environ.get("DKU_MCP_HTTP_CONFIG_FILE")
+    if not path:
+        raise ValueError("HTTP mode requires DKU_MCP_HTTP_CONFIG_FILE.")
+    return Path(path).expanduser()
+
+
+def get_http_config_path() -> Path:
+    """Return the single operator-managed HTTP configuration file."""
+    global _http_config_file
+    if _http_config_file is None:
+        _http_config_file = _resolve_http_config_file()
+    return _http_config_file
+
+
+def _load_http_config_document() -> dict:
+    try:
+        with open(get_http_config_path(), "r") as file:
+            document = json.load(file)
+    except FileNotFoundError as err:
+        raise ValueError(
+            f"HTTP instance configuration was not found at '{get_http_config_path()}'."
+        ) from err
+    if not isinstance(document, dict):
+        raise ValueError("HTTP instance configuration must be a JSON object.")
+    return document
+
+
+def _http_instances_and_defaults() -> tuple[
+    dict[str, DSSInstance], dict[str, dict[str, str]]
+]:
+    document = _load_http_config_document()
+    raw_instances = document.get("dss_instances")
+    defaults = document.get("user_defaults", {})
+    if not isinstance(raw_instances, dict) or not raw_instances:
+        raise ValueError(
+            "HTTP instance configuration requires non-empty dss_instances."
+        )
+    if not isinstance(defaults, dict):
+        raise ValueError("HTTP instance configuration user_defaults must be an object.")
+
+    instances: dict[str, DSSInstance] = {}
+    for name, details in raw_instances.items():
+        if not isinstance(details, dict):
+            raise ValueError(f"HTTP instance '{name}' must be an object.")
+        url = details.get("url", "")
+        audience = details.get("audience", "")
+        scope = details.get("scope", "")
+        if not all(
+            isinstance(value, str) and value for value in (url, audience, scope)
+        ):
+            raise ValueError(
+                f"HTTP instance '{name}' requires non-empty url, audience, and scope."
+            )
+        instances[name] = DSSInstance(
+            name=name,
+            url=url,
+            api_key="",
+            no_check_certificate=bool(details.get("no_check_certificate", False)),
+            source="http",
+            description=details.get("description", ""),
+            jwt_audience=audience,
+            jwt_scope=scope,
+        )
+
+    for issuer, subjects in defaults.items():
+        if not isinstance(issuer, str) or not isinstance(subjects, dict):
+            raise ValueError("HTTP user_defaults must map issuers to subject mappings.")
+        for subject, instance_name in subjects.items():
+            if not isinstance(subject, str) or instance_name not in instances:
+                raise ValueError("HTTP user_defaults references an unknown instance.")
+    return instances, defaults
+
+
+def is_http_request() -> bool:
+    """Whether the current tool call has an authenticated HTTP identity."""
+    return _http_identity.get() is not None
+
+
+def bind_http_identity(issuer: str, subject: str) -> Token:
+    """Bind the verified OIDC identity for one HTTP tool request."""
+    if not issuer or not subject:
+        raise ValueError(
+            "The HTTP access token must contain non-empty iss and sub claims."
+        )
+    return _http_identity.set((issuer, subject))
+
+
+def reset_http_identity(token: Token) -> None:
+    _http_identity.reset(token)
+
+
+def set_http_dss_token(token: str) -> Token:
+    return _http_dss_token.set(token)
+
+
+def reset_http_dss_token(token: Token) -> None:
+    _http_dss_token.reset(token)
+
+
+def get_http_dss_token() -> str:
+    token = _http_dss_token.get()
+    if not token:
+        raise ValueError("No delegated DSS token is available for this HTTP request.")
+    return token
+
+
+def get_request_owner() -> tuple[str, ...]:
+    """Return a stable, request-scoped owner identity for retained state."""
+    identity = _http_identity.get()
+    return ("local",) if identity is None else ("oidc", *identity)
 
 
 def _parse_no_check_certificate(value: str) -> bool:
@@ -136,6 +307,19 @@ def _load_config() -> DSSConfig:
     return DSSConfig(default_instance_name, dss_instances)
 
 
+def _save_json(data: dict, path: Path) -> None:
+    """Atomically persist a JSON document with user-only file permissions."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
+    ) as temp_file:
+        json.dump(data, temp_file, indent=2)
+        temp_file.write("\n")
+        temp_path = Path(temp_file.name)
+    temp_path.chmod(0o600)
+    os.replace(temp_path, path)
+
+
 def _save_config(config: DSSConfig) -> None:
     """Serialize and atomically persist the canonical config document."""
     serialized_instances = {}
@@ -153,16 +337,7 @@ def _save_config(config: DSSConfig) -> None:
         "default_instance": config.default_instance or "",
         "dss_instances": serialized_instances,
     }
-    path = get_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
-    ) as temp_file:
-        json.dump(data, temp_file, indent=2)
-        temp_file.write("\n")
-        temp_path = Path(temp_file.name)
-    temp_path.chmod(0o600)
-    os.replace(temp_path, path)
+    _save_json(data, get_config_path())
 
 
 def initialize_current_instance() -> None:
@@ -190,6 +365,10 @@ def initialize_current_instance() -> None:
 
 def get_instances() -> dict[str, DSSInstance]:
     """Return the instances from the environment and config file."""
+    if is_http_request():
+        instances, _ = _http_instances_and_defaults()
+        return instances
+
     instance_from_env = _load_instance_from_env_vars()
     config = _load_config()
 
@@ -209,6 +388,11 @@ def pin_current_instance() -> Token:
     ``None`` is intentionally pinned too, so a request that began without a
     configured instance cannot silently pick up one configured concurrently.
     """
+    if is_http_request():
+        instances, defaults = _http_instances_and_defaults()
+        issuer, subject = _http_identity.get()  # type: ignore[misc]
+        selected_name = defaults.get(issuer, {}).get(subject)
+        return _pinned_instance.set(instances[selected_name] if selected_name else None)
     return _pinned_instance.set(_current_instance)
 
 
@@ -241,6 +425,29 @@ def set_current_instance(name: str) -> dict:
             f"Unknown instance '{name}'. Available: {list(instances.keys())}"
         )
 
+    if is_http_request():
+        issuer, subject = _http_identity.get()  # type: ignore[misc]
+        with _http_config_lock:
+            document = _load_http_config_document()
+            defaults = document.setdefault("user_defaults", {})
+            if not isinstance(defaults, dict):
+                raise ValueError(
+                    "HTTP instance configuration user_defaults must be an object."
+                )
+            issuer_defaults = defaults.setdefault(issuer, {})
+            if not isinstance(issuer_defaults, dict):
+                raise ValueError(
+                    "HTTP user_defaults must map issuers to subject mappings."
+                )
+            issuer_defaults[subject] = name
+            _save_json(document, get_http_config_path())
+        selected = instances[name]
+        return {
+            "name": selected.name,
+            "url": selected.url,
+            "description": selected.description,
+        }
+
     _current_instance = instances[name]
     return {
         "name": _current_instance.name,
@@ -259,6 +466,10 @@ def add_instance_to_config(
     set_default: bool = False,
 ) -> dict:
     """Add an instance to the resolved config file."""
+    if is_http_request():
+        raise ValueError(
+            "HTTP instances are platform-managed and cannot be configured here."
+        )
     new_instance = DSSInstance(
         name=name,
         url=url,
@@ -288,6 +499,11 @@ def add_instance_to_config(
 def delete_instance_from_config(name: str) -> dict:
     """Remove a config-file instance from the resolved config file."""
     global _current_instance
+
+    if is_http_request():
+        raise ValueError(
+            "HTTP instances are platform-managed and cannot be deleted here."
+        )
 
     config = _load_config()
     dss_instances = config.dss_instances

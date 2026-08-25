@@ -8,12 +8,44 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.types import CallToolRequestParams
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 from . import config, config_mcp  # noqa: E402
+from .tools.utils.async_executor import run_blocking  # noqa: E402
+from .tools.utils.auth import exchange_http_token  # noqa: E402
+
+
+_INSTANCE_PROFILE_TOOLS = {
+    "list_instances",
+    "switch_instance",
+    "delete_instance",
+    "get_current_instance",
+    "configure_instance",
+}
+
+
+def _http_auth() -> JWTVerifier | None:
+    settings = config.get_http_auth_settings()
+    if settings is None:
+        return None
+    return JWTVerifier(
+        jwks_uri=settings["jwks_uri"],
+        issuer=settings["issuer"],
+        audience=settings["audience"],
+        required_scopes=[settings["scope"]],
+    )
+
+
+def _tool_name(context: MiddlewareContext[CallToolRequestParams]) -> str:
+    message = context.message
+    return getattr(message, "name", "") or getattr(
+        getattr(message, "params", None), "name", ""
+    )
 
 
 class InstancePinningMiddleware(Middleware):
@@ -24,15 +56,34 @@ class InstancePinningMiddleware(Middleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, Any],
     ) -> Any:
+        access_token = get_access_token()
+        identity_token = None
+        delegated_token = None
+        if access_token is not None:
+            claims = access_token.claims
+            identity_token = config.bind_http_identity(
+                str(claims.get("iss", "")), str(claims.get("sub", ""))
+            )
+
         token = config.pin_current_instance()
         try:
+            if (
+                access_token is not None
+                and _tool_name(context) not in _INSTANCE_PROFILE_TOOLS
+            ):
+                delegated = await run_blocking(exchange_http_token, access_token.token)
+                delegated_token = config.set_http_dss_token(delegated)
             return await call_next(context)
         finally:
+            if delegated_token is not None:
+                config.reset_http_dss_token(delegated_token)
             config.reset_pinned_instance(token)
+            if identity_token is not None:
+                config.reset_http_identity(identity_token)
 
 
 # Create MCP instance
-mcp = FastMCP("Dataiku", middleware=[InstancePinningMiddleware()])
+mcp = FastMCP("Dataiku", auth=_http_auth(), middleware=[InstancePinningMiddleware()])
 
 config.initialize_current_instance()
 
@@ -80,4 +131,13 @@ def run_server():
     mcp.run(transport="stdio")
 
 
-__all__ = ["mcp", "run_server"]
+def run_http_server():
+    """Run the MCP server with authenticated Streamable HTTP transport."""
+    settings = config.get_http_server_settings()
+    if _http_auth() is None:
+        raise ValueError("HTTP authentication is not configured.")
+    config_mcp.logger.info("Starting Dataiku MCP server (streamable HTTP)")
+    mcp.run(transport="streamable-http", **settings)
+
+
+__all__ = ["mcp", "run_server", "run_http_server"]

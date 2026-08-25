@@ -57,6 +57,10 @@ async def delete_instance(name: str, ctx: Context) -> str:
     Args:
         name: Instance name (run list_instances() to see available names).
     """
+    if config.is_http_request():
+        raise ValueError(
+            "Instances are platform-managed in HTTP mode and cannot be deleted."
+        )
     await ctx.info(f"Deleting instance '{name}'...")
     info = config.delete_instance_from_config(name)
     return compact_json(info)
@@ -81,6 +85,11 @@ async def configure_instance(ctx: Context) -> str:
     Opens a local browser page for the user to enter the instance URL and API key,
     saved to the resolved configuration file (0600).
     """
+    if config.is_http_request():
+        raise ValueError(
+            "Instances are platform-managed in HTTP mode and cannot be configured."
+        )
+
     client_params = ctx.session.client_params
     elicitation_capability = (
         client_params.capabilities.elicitation if client_params else None

@@ -134,11 +134,26 @@ limited direct actions Headless supports, see the
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication (env API key or `.dataiku/config.json`)
+- Server-side authentication for the local stdio plugin (env API key or `.dataiku/config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
 Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
+
+### Streamable HTTP deployment
+
+The local plugin remains stdio-only. A separately deployed HTTP server can be
+started with `uv run --quiet --locked --script bin/run_http_mcp.py`. It accepts
+an OIDC access token for the MCP server on every request, exchanges it through
+RFC 8693 for a short-lived DSS JWT, and sends only that exchanged JWT to DSS.
+
+Set `DKU_MCP_OIDC_ISSUER`, `DKU_MCP_OIDC_JWKS_URI`,
+`DKU_MCP_OIDC_AUDIENCE`, `DKU_MCP_OIDC_SCOPE`,
+`DKU_MCP_TOKEN_EXCHANGE_URL`, `DKU_MCP_TOKEN_EXCHANGE_CLIENT_ID`,
+`DKU_MCP_TOKEN_EXCHANGE_CLIENT_SECRET`, and `DKU_MCP_HTTP_CONFIG_FILE`.
+The JSON configuration lists approved DSS endpoints and stores each user’s
+selected default instance; it is not a user allow-list. Any authenticated user
+may select an endpoint, while DSS applies its normal JWT user permissions.
 
 ## Agent Skills
 

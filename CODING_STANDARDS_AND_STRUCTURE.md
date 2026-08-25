@@ -66,7 +66,7 @@ export DKU_API_KEY="your-api-key"
 
 ## Fixed Tool Surface
 
-- The server is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. There is no HTTP transport. A hosted/multi-user deployment (which would need per-request credential ownership and shared state) is out of scope for v1 — it belongs in its own project, not behind an env flag.
+- The default plugin is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. `bin/run_http_mcp.py` is the separate authenticated Streamable HTTP deployment; it uses per-request OIDC identity and RFC 8693 DSS token exchange. Keep the transports explicitly separate and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 

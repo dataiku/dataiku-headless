@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from fastmcp import Context
 
+from .. import config
 from .. import mcp
 from .utils.async_executor import run_blocking, run_cobuild_blocking
 from .utils.auth import get_current_instance_for_tool, get_dss_client
@@ -29,6 +30,7 @@ class _Turn:
 
 @dataclass
 class _Conversation:
+    owner: tuple[str, ...]
     instance_name: str
     project_key: str
     sdk_conversation: object
@@ -51,6 +53,10 @@ def _require_conversation_entry(
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to project "
             f"'{entry.project_key}', not '{project_key}'."
+        )
+    if entry.owner != config.get_request_owner():
+        raise ValueError(
+            f"Cobuild conversation '{conversation_id}' belongs to another user."
         )
     active_instance = get_current_instance_for_tool().name
     if entry.instance_name != active_instance:
@@ -199,6 +205,25 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
     return turn
 
 
+def _answer_confirmation(entry: _Conversation, choice: str):
+    entry.sdk_conversation.client = get_dss_client()
+    return entry.sdk_conversation.answer_confirmation(choice)
+
+
+def _answer_question(
+    entry: _Conversation,
+    answers: list[str],
+    rejected: bool,
+    used_custom_answer: bool,
+):
+    entry.sdk_conversation.client = get_dss_client()
+    return entry.sdk_conversation.answer_question(
+        answers,
+        rejected=rejected,
+        used_custom_answer=used_custom_answer,
+    )
+
+
 async def _wait_for_turn(
     conversation_id: str, entry: _Conversation, turn: _Turn
 ) -> dict:
@@ -224,6 +249,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
+        config.get_request_owner(),
         instance_name,
         project_key,
         conversation,
@@ -275,6 +301,7 @@ async def send_cobuild_message(
             )
 
     def call():
+        entry.sdk_conversation.client = get_dss_client()
         return entry.sdk_conversation.send_message(
             message, allow_edit_project=allow_edit_project
         )
@@ -317,7 +344,7 @@ async def answer_cobuild_confirmation(
         conversation_id,
         entry,
         check,
-        lambda: entry.sdk_conversation.answer_confirmation(choice),
+        lambda: _answer_confirmation(entry, choice),
     )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
@@ -355,11 +382,7 @@ async def answer_cobuild_question(
         conversation_id,
         entry,
         check,
-        lambda: entry.sdk_conversation.answer_question(
-            answers,
-            rejected=rejected,
-            used_custom_answer=used_custom_answer,
-        ),
+        lambda: _answer_question(entry, answers, rejected, used_custom_answer),
     )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
@@ -382,9 +405,14 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List process-local Cobuild conversations for a project and their current turns."""
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = get_current_instance_for_tool().name
+    owner = config.get_request_owner()
     rows = []
     for conversation_id, entry in _conversations.items():
-        if entry.instance_name != active_instance or entry.project_key != project_key:
+        if (
+            entry.owner != owner
+            or entry.instance_name != active_instance
+            or entry.project_key != project_key
+        ):
             continue
 
         turn = entry.turn

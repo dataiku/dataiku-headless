@@ -1,6 +1,7 @@
 """Authentication utilities for Dataiku client creation."""
 
 import dataikuapi
+import requests
 from dataikuapi.utils import DataikuException
 
 from ... import config
@@ -36,10 +37,19 @@ def get_current_instance_for_tool() -> config.DSSInstance:
     try:
         return config.get_current_instance()
     except config.NoConfiguredInstancesError:
+        if config.is_http_request():
+            raise ValueError(
+                "No platform-managed Dataiku instances are configured."
+            ) from None
         raise ValueError(
             "No Dataiku instances are configured. Run configure_instance."
         ) from None
     except config.NoActiveInstanceError:
+        if config.is_http_request():
+            raise ValueError(
+                "No active Dataiku instance is selected. Run list_instances, then "
+                "switch_instance to choose a platform-managed instance."
+            ) from None
         raise ValueError(
             "No active Dataiku instance is selected. Run list_instances, then ask "
             "the user which configured instance to switch to, or whether to "
@@ -52,19 +62,55 @@ def get_dss_client() -> dataikuapi.DSSClient:
     current_instance = get_current_instance_for_tool()
 
     _require_instance_property(
-        current_instance.api_key,
-        "API key",
-        current_instance.name,
-    )
-    _require_instance_property(
         current_instance.url,
         "URL",
         current_instance.name,
     )
 
-    client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
+    if config.is_http_request():
+        client = dataikuapi.DSSClient(
+            current_instance.url,
+            jwt_bearer_token=config.get_http_dss_token(),
+        )
+    else:
+        _require_instance_property(
+            current_instance.api_key,
+            "API key",
+            current_instance.name,
+        )
+        client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
     client._session.verify = not current_instance.no_check_certificate
     return client
+
+
+def exchange_http_token(mcp_token: str) -> str:
+    """Exchange an MCP-audience token for the selected DSS-audience token."""
+    settings = config.get_http_auth_settings(required=True)
+    instance = get_current_instance_for_tool()
+    try:
+        response = requests.post(
+            settings["token_exchange_url"],
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "subject_token": mcp_token,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "audience": instance.jwt_audience,
+                "scope": instance.jwt_scope,
+            },
+            auth=(settings["client_id"], settings["client_secret"]),
+            timeout=10,
+        )
+        response.raise_for_status()
+        delegated_token = response.json().get("access_token")
+    except requests.RequestException as err:
+        raise PermissionError("DSS token exchange failed.") from err
+    except ValueError as err:
+        raise PermissionError(
+            "DSS token exchange returned an invalid response."
+        ) from err
+    if not isinstance(delegated_token, str) or not delegated_token:
+        raise PermissionError("DSS token exchange returned no access token.")
+    return delegated_token
 
 
 async def require_admin() -> None:

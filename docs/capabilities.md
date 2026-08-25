@@ -100,7 +100,7 @@ Local client configuration, not Dataiku objects.
 
 | Tool | Effect |
 |---|---|
-| `configure_instance` | Connect an instance; opens a local page for URL + API key |
-| `switch_instance` | Change which configured instance subsequent calls target |
+| `configure_instance` | Connect a local stdio instance; opens a local page for URL + API key (disabled in HTTP mode) |
+| `switch_instance` | Change the active instance; in HTTP mode saves only the authenticated user’s selected catalog instance |
 | `list_instances`, `get_current_instance` | Show configured instances and the active one |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |
