@@ -17,6 +17,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
+- Every Cobuild payload carries `project_url`, the Dataiku UI URL of the conversation's project on the instance that conversation is pinned to. Dataiku exposes no per-conversation URL: Cobuild opens as a panel inside the project, so `project_url` points at the project and the user opens Cobuild from there.
 
 ## When To Use This Skill
 
@@ -39,7 +40,7 @@ Do not use this guide when:
 3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
 4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
-6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, keep calling `get_cobuild_turn_status` with its exact `turn_id` until it returns a terminal result; never resend the instruction. Cobuild has a finite server-side timeout, so this polling does not continue indefinitely.
+6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, keep calling `get_cobuild_turn_status` with its exact `turn_id` until it returns a terminal result; never resend the instruction. Cobuild has a finite server-side timeout, so this polling does not continue indefinitely. When a poll still returns `queued` or `in_progress`, tell the user the turn is still running and give them the payload's `project_url` so they can watch it in the Cobuild panel.
 7. If an interrupted call loses its response, use `list_cobuild_conversations` to recover the conversation's `current_turn_id`. When it is present, call `get_cobuild_turn_status` before doing anything else; when it is absent, a new message may be sent.
 8. Independent work may continue while a turn is pending. Retain its `conversation_id` and `turn_id`, then poll again after each bounded unit of independent work and before any dependent action or completion report.
 9. Retain the returned `conversation_id` for follow-up work.
@@ -73,6 +74,7 @@ Do not use this guide when:
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
 - `send_cobuild_message` defaults `allow_edit_project` to `false`.
 - A terminal turn may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`, or `is_question_request=true`, with answer constraints in `question`.
+- Whenever a turn is waiting on a human decision (`is_confirmation_request=true` or `is_question_request=true`), surface the payload's `project_url` to the user together with the question or deletion scope, so they can open the Cobuild panel and see the pending decision themselves.
 - Before answering a confirmation or question, always retrieve and inspect its exact current `turn_id` with `get_cobuild_turn_status`.
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
