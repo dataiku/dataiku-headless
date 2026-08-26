@@ -1,0 +1,96 @@
+name: Bug report
+description: Something in a tool, skill, or the launcher behaves incorrectly.
+title: "fix: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions about using Headless against a real instance belong in Slack
+        `#ask-dataiku-headless`, not here. Redact instance URLs, API keys,
+        project keys, connection names, and any customer data before submitting.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: The incorrect behavior, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: What you asked the agent to do, and the tool calls involved.
+      placeholder: |
+        1. Asked the agent to ...
+        2. It called `list_datasets` with ...
+        3. Got ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: transcript
+    attributes:
+      label: Harness transcript
+      description: >-
+        Required. Extract the full harness conversation (Codex or Claude Code)
+        and paste it here, or attach it as a file by dragging it into this
+        field. Reports without a transcript cannot be triaged and will be sent
+        back for one. Redact secrets and customer data first.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      description: Which agent harness was running the plugin.
+      options:
+        - Codex
+        - Claude Code
+        - Cursor
+        - Snowflake CoCo (Cortex Code)
+        - Other (state which below)
+    validations:
+      required: true
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: >-
+        The `dataiku-headless` version, or the commit SHA if you run from a
+        checkout.
+      placeholder: v0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: dss_version
+    attributes:
+      label: Instance DSS version
+      description: The Dataiku version of the instance you were working against.
+      placeholder: "14.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and uv version
+      description: Output of `uv --version`, plus your OS.
+      placeholder: macOS 15.3, uv 0.12.4
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server stderr or error output
+      description: Any traceback or launcher diagnostics, if you have them.
+      render: text
+    validations:
+      required: false
