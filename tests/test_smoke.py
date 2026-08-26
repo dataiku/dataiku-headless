@@ -11,8 +11,8 @@ import dataiku_mcp
 
 
 def test_public_api():
-    assert dataiku_mcp.__all__ == ["mcp", "run_server", "run_http_server"]
-    assert callable(dataiku_mcp.run_server)
+    assert dataiku_mcp.__all__ == ["mcp", "run_stdio_server", "run_http_server"]
+    assert callable(dataiku_mcp.run_stdio_server)
     assert callable(dataiku_mcp.run_http_server)
 
 

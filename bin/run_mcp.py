@@ -46,6 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from dataiku_mcp import run_http_server, run_stdio_server  # noqa: E402
 
 parser = argparse.ArgumentParser(description="Run the Dataiku MCP server.")
 parser.add_argument("--transport", choices=("stdio", "http"), required=True)
@@ -58,10 +59,8 @@ args = parser.parse_args()
 if args.http_settings is not None and args.transport != "http":
     parser.error("--http-settings requires --transport http")
 
-from dataiku_mcp import run_http_server, run_server  # noqa: E402
-
 if __name__ == "__main__":
     if args.transport == "stdio":
-        run_server()
+        run_stdio_server()
     else:
         run_http_server(args.http_settings)

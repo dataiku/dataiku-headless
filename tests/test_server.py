@@ -6,11 +6,11 @@ import dataiku_mcp
 from dataiku_mcp.config import http
 
 
-def test_run_server_uses_stdio(monkeypatch):
+def test_run_stdio_server_uses_stdio(monkeypatch):
     calls = []
     monkeypatch.setattr(dataiku_mcp.mcp, "run", lambda **kwargs: calls.append(kwargs))
 
-    dataiku_mcp.run_server()
+    dataiku_mcp.run_stdio_server()
 
     assert calls == [{"transport": "stdio"}]
 

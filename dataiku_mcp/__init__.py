@@ -128,7 +128,7 @@ from .tools.machine_learning import (  # noqa: F401,E402
 )
 
 
-def run_server():
+def run_stdio_server():
     """Run the MCP server in stdio mode."""
     config_mcp.logger.info("Starting Dataiku MCP server (stdio)")
     mcp.run(transport="stdio")
@@ -143,4 +143,4 @@ def run_http_server(settings_path: Path | None = None):
     mcp.run(transport="streamable-http", **settings)
 
 
-__all__ = ["mcp", "run_server", "run_http_server"]
+__all__ = ["mcp", "run_stdio_server", "run_http_server"]
