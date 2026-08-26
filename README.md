@@ -148,34 +148,17 @@ It accepts
 an OIDC access token for the MCP server on every request, exchanges it through
 RFC 8693 for a short-lived DSS JWT, and sends only that exchanged JWT to DSS.
 
-It reads `~/.dataiku-mcp/http.json` by default. Use `--http-settings PATH` only
-when the deployment needs a different filesystem location. The file contains the
-OIDC verifier, token-exchange client, transport settings, approved DSS catalog,
-and user instance preferences:
+It reads `~/.dataiku/http.json` by default, alongside the local stdio profiles
+in `~/.dataiku/config.json`. Use `--http-settings PATH` only when the deployment
+needs a different filesystem location. The HTTP file contains the OIDC verifier,
+token-exchange client, transport settings, approved DSS catalog, and user
+instance preferences. Copy [`.dataiku/http.json.example`](.dataiku/http.json.example)
+as a starting point:
 
-```json
-{
-  "server": { "host": "127.0.0.1", "port": 8000, "path": "/mcp" },
-  "oidc": {
-    "issuer": "https://idp.example",
-    "jwks_uri": "https://idp.example/jwks",
-    "audience": "dataiku-mcp",
-    "scope": "mcp.access"
-  },
-  "token_exchange": {
-    "url": "https://idp.example/token",
-    "client_id": "dataiku-mcp",
-    "client_secret": "replace-with-secret"
-  },
-  "dss_instances": {
-    "prod": {
-      "url": "https://dss.example",
-      "audience": "dss-prod",
-      "scope": "dss.api"
-    }
-  },
-  "user_defaults": {}
-}
+```bash
+mkdir -p ~/.dataiku
+cp .dataiku/http.json.example ~/.dataiku/http.json
+chmod 600 ~/.dataiku/http.json
 ```
 
 Keep this file access-restricted (`0600` on POSIX): it contains a confidential

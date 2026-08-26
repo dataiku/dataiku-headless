@@ -9,7 +9,7 @@ from pathlib import Path
 from .models import DSSInstance
 
 
-DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku-mcp" / "http.json"
+DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http.json"
 
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()

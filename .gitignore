@@ -10,6 +10,7 @@ __pycache__/
 venv/
 .env
 .dataiku/config.json
+.dataiku/http.json
 
 # Local snapshot corpora (keep folder scaffold only)
 learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/*

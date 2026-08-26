@@ -1,0 +1,26 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "path": "/mcp"
+  },
+  "oidc": {
+    "issuer": "https://idp.example",
+    "jwks_uri": "https://idp.example/jwks",
+    "audience": "dataiku-mcp",
+    "scope": "mcp.access"
+  },
+  "token_exchange": {
+    "url": "https://idp.example/token",
+    "client_id": "dataiku-mcp",
+    "client_secret": "replace-with-secret"
+  },
+  "dss_instances": {
+    "prod": {
+      "url": "https://dss.example",
+      "audience": "dss-prod",
+      "scope": "dss.api"
+    }
+  },
+  "user_defaults": {}
+}

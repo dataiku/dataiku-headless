@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -49,12 +50,38 @@ def http_config(monkeypatch, tmp_path):
     http.set_settings_path(None)
 
 
-def test_http_config_uses_canonical_default(monkeypatch, tmp_path):
-    default_path = tmp_path / "http.json"
-    monkeypatch.setattr(http, "DEFAULT_SETTINGS_PATH", default_path)
+def test_http_config_uses_canonical_default(monkeypatch):
+    default_path = Path.home() / ".dataiku" / "http.json"
     monkeypatch.setattr(http, "_settings_path", None)
 
+    assert http.DEFAULT_SETTINGS_PATH == default_path
     assert http.get_settings_path() == default_path
+
+
+def test_http_config_example_is_valid(monkeypatch):
+    example_path = Path(__file__).parents[1] / ".dataiku" / "http.json.example"
+    monkeypatch.setattr(http, "_settings_path", example_path)
+
+    assert http.get_server_settings() == {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "path": "/mcp",
+    }
+    assert http.get_auth_settings() == {
+        "issuer": "https://idp.example",
+        "jwks_uri": "https://idp.example/jwks",
+        "audience": "dataiku-mcp",
+        "scope": "mcp.access",
+        "token_exchange_url": "https://idp.example/token",
+        "client_id": "dataiku-mcp",
+        "client_secret": "replace-with-secret",
+    }
+    instances, defaults = http.get_instances_and_defaults()
+    assert set(instances) == {"prod"}
+    assert instances["prod"].url == "https://dss.example"
+    assert instances["prod"].jwt_audience == "dss-prod"
+    assert instances["prod"].jwt_scope == "dss.api"
+    assert defaults == {}
 
 
 def test_http_user_can_select_any_catalog_instance(http_config):
