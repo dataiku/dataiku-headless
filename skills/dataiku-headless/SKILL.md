@@ -10,7 +10,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
-2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first.
+2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. `get_current_instance` also reports the instance's `dss_version`; read it before planning a build, because it bounds which Dataiku features exist on that instance.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -19,6 +19,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
 10. If MCP coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls.
+11. When a requested capability is unavailable, say which kind of gap it is instead of improvising a substitute. Either it is not available on this DSS version — state the instance's `dss_version` and the DSS version that introduces the capability, and say the request is valid but the instance is too old — or the instance supports it but Headless does not, meaning no MCP tool or Cobuild path covers it. Do not report a version gap as a Headless gap, or the reverse. If `dss_version` was omitted, say the version is unknown rather than assuming one.
 
 ## Default Workflow
 

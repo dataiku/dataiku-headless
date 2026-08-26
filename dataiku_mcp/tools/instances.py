@@ -8,31 +8,46 @@ from fastmcp import Context
 
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
-from .utils.auth import get_current_instance_for_tool
+from .utils.async_executor import run_blocking
+from .utils.auth import get_current_instance_for_tool, get_dss_client, get_dss_version
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
 @mcp.tool()
 async def list_instances(ctx: Context) -> str:
-    """List the configured Dataiku instances (name, URL, description, active flag)."""
+    """List the configured Dataiku instances (name, URL, description, active flag).
+
+    `dss_version` is reported for the active instance only; versioning every
+    configured instance would cost one round trip per instance.
+    """
     instances = config.get_instances()
     try:
         current_instance_name = get_current_instance_for_tool().name
     except ValueError:
         current_instance_name = ""
 
+    active_dss_version = ""
+    if current_instance_name:
+        active_dss_version = await run_blocking(
+            lambda: get_dss_version(get_dss_client())
+        )
+
     # Note: caution to not include inst.api_key in tool return value
     result = []
     for name, inst in instances.items():
+        active = name == current_instance_name
         result.append(
             {
                 "name": name,
                 "url": inst.url,
                 "description": inst.description,
-                "active": name == current_instance_name,
+                "active": active,
+                "dss_version": active_dss_version if active else "",
             }
         )
-    return compact_json(columnar(result, ["name", "url", "description", "active"]))
+    return compact_json(
+        columnar(result, ["name", "url", "description", "active", "dss_version"])
+    )
 
 
 @mcp.tool()
@@ -64,11 +79,18 @@ async def delete_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance configuration."""
+    """Get the active Dataiku instance configuration and its DSS version.
+
+    `dss_version` is the version of DSS running on the instance. It is omitted
+    when the configured credentials cannot read it.
+    """
 
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
+    current_instance["dss_version"] = await run_blocking(
+        lambda: get_dss_version(get_dss_client())
+    )
 
     result = omit_empty(current_instance)
     return compact_json(result)

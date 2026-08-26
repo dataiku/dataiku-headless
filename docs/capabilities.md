@@ -102,5 +102,5 @@ Local client configuration, not Dataiku objects.
 |---|---|
 | `configure_instance` | Connect an instance; opens a local page for URL + API key |
 | `switch_instance` | Change which configured instance subsequent calls target |
-| `list_instances`, `get_current_instance` | Show configured instances and the active one |
+| `list_instances`, `get_current_instance` | Show configured instances and the active one, with the active instance's DSS version |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |
