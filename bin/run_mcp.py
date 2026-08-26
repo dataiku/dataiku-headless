@@ -5,6 +5,7 @@
 #     "fastmcp==3.4.5",
 #     "dataiku-api-client==14.7.2",
 #     "python-dotenv==1.2.2",
+#     "requests==2.34.2",
 # ]
 # ///
 """PEP 723 entry point for the Dataiku MCP server.

@@ -491,6 +491,7 @@ dependencies = [
     { name = "dataiku-api-client" },
     { name = "fastmcp" },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -506,6 +507,7 @@ requires-dist = [
     { name = "dataiku-api-client", specifier = ">=14.7.2" },
     { name = "fastmcp" },
     { name = "python-dotenv" },
+    { name = "requests", specifier = ">=2.32" },
 ]
 
 [package.metadata.requires-dev]

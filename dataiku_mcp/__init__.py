@@ -20,13 +20,17 @@ from .tools.utils.async_executor import run_blocking  # noqa: E402
 from .tools.utils.auth import exchange_http_token  # noqa: E402
 
 
-_INSTANCE_PROFILE_TOOLS = {
-    "list_instances",
-    "switch_instance",
-    "delete_instance",
-    "get_current_instance",
-    "configure_instance",
-}
+# These tools only manage MCP-local instance preferences. They must never create
+# a DSS client, so HTTP requests for them deliberately skip token exchange.
+HTTP_LOCAL_ONLY_TOOL_NAMES = frozenset(
+    {
+        "list_instances",
+        "switch_instance",
+        "delete_instance",
+        "get_current_instance",
+        "configure_instance",
+    }
+)
 
 
 def _http_auth() -> JWTVerifier:
@@ -67,7 +71,7 @@ class InstancePinningMiddleware(Middleware):
         try:
             if (
                 access_token is not None
-                and _tool_name(context) not in _INSTANCE_PROFILE_TOOLS
+                and _tool_name(context) not in HTTP_LOCAL_ONLY_TOOL_NAMES
             ):
                 delegated = await run_blocking(exchange_http_token, access_token.token)
                 delegated_token = config.set_http_dss_token(delegated)
