@@ -281,7 +281,6 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Tool validation and response-shaping utilities
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
-│   ├── config_mcp.py          # MCP configuration
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
 │   └── __init__.py
 ├── skills/

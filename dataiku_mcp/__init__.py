@@ -3,6 +3,7 @@
 Exposes Dataiku operations through FastMCP tools.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +16,10 @@ from mcp.types import CallToolRequestParams
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from . import config_mcp  # noqa: E402
 from .auth import exchange_http_token  # noqa: E402
 from .config import http, request, stdio  # noqa: E402
+
+logger = logging.getLogger("dataiku-mcp")
 
 
 # These tools only manage MCP-local instance preferences. They must never create
@@ -131,16 +133,18 @@ from .tools.machine_learning import (  # noqa: F401,E402
 
 def run_stdio_server():
     """Run the MCP server in stdio mode."""
-    config_mcp.logger.info("Starting Dataiku MCP server (stdio)")
+    logging.basicConfig(level=logging.INFO)
+    logger.info("Starting Dataiku MCP server (stdio)")
     mcp.run(transport="stdio")
 
 
 def run_http_server(settings_path: Path | None = None):
     """Run the MCP server with authenticated Streamable HTTP transport."""
+    logging.basicConfig(level=logging.INFO)
     http.set_settings_path(settings_path)
     settings = http.get_server_settings()
     mcp.auth = _http_auth()
-    config_mcp.logger.info("Starting Dataiku MCP server (streamable HTTP)")
+    logger.info("Starting Dataiku MCP server (streamable HTTP)")
     mcp.run(transport="streamable-http", **settings)
 
 
