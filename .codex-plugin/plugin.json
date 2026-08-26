@@ -21,7 +21,7 @@
     "capabilities": ["Interactive", "Write"],
     "websiteURL": "https://github.com/dataiku/dataiku-headless",
     "defaultPrompt": [
-      "Connect to a Dataiku instance",
+      "Set up Dataiku Headless",
       "How many projects are in this Dataiku instance?"
     ],
     "brandColor": "#00A6A6",

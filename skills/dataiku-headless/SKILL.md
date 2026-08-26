@@ -9,7 +9,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 ## Shared Operating Rules
 
-1. Just after installation, the plugin may still be getting ready. If its Dataiku tools are unavailable, run `uv --version` when local commands are available. If `uv` is missing or older than 0.12.0, explain that the plugin cannot start until uv is installed and on `PATH`; detect the platform, offer the official installer, and obtain explicit approval before running it. Otherwise, wait a minute, then restart the Codex or Claude app (or their agent) once before treating it as a Dataiku connection problem. Ask the user to run `uv --version` only when local commands are unavailable.
+1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
 2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
