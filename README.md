@@ -101,7 +101,7 @@ Add the following to your `.mcp.json` from a checkout of this repository:
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uv", "run", "--quiet", "--locked", "--script", "./bin/run_mcp.py"],
+      "command": ["uv", "run", "--quiet", "--locked", "--script", "./bin/run_mcp.py", "--transport", "stdio"],
       "enabled": true
     }
   }
@@ -143,12 +143,13 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 ### Streamable HTTP deployment
 
 The local plugin remains stdio-only. A separately deployed HTTP server can be
-started with `uv run --quiet --locked --script bin/run_http_mcp.py`. It accepts
+started with `uv run --quiet --locked --script bin/run_mcp.py --transport http`.
+It accepts
 an OIDC access token for the MCP server on every request, exchanges it through
 RFC 8693 for a short-lived DSS JWT, and sends only that exchanged JWT to DSS.
 
-It reads `~/.dataiku-mcp/http.json` by default. Use `--settings PATH` only when
-the deployment needs a different filesystem location. The file contains the
+It reads `~/.dataiku-mcp/http.json` by default. Use `--http-settings PATH` only
+when the deployment needs a different filesystem location. The file contains the
 OIDC verifier, token-exchange client, transport settings, approved DSS catalog,
 and user instance preferences:
 
@@ -239,7 +240,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin manifests use
+uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 ```
 
 ## Project Structure

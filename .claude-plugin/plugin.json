@@ -15,7 +15,7 @@
     "dataiku": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--quiet", "--locked", "--script", "${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.py"]
+      "args": ["run", "--quiet", "--locked", "--script", "${CLAUDE_PLUGIN_ROOT}/bin/run_mcp.py", "--transport", "stdio"]
     }
   }
 }

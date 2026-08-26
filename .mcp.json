@@ -7,7 +7,9 @@
         "--quiet",
         "--locked",
         "--script",
-        "./bin/run_mcp.py"
+        "./bin/run_mcp.py",
+        "--transport",
+        "stdio"
       ],
       "cwd": ".",
       "env_vars": [

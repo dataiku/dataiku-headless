@@ -66,7 +66,7 @@ export DKU_API_KEY="your-api-key"
 
 ## Fixed Tool Surface
 
-- The default plugin is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. `bin/run_http_mcp.py` is the separate authenticated Streamable HTTP deployment; it uses per-request OIDC identity and RFC 8693 DSS token exchange. Keep the transports explicitly separate and preserve the same registered tool catalog.
+- `bin/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
@@ -87,7 +87,7 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-uv run --quiet --locked --script ./bin/run_mcp.py   # exactly what every manifest runs
+uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio  # exactly what every manifest runs
 ```
 
 `uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`bin/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.

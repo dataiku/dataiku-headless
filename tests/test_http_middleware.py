@@ -18,7 +18,9 @@ def _call_middleware(monkeypatch, tool_name: str):
     monkeypatch.setattr(
         dataiku_mcp.config,
         "bind_http_identity",
-        lambda issuer, subject: events.append(("identity", issuer, subject)) or "identity",
+        lambda issuer, subject: (
+            events.append(("identity", issuer, subject)) or "identity"
+        ),
     )
     monkeypatch.setattr(
         dataiku_mcp.config,
@@ -81,7 +83,10 @@ def test_http_local_only_tool_skips_dss_token_exchange(monkeypatch):
 
     assert ("exchange", "mcp-token") not in events
     assert ("set_dss", "dss-token") not in events
-    assert events[-2:] == [("reset_instance", "instance"), ("reset_identity", "identity")]
+    assert events[-2:] == [
+        ("reset_instance", "instance"),
+        ("reset_identity", "identity"),
+    ]
 
 
 def test_http_dss_tool_exchanges_and_resets_its_dss_token(monkeypatch):
