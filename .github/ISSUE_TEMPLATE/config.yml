@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage question or instance help
+    url: https://dataiku.slack.com/
+    about: Ask in #ask-dataiku-headless. Questions are answered there, not in issues.
+  - name: Contributing guide
+    url: https://github.com/dataiku/dataiku-headless/blob/main/CONTRIBUTING.md
+    about: How to propose a skill or tool change, and the checks a PR must pass.
