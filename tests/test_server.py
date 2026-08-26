@@ -1,5 +1,7 @@
 """Runtime tests for MCP server startup."""
 
+from pathlib import Path
+
 import dataiku_mcp
 
 
@@ -14,15 +16,20 @@ def test_run_server_uses_stdio(monkeypatch):
 
 def test_run_http_server_uses_streamable_http(monkeypatch):
     calls = []
+    paths = []
     monkeypatch.setattr(
         dataiku_mcp.config,
         "get_http_server_settings",
         lambda: {"host": "127.0.0.1", "port": 8000, "path": "/mcp"},
     )
-    monkeypatch.setattr(dataiku_mcp, "_http_auth", lambda: object())
+    auth = object()
+    monkeypatch.setattr(dataiku_mcp, "_http_auth", lambda: auth)
+    monkeypatch.setattr(
+        dataiku_mcp.config, "set_http_config_path", lambda path: paths.append(path)
+    )
     monkeypatch.setattr(dataiku_mcp.mcp, "run", lambda **kwargs: calls.append(kwargs))
 
-    dataiku_mcp.run_http_server()
+    dataiku_mcp.run_http_server(Path("/tmp/http.json"))
 
     assert calls == [
         {
@@ -32,3 +39,5 @@ def test_run_http_server_uses_streamable_http(monkeypatch):
             "path": "/mcp",
         }
     ]
+    assert dataiku_mcp.mcp.auth is auth
+    assert paths == [Path("/tmp/http.json")]

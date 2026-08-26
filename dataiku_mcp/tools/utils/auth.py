@@ -85,7 +85,7 @@ def get_dss_client() -> dataikuapi.DSSClient:
 
 def exchange_http_token(mcp_token: str) -> str:
     """Exchange an MCP-audience token for the selected DSS-audience token."""
-    settings = config.get_http_auth_settings(required=True)
+    settings = config.get_http_auth_settings()
     instance = get_current_instance_for_tool()
     try:
         response = requests.post(

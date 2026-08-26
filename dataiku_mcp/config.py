@@ -55,15 +55,7 @@ _http_dss_token: ContextVar[str | None] = ContextVar(
 )
 
 
-_HTTP_AUTH_ENVIRONMENT = {
-    "issuer": "DKU_MCP_OIDC_ISSUER",
-    "jwks_uri": "DKU_MCP_OIDC_JWKS_URI",
-    "audience": "DKU_MCP_OIDC_AUDIENCE",
-    "scope": "DKU_MCP_OIDC_SCOPE",
-    "token_exchange_url": "DKU_MCP_TOKEN_EXCHANGE_URL",
-    "client_id": "DKU_MCP_TOKEN_EXCHANGE_CLIENT_ID",
-    "client_secret": "DKU_MCP_TOKEN_EXCHANGE_CLIENT_SECRET",
-}
+DEFAULT_HTTP_CONFIG_PATH = Path.home() / ".dataiku-mcp" / "http.json"
 
 
 def _resolve_config_file() -> Path:
@@ -97,54 +89,19 @@ def get_config_path() -> Path:
     return _config_file
 
 
-def get_http_auth_settings(*, required: bool = False) -> dict[str, str] | None:
-    """Return HTTP authentication settings, or ``None`` when HTTP is not configured."""
-    settings = {
-        name: os.environ.get(env, "") for name, env in _HTTP_AUTH_ENVIRONMENT.items()
-    }
-    configured = [name for name, value in settings.items() if value]
-    if not configured and not required:
-        return None
-
-    missing = [
-        env for name, env in _HTTP_AUTH_ENVIRONMENT.items() if not settings[name]
-    ]
-    if missing:
-        raise ValueError(
-            "HTTP authentication is incomplete. Set: " + ", ".join(missing)
-        )
-    return settings
-
-
-def get_http_server_settings() -> dict[str, str | int]:
-    """Return validated Streamable HTTP launch settings."""
-    get_http_auth_settings(required=True)
-    config_path = os.environ.get("DKU_MCP_HTTP_CONFIG_FILE", "")
-    if not config_path:
-        raise ValueError("HTTP mode requires DKU_MCP_HTTP_CONFIG_FILE.")
-    try:
-        port = int(os.environ.get("DKU_MCP_HTTP_PORT", "8000"))
-    except ValueError as err:
-        raise ValueError("DKU_MCP_HTTP_PORT must be an integer.") from err
-    return {
-        "host": os.environ.get("DKU_MCP_HTTP_HOST", "127.0.0.1"),
-        "port": port,
-        "path": os.environ.get("DKU_MCP_HTTP_PATH", "/mcp"),
-    }
-
-
-def _resolve_http_config_file() -> Path:
-    path = os.environ.get("DKU_MCP_HTTP_CONFIG_FILE")
-    if not path:
-        raise ValueError("HTTP mode requires DKU_MCP_HTTP_CONFIG_FILE.")
-    return Path(path).expanduser()
+def set_http_config_path(path: Path | None) -> None:
+    """Select the HTTP settings file for this server process."""
+    global _http_config_file
+    _http_config_file = (
+        path.expanduser() if path is not None else DEFAULT_HTTP_CONFIG_PATH
+    )
 
 
 def get_http_config_path() -> Path:
     """Return the single operator-managed HTTP configuration file."""
     global _http_config_file
     if _http_config_file is None:
-        _http_config_file = _resolve_http_config_file()
+        _http_config_file = DEFAULT_HTTP_CONFIG_PATH
     return _http_config_file
 
 
@@ -159,6 +116,53 @@ def _load_http_config_document() -> dict:
     if not isinstance(document, dict):
         raise ValueError("HTTP instance configuration must be a JSON object.")
     return document
+
+
+def _require_http_section(document: dict, name: str) -> dict:
+    section = document.get(name)
+    if not isinstance(section, dict):
+        raise ValueError(f"HTTP settings requires an object named '{name}'.")
+    return section
+
+
+def _require_http_string(section: dict, section_name: str, key: str) -> str:
+    value = section.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"HTTP settings requires '{section_name}.{key}'.")
+    return value
+
+
+def get_http_auth_settings() -> dict[str, str]:
+    """Return the OIDC and RFC 8693 settings from the HTTP settings file."""
+    document = _load_http_config_document()
+    oidc = _require_http_section(document, "oidc")
+    token_exchange = _require_http_section(document, "token_exchange")
+    return {
+        "issuer": _require_http_string(oidc, "oidc", "issuer"),
+        "jwks_uri": _require_http_string(oidc, "oidc", "jwks_uri"),
+        "audience": _require_http_string(oidc, "oidc", "audience"),
+        "scope": _require_http_string(oidc, "oidc", "scope"),
+        "token_exchange_url": _require_http_string(
+            token_exchange, "token_exchange", "url"
+        ),
+        "client_id": _require_http_string(
+            token_exchange, "token_exchange", "client_id"
+        ),
+        "client_secret": _require_http_string(
+            token_exchange, "token_exchange", "client_secret"
+        ),
+    }
+
+
+def get_http_server_settings() -> dict[str, str | int]:
+    """Return validated Streamable HTTP transport settings."""
+    server = _require_http_section(_load_http_config_document(), "server")
+    host = _require_http_string(server, "server", "host")
+    path = _require_http_string(server, "server", "path")
+    port = server.get("port")
+    if not isinstance(port, int):
+        raise ValueError("HTTP settings requires integer 'server.port'.")
+    return {"host": host, "port": port, "path": path}
 
 
 def _http_instances_and_defaults() -> tuple[

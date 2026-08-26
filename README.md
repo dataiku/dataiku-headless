@@ -147,13 +147,40 @@ started with `uv run --quiet --locked --script bin/run_http_mcp.py`. It accepts
 an OIDC access token for the MCP server on every request, exchanges it through
 RFC 8693 for a short-lived DSS JWT, and sends only that exchanged JWT to DSS.
 
-Set `DKU_MCP_OIDC_ISSUER`, `DKU_MCP_OIDC_JWKS_URI`,
-`DKU_MCP_OIDC_AUDIENCE`, `DKU_MCP_OIDC_SCOPE`,
-`DKU_MCP_TOKEN_EXCHANGE_URL`, `DKU_MCP_TOKEN_EXCHANGE_CLIENT_ID`,
-`DKU_MCP_TOKEN_EXCHANGE_CLIENT_SECRET`, and `DKU_MCP_HTTP_CONFIG_FILE`.
-The JSON configuration lists approved DSS endpoints and stores each user’s
-selected default instance; it is not a user allow-list. Any authenticated user
-may select an endpoint, while DSS applies its normal JWT user permissions.
+It reads `~/.dataiku-mcp/http.json` by default. Use `--settings PATH` only when
+the deployment needs a different filesystem location. The file contains the
+OIDC verifier, token-exchange client, transport settings, approved DSS catalog,
+and user instance preferences:
+
+```json
+{
+  "server": { "host": "127.0.0.1", "port": 8000, "path": "/mcp" },
+  "oidc": {
+    "issuer": "https://idp.example",
+    "jwks_uri": "https://idp.example/jwks",
+    "audience": "dataiku-mcp",
+    "scope": "mcp.access"
+  },
+  "token_exchange": {
+    "url": "https://idp.example/token",
+    "client_id": "dataiku-mcp",
+    "client_secret": "replace-with-secret"
+  },
+  "dss_instances": {
+    "prod": {
+      "url": "https://dss.example",
+      "audience": "dss-prod",
+      "scope": "dss.api"
+    }
+  },
+  "user_defaults": {}
+}
+```
+
+Keep this file access-restricted (`0600` on POSIX): it contains a confidential
+OAuth client secret. `user_defaults` is not a user allow-list. Any
+authenticated user may select an endpoint from the catalog; DSS applies its
+normal JWT user permissions.
 
 ## Agent Skills
 
@@ -161,7 +188,7 @@ may select an endpoint, while DSS applies its normal JWT user permissions.
 
 The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
-## Onboarding and authentication
+## Stdio onboarding and authentication
 
 The onboarding flow is the same:
 
@@ -171,6 +198,10 @@ The onboarding flow is the same:
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
 The API key never appears in MCP tool arguments.
+
+For HTTP deployments, `configure_instance` and `delete_instance` are disabled.
+Use `list_instances`, then `switch_instance`, to select a platform-managed DSS
+instance for the authenticated user.
 
 ### Where configuration lives
 

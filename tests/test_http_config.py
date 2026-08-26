@@ -14,6 +14,18 @@ def http_config(monkeypatch, tmp_path):
     path.write_text(
         json.dumps(
             {
+                "server": {"host": "127.0.0.1", "port": 8000, "path": "/mcp"},
+                "oidc": {
+                    "issuer": "https://idp.example",
+                    "jwks_uri": "https://idp.example/jwks",
+                    "audience": "dataiku-mcp",
+                    "scope": "mcp.access",
+                },
+                "token_exchange": {
+                    "url": "https://idp.example/token",
+                    "client_id": "client",
+                    "client_secret": "secret",
+                },
                 "dss_instances": {
                     "sandbox": {
                         "url": "https://sandbox.example",
@@ -30,9 +42,17 @@ def http_config(monkeypatch, tmp_path):
             }
         )
     )
-    monkeypatch.setenv("DKU_MCP_HTTP_CONFIG_FILE", str(path))
+    config.set_http_config_path(path)
+    yield path
+    config.set_http_config_path(None)
+
+
+def test_http_config_uses_canonical_default(monkeypatch, tmp_path):
+    default_path = tmp_path / "http.json"
+    monkeypatch.setattr(config, "DEFAULT_HTTP_CONFIG_PATH", default_path)
     monkeypatch.setattr(config, "_http_config_file", None)
-    return path
+
+    assert config.get_http_config_path() == default_path
 
 
 def test_http_user_can_select_any_catalog_instance(http_config):
@@ -59,6 +79,15 @@ def test_http_user_can_select_any_catalog_instance(http_config):
     assert document["user_defaults"] == {"https://idp.example": {"alice": "prod"}}
 
 
+def test_http_settings_are_read_from_the_settings_file(http_config):
+    assert config.get_http_server_settings() == {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "path": "/mcp",
+    }
+    assert config.get_http_auth_settings()["issuer"] == "https://idp.example"
+
+
 def test_token_exchange_uses_selected_instance_audience(monkeypatch):
     captured = {}
 
@@ -72,7 +101,7 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
     monkeypatch.setattr(
         config,
         "get_http_auth_settings",
-        lambda **_: {
+        lambda: {
             "token_exchange_url": "https://idp.example/token",
             "client_id": "client",
             "client_secret": "secret",
@@ -82,7 +111,13 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
         auth,
         "get_current_instance_for_tool",
         lambda: config.DSSInstance(
-            "prod", "https://prod.example", "", False, "http", jwt_audience="dss-prod", jwt_scope="dss.api"
+            "prod",
+            "https://prod.example",
+            "",
+            False,
+            "http",
+            jwt_audience="dss-prod",
+            jwt_scope="dss.api",
         ),
     )
     monkeypatch.setattr(

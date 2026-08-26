@@ -29,10 +29,8 @@ _INSTANCE_PROFILE_TOOLS = {
 }
 
 
-def _http_auth() -> JWTVerifier | None:
+def _http_auth() -> JWTVerifier:
     settings = config.get_http_auth_settings()
-    if settings is None:
-        return None
     return JWTVerifier(
         jwks_uri=settings["jwks_uri"],
         issuer=settings["issuer"],
@@ -83,7 +81,7 @@ class InstancePinningMiddleware(Middleware):
 
 
 # Create MCP instance
-mcp = FastMCP("Dataiku", auth=_http_auth(), middleware=[InstancePinningMiddleware()])
+mcp = FastMCP("Dataiku", middleware=[InstancePinningMiddleware()])
 
 config.initialize_current_instance()
 
@@ -131,11 +129,11 @@ def run_server():
     mcp.run(transport="stdio")
 
 
-def run_http_server():
+def run_http_server(settings_path: Path | None = None):
     """Run the MCP server with authenticated Streamable HTTP transport."""
+    config.set_http_config_path(settings_path)
     settings = config.get_http_server_settings()
-    if _http_auth() is None:
-        raise ValueError("HTTP authentication is not configured.")
+    mcp.auth = _http_auth()
     config_mcp.logger.info("Starting Dataiku MCP server (streamable HTTP)")
     mcp.run(transport="streamable-http", **settings)
 
