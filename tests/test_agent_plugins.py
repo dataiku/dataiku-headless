@@ -83,17 +83,15 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
     server = config["mcpServers"]["dataiku"]
     assert set(server) <= {"type", "command", "args", "env", "cwd"}
     assert server["type"] == "stdio"
-    assert server["command"] == "sh"
+    assert server["command"] == "uv"
     assert isinstance(server.get("args"), list)
-    assert server["args"] == ["${PLUGIN_ROOT}/bin/launcher.sh"]
-
-    env = server.get("env", {})
-    assert isinstance(env, dict)
-    assert all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
-    # Reserved names are client-supplied only (Agent Plugins §9.2).
-    assert "PLUGIN_ROOT" not in env
-    assert "PLUGIN_DATA" not in env
-    assert env.get("UV_CACHE_DIR") == "${PLUGIN_DATA}/uv-cache"
+    assert server["args"] == [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        "./bin/run_mcp.py",
+    ]
 
     cwd = server.get("cwd")
     if cwd is not None:
@@ -127,17 +125,11 @@ def test_skill_is_discovered_as_immediate_child_of_skills():
     assert re.search(r"(?m)^description:\s*\S", frontmatter[1])
 
 
-def test_mcp_launcher_path_exists_in_package():
-    """Portable mcp.json must point at a real package path after expansion."""
+def test_mcp_script_path_exists_in_package():
+    """Portable mcp.json must point at the supported script entry point."""
     config = _load_json(ROOT / "mcp.json")
     server = config["mcpServers"]["dataiku"]
-    for arg in server.get("args", []):
-        # Expand only the placeholders this package uses.
-        expanded = arg.replace("${PLUGIN_ROOT}", str(ROOT)).replace(
-            "${PLUGIN_DATA}", str(ROOT / ".deps")
-        )
-        if expanded.endswith("launcher.sh"):
-            assert Path(expanded).is_file(), expanded
+    assert (ROOT / server["args"][-1]).is_file()
 
 
 def test_plugin_versions_match_project_version():
@@ -169,78 +161,3 @@ def test_commitizen_version_selector_preserves_schema_urls():
     result = "".join(rewritten)
     assert '"version": "1.0.1"' in result
     assert PLUGIN_SCHEMA in result  # schema URL must keep 1.0.0
-
-
-def test_launcher_prefers_agent_plugins_data_dir(tmp_path):
-    """PLUGIN_DATA / PLUGIN_ROOT win over Claude-specific and local defaults."""
-    import os
-    import subprocess
-
-    launcher = (ROOT / "bin" / "launcher.sh").read_text(encoding="utf-8")
-    # Extract the real assignment lines so this test cannot drift from launcher.sh.
-    match = re.search(
-        r"^PLUGIN_ROOT=\$\{PLUGIN_ROOT:-.*\nDATA_DIR=\$\{PLUGIN_DATA:-.*$",
-        launcher,
-        re.MULTILINE,
-    )
-    assert match, "launcher.sh lost PLUGIN_ROOT/DATA_DIR assignment order"
-    probe = tmp_path / "probe.sh"
-    probe.write_text(
-        "set -eu\n"
-        'HERE=$(CDPATH=\'\' cd -- "$(dirname -- "$0")" && pwd)\n'
-        f"{match.group(0)}\n"
-        "printf '%s\\n' \"$PLUGIN_ROOT\"\n"
-        "printf '%s\\n' \"$DATA_DIR\"\n",
-        encoding="utf-8",
-    )
-    probe.chmod(0o755)
-
-    env = os.environ.copy()
-    for key in (
-        "PLUGIN_ROOT",
-        "PLUGIN_DATA",
-        "CLAUDE_PLUGIN_ROOT",
-        "CLAUDE_PLUGIN_DATA",
-    ):
-        env.pop(key, None)
-
-    agent_root = tmp_path / "agent-root"
-    agent_data = tmp_path / "agent-data"
-    claude_root = tmp_path / "claude-root"
-    claude_data = tmp_path / "claude-data"
-    for path in (agent_root, agent_data, claude_root, claude_data):
-        path.mkdir()
-
-    env.update(
-        {
-            "PLUGIN_ROOT": str(agent_root),
-            "PLUGIN_DATA": str(agent_data),
-            "CLAUDE_PLUGIN_ROOT": str(claude_root),
-            "CLAUDE_PLUGIN_DATA": str(claude_data),
-        }
-    )
-    out = subprocess.check_output(["sh", str(probe)], env=env, text=True)
-    root, data = out.splitlines()
-    assert root == str(agent_root)
-    assert data == str(agent_data)
-
-    env.pop("PLUGIN_ROOT")
-    env.pop("PLUGIN_DATA")
-    out = subprocess.check_output(["sh", str(probe)], env=env, text=True)
-    root, data = out.splitlines()
-    assert root == str(claude_root)
-    assert data == str(claude_data)
-
-    # Local checkout fallback when no harness vars are set.
-    env.pop("CLAUDE_PLUGIN_ROOT")
-    env.pop("CLAUDE_PLUGIN_DATA")
-    # Put the probe under a fake bin/ so HERE/.. resolves like launcher.sh.
-    fake_bin = tmp_path / "checkout" / "bin"
-    fake_bin.mkdir(parents=True)
-    local_probe = fake_bin / "probe.sh"
-    local_probe.write_text(probe.read_text(encoding="utf-8"), encoding="utf-8")
-    local_probe.chmod(0o755)
-    out = subprocess.check_output(["sh", str(local_probe)], env=env, text=True)
-    root, data = out.splitlines()
-    assert root == str(tmp_path / "checkout")
-    assert data == str(tmp_path / "checkout" / ".deps")
