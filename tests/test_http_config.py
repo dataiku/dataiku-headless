@@ -1,12 +1,13 @@
 """HTTP instance selection is a preference, not an authorization allow-list."""
 
+import asyncio
 import json
 
 import pytest
 
+import dataiku_mcp.auth as auth
 from dataiku_mcp.config import http, request
 from dataiku_mcp.config.models import DSSInstance, NoActiveInstanceError
-from dataiku_mcp.tools.utils import auth
 
 
 @pytest.fixture
@@ -155,7 +156,7 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
         lambda url, **kwargs: captured.update(url=url, **kwargs) or Response(),
     )
 
-    assert auth.exchange_http_token("mcp-token") == "dss-token"
+    assert asyncio.run(auth.exchange_http_token("mcp-token")) == "dss-token"
     assert captured["data"]["audience"] == "dss-prod"
     assert captured["data"]["scope"] == "dss.api"
     assert captured["data"]["subject_token"] == "mcp-token"

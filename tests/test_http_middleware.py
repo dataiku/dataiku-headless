@@ -3,6 +3,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 import dataiku_mcp
 from dataiku_mcp.config import request
 
@@ -13,7 +15,7 @@ def _call_middleware(monkeypatch, tool_name: str):
         token="mcp-token",
         claims={"iss": "https://idp.example", "sub": "alice"},
     )
-    middleware = dataiku_mcp.InstancePinningMiddleware()
+    middleware = dataiku_mcp.RequestContextMiddleware()
 
     monkeypatch.setattr(dataiku_mcp, "get_access_token", lambda: access_token)
     monkeypatch.setattr(
@@ -41,14 +43,8 @@ def _call_middleware(monkeypatch, tool_name: str):
     monkeypatch.setattr(
         dataiku_mcp,
         "exchange_http_token",
-        lambda token: events.append(("exchange", token)) or "dss-token",
+        lambda token: _exchange(events, token),
     )
-
-    async def run_blocking(function, *args):
-        events.append(("run_blocking",))
-        return function(*args)
-
-    monkeypatch.setattr(dataiku_mcp, "run_blocking", run_blocking)
     monkeypatch.setattr(
         request,
         "set_http_dss_token",
@@ -67,6 +63,11 @@ def _call_middleware(monkeypatch, tool_name: str):
     context = SimpleNamespace(message=SimpleNamespace(name=tool_name))
     assert asyncio.run(middleware.on_call_tool(context, call_next)) == "result"
     return events
+
+
+async def _exchange(events, token):
+    events.append(("exchange", token))
+    return "dss-token"
 
 
 def test_http_local_only_tools_are_an_explicit_contract():
@@ -100,3 +101,38 @@ def test_http_dss_tool_exchanges_and_resets_its_dss_token(monkeypatch):
         ("reset_instance", "instance"),
         ("reset_identity", "identity"),
     ]
+
+
+def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):
+    events = []
+    access_token = SimpleNamespace(
+        token="mcp-token",
+        claims={"iss": "https://idp.example", "sub": "alice"},
+    )
+    middleware = dataiku_mcp.RequestContextMiddleware()
+
+    monkeypatch.setattr(dataiku_mcp, "get_access_token", lambda: access_token)
+    monkeypatch.setattr(request, "bind_http_identity", lambda *_: "identity")
+
+    def fail_pinning():
+        raise ValueError("invalid settings")
+
+    monkeypatch.setattr(
+        request,
+        "pin_current_instance",
+        fail_pinning,
+    )
+    monkeypatch.setattr(
+        request,
+        "reset_http_identity",
+        lambda token: events.append(("reset_identity", token)),
+    )
+
+    async def call_next(_context):
+        pytest.fail("The tool must not run after pinning fails.")
+
+    context = SimpleNamespace(message=SimpleNamespace(name="list_projects"))
+    with pytest.raises(ValueError, match="invalid settings"):
+        asyncio.run(middleware.on_call_tool(context, call_next))
+
+    assert events == [("reset_identity", "identity")]

@@ -3,8 +3,8 @@
 from fastmcp import Context
 
 from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client, require_admin
+from ..auth import get_dss_client, require_admin
+from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json
 
 _CONTAINER_SUMMARY_COLUMNS = [

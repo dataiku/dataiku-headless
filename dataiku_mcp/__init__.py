@@ -16,9 +16,8 @@ from mcp.types import CallToolRequestParams
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 from . import config_mcp  # noqa: E402
+from .auth import exchange_http_token  # noqa: E402
 from .config import http, request, stdio  # noqa: E402
-from .tools.utils.async_executor import run_blocking  # noqa: E402
-from .tools.utils.auth import exchange_http_token  # noqa: E402
 
 
 # These tools only manage MCP-local instance preferences. They must never create
@@ -51,8 +50,8 @@ def _tool_name(context: MiddlewareContext[CallToolRequestParams]) -> str:
     )
 
 
-class InstancePinningMiddleware(Middleware):
-    """Pin the active Dataiku instance for each MCP tool call."""
+class RequestContextMiddleware(Middleware):
+    """Bind request identity, active instance, and delegated DSS credentials."""
 
     async def on_call_tool(
         self,
@@ -68,25 +67,27 @@ class InstancePinningMiddleware(Middleware):
                 str(claims.get("iss", "")), str(claims.get("sub", ""))
             )
 
-        token = request.pin_current_instance()
+        pinned_instance_token = None
         try:
+            pinned_instance_token = request.pin_current_instance()
             if (
                 access_token is not None
                 and _tool_name(context) not in HTTP_LOCAL_ONLY_TOOL_NAMES
             ):
-                delegated = await run_blocking(exchange_http_token, access_token.token)
+                delegated = await exchange_http_token(access_token.token)
                 delegated_token = request.set_http_dss_token(delegated)
             return await call_next(context)
         finally:
             if delegated_token is not None:
                 request.reset_http_dss_token(delegated_token)
-            request.reset_pinned_instance(token)
+            if pinned_instance_token is not None:
+                request.reset_pinned_instance(pinned_instance_token)
             if identity_token is not None:
                 request.reset_http_identity(identity_token)
 
 
 # Create MCP instance
-mcp = FastMCP("Dataiku", middleware=[InstancePinningMiddleware()])
+mcp = FastMCP("Dataiku", middleware=[RequestContextMiddleware()])
 
 stdio.initialize_current_instance()
 

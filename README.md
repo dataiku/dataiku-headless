@@ -248,6 +248,8 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 ```text
 .
 ├── dataiku_mcp/
+│   ├── auth.py                # Dataiku client creation and HTTP token exchange
+│   ├── executors.py           # Shared blocking and Cobuild executors
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
@@ -277,7 +279,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Shared runtime utilities
+│   │   └── utils/             # Tool validation and response-shaping utilities
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
 │   ├── config_mcp.py          # MCP configuration
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation

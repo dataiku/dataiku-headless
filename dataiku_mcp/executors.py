@@ -1,10 +1,11 @@
-"""Async executor for running blocking Dataiku API calls."""
+"""Shared executors for blocking Dataiku and Cobuild operations."""
 
 import asyncio
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 
-from ...config_mcp import DKU_MCP_MAX_COBUILD_WORKERS, DKU_MCP_MAX_WORKERS
+from .config_mcp import DKU_MCP_MAX_COBUILD_WORKERS, DKU_MCP_MAX_WORKERS
+
 
 _executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_WORKERS)
 _cobuild_executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_COBUILD_WORKERS)

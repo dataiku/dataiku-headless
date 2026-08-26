@@ -3,8 +3,8 @@
 from fastmcp import Context
 
 from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client, require_admin
+from ..auth import get_dss_client, require_admin
+from ..executors import run_blocking
 from .utils.identity_sources import require_identity_source_type
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (

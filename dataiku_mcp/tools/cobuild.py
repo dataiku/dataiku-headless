@@ -12,8 +12,8 @@ from fastmcp import Context
 
 from .. import mcp
 from ..config import request
-from .utils.async_executor import run_blocking, run_cobuild_blocking
-from .utils.auth import get_current_instance_for_tool, get_dss_client
+from ..auth import get_current_instance_for_tool, get_dss_client
+from ..executors import run_blocking, run_cobuild_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 

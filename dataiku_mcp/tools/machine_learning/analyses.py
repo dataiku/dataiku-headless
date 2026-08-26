@@ -7,8 +7,8 @@ from typing import Any
 from fastmcp import Context
 
 from ... import mcp
-from ..utils.async_executor import run_blocking
-from ..utils.auth import get_dss_client
+from ...auth import get_dss_client
+from ...executors import run_blocking
 from ..utils.serialization import columnar, compact_json, omit_empty
 from ..utils.validation import require_non_empty_string as _require_non_empty_string
 from .shared.common import find_analysis_input_dataset, require_single_ml_task

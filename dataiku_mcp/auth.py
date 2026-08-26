@@ -1,16 +1,16 @@
-"""Authentication utilities for Dataiku client creation."""
+"""Authentication and Dataiku client creation."""
 
 import dataikuapi
 import requests
 from dataikuapi.utils import DataikuException
 
-from ...config import http, request
-from ...config.models import (
+from .config import http, request
+from .config.models import (
     DSSInstance,
     NoActiveInstanceError,
     NoConfiguredInstancesError,
 )
-from .async_executor import run_blocking
+from .executors import run_blocking
 
 
 def _require_instance_property(
@@ -88,34 +88,38 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
-def exchange_http_token(mcp_token: str) -> str:
+async def exchange_http_token(mcp_token: str) -> str:
     """Exchange an MCP-audience token for the selected DSS-audience token."""
-    settings = http.get_auth_settings()
-    instance = get_current_instance_for_tool()
-    try:
-        response = requests.post(
-            settings["token_exchange_url"],
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-                "subject_token": mcp_token,
-                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                "audience": instance.jwt_audience,
-                "scope": instance.jwt_scope,
-            },
-            auth=(settings["client_id"], settings["client_secret"]),
-            timeout=10,
-        )
-        response.raise_for_status()
-        delegated_token = response.json().get("access_token")
-    except requests.RequestException as err:
-        raise PermissionError("DSS token exchange failed.") from err
-    except ValueError as err:
-        raise PermissionError(
-            "DSS token exchange returned an invalid response."
-        ) from err
-    if not isinstance(delegated_token, str) or not delegated_token:
-        raise PermissionError("DSS token exchange returned no access token.")
-    return delegated_token
+
+    def _exchange() -> str:
+        settings = http.get_auth_settings()
+        instance = get_current_instance_for_tool()
+        try:
+            response = requests.post(
+                settings["token_exchange_url"],
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "subject_token": mcp_token,
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                    "audience": instance.jwt_audience,
+                    "scope": instance.jwt_scope,
+                },
+                auth=(settings["client_id"], settings["client_secret"]),
+                timeout=10,
+            )
+            response.raise_for_status()
+            delegated_token = response.json().get("access_token")
+        except requests.RequestException as err:
+            raise PermissionError("DSS token exchange failed.") from err
+        except ValueError as err:
+            raise PermissionError(
+                "DSS token exchange returned an invalid response."
+            ) from err
+        if not isinstance(delegated_token, str) or not delegated_token:
+            raise PermissionError("DSS token exchange returned no access token.")
+        return delegated_token
+
+    return await run_blocking(_exchange)
 
 
 async def require_admin() -> None:

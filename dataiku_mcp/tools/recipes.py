@@ -7,8 +7,8 @@ from typing import Any
 from fastmcp import Context
 
 from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json
 
 CODE_RECIPE_TYPES = {

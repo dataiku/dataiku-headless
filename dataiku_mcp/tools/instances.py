@@ -9,7 +9,7 @@ from fastmcp import Context
 from .. import mcp
 from ..config import request, stdio
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
-from .utils.auth import get_current_instance_for_tool
+from ..auth import get_current_instance_for_tool
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
