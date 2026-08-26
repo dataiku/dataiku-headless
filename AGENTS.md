@@ -27,7 +27,8 @@ Use this file when changing this repository. It is not an operating guide for us
 - Standalone server dependency pins and Python floor: the PEP 723 block in `bin/run_mcp.py`.
 - Plugin launch configuration: `.mcp.json`, `.claude-plugin/plugin.json`, and `.codex-plugin/plugin.json`.
 - User-facing installation and architecture overview: `README.md`.
-- Release behavior: `RELEASE.md` and `.github/workflows/bump.yml`.
+- Release behavior: `RELEASE.md`, `.github/workflows/prepare-release.yml`, and
+  `.github/workflows/bump.yml`.
 - CI behavior: `.github/workflows/ci.yml` and `.github/workflows/pr-title.yml`.
 
 Do not copy volatile inventories, versions, or command details into this file when a source above can be referenced instead.

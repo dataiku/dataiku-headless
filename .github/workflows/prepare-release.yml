@@ -1,0 +1,87 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: Use Conventional Commits automatically, or force a patch/minor increment
+        required: true
+        default: auto
+        type: choice
+        options: [auto, patch, minor]
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Create release pull request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.6"
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Verify the committed MCP script lockfile
+        run: uv lock --script bin/run_mcp.py --check
+      - name: Determine release version
+        id: release
+        env:
+          INCREMENT: ${{ inputs.increment }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$INCREMENT" != auto ]; then
+            args=(--increment "${INCREMENT^^}")
+          fi
+          version=$(uv run cz bump --get-next "${args[@]}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "branch=release/v$version" >> "$GITHUB_OUTPUT"
+      - name: Create release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+          INCREMENT: ${{ inputs.increment }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url')
+          if [ -n "$existing" ]; then
+            echo "Release PR already open: $existing"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "::error::Branch $BRANCH already exists without an open PR."
+            exit 1
+          fi
+
+          args=()
+          if [ "$INCREMENT" != auto ]; then
+            args=(--increment "${INCREMENT^^}")
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          uv run cz bump --yes --changelog --no-verify "${args[@]}"
+          actual=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::Commitizen wrote $actual, expected $VERSION."
+            exit 1
+          fi
+          git tag -d "v$VERSION" || true
+          git switch -c "$BRANCH"
+          git push origin "HEAD:refs/heads/$BRANCH"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "bump: version $VERSION" \
+            --body "Prepared manually by the Prepare release workflow. Merge this PR before running Publish release for v$VERSION."

@@ -1,179 +1,121 @@
-name: Bump version
-
-# Commitizen owns versioning. On every push to main it reads the conventional
-# commits since the last tag, bumps [project].version (and the plugin manifests
-# in [tool.commitizen].version_files), updates CHANGELOG.md, commits the change,
-# and creates the vX.Y.Z tag. This workflow then publishes a GitHub release for
-# that tag, using the CHANGELOG section commitizen just wrote as the notes.
-# Pushes with no releasable commits (docs/chore/ci/...) are a no-op — see
-# no_raise below.
-#
-# Nothing is published to a package index. This project is consumed as a harness
-# plugin or a git checkout, so a "release" here is exactly three things: the
-# vX.Y.Z tag, the CHANGELOG entry, and the GitHub release. The version still
-# matters because the plugin manifests carry it — that is how a harness notices
-# there is a newer version of the plugin to install.
-#
-# A second tag rides along for the plugin itself:
-#   vX.Y.Z                     — commitizen's, the release this workflow publishes
-#   dataiku-headless--vX.Y.Z   — the plugin release, matching the tag
-#                                `claude plugin tag` produces
-# Since the manifests' "version" field is the thing a harness compares, the steps
-# below refuse to tag or announce a version whose manifests did not actually move.
-#
-# The default GITHUB_TOKEN is sufficient. This used to require a RELEASE_PAT
-# because refs pushed with GITHUB_TOKEN do not start new workflow runs, and the
-# tag had to trigger a separate publish workflow. There is no downstream
-# workflow to trigger anymore, so the PAT — and its expiry — is gone.
-#
-# TEMPORARY: bumping is blocked while the PR backlog is cleaned up. The job is
-# gated on the repository variable RELEASE_ENABLED being 'true' (Settings >
-# Secrets and variables > Actions > Variables). It is a job-level `if`, so it
-# *skips* rather than fails: this workflow fires on every push to main, and
-# failing each one would put a red X on every merge during exactly the cleanup
-# it is meant to stay out of the way of.
-#
-# TODO: once the open PR backlog is merged or closed and main is known good,
-# drop the RELEASE_ENABLED clause from the `if` below (leaving the `bump:` loop
-# guard) and delete the repository variable.
+name: Publish release
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already merged to main, without the v prefix (for example, 0.4.0)
+        required: true
+        type: string
 
 concurrency:
-  group: bump
+  group: publish-release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  bump:
-    name: Bump version, tag and release
+  publish:
+    name: Tag and publish release
     runs-on: ubuntu-latest
-    # Skip unless versioning is enabled (see TEMPORARY note above), and never
-    # re-run on the "bump: ..." commit commitizen just pushed. GITHUB_TOKEN
-    # pushes cannot retrigger this workflow, so the second clause is belt and
-    # braces — it keeps the loop closed if the token is ever swapped for a PAT.
-    if: ${{ vars.RELEASE_ENABLED == 'true' && !startsWith(github.event.head_commit.message, 'bump:') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history and tags: commitizen derives the next version by
-          # diffing against the last tag.
+          ref: main
           fetch-depth: 0
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "0.12.6"
           enable-cache: true
-      # Release only from a lock that is both valid and fresh for its exact
-      # direct script pins. --upgrade may update the runner's working tree;
-      # any resulting diff must be reviewed, tested, and committed in a PR.
-      - name: Verify PEP 723 script lockfile is current
+      - name: Verify the committed MCP script lockfile
+        run: uv lock --script bin/run_mcp.py --check
+      - name: Verify the merged release version
+        id: release
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          uv lock --script bin/run_mcp.py --check
-          uv lock --script bin/run_mcp.py --upgrade
-          if ! git diff --quiet -- bin/run_mcp.py.lock; then
-            echo "::error::bin/run_mcp.py.lock is stale. Regenerate, test, and commit it before releasing."
-            git --no-pager diff -- bin/run_mcp.py.lock
+          case "$VERSION" in
+            *[!0-9.]*|*..*|.*|*.)
+              echo "::error::Version must be a dotted numeric version without a v prefix."
+              exit 1
+              ;;
+          esac
+
+          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$project" != "$VERSION" ]; then
+            echo "::error::main is at version $project, not requested version $VERSION. Merge the release PR first."
             exit 1
           fi
-      - id: before
-        name: Record current tag
-        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
-      - name: Bump version, changelog and tag
-        uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # 3 = no commits found, 21 = nothing to bump: treat both as a no-op
-          # rather than a failed run.
-          no_raise: "3,21"
-      - id: after
-        name: Detect whether a bump happened
-        env:
-          PREVIOUS_TAG: ${{ steps.before.outputs.tag }}
-        run: |
-          set -euo pipefail
-          tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          if [ -n "$tag" ] && [ "$tag" != "$PREVIOUS_TAG" ]; then
-            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-            echo "Bumped ${PREVIOUS_TAG:-<no tag>} -> ${tag}"
-          else
-            echo "No releasable commits - nothing to tag or release."
+
+          manifests=(.claude-plugin/plugin.json .codex-plugin/plugin.json)
+          if [ -f plugin.json ]; then
+            manifests+=(plugin.json)
           fi
-
-      # commitizen rewrites the manifests through [tool.commitizen].version_files,
-      # but a version_files entry whose version string no longer matches is
-      # skipped *silently* — the run stays green while the plugin manifests keep
-      # advertising the old version, which is exactly the field harnesses use to
-      # decide whether users get an update. Fail loudly instead.
-      - name: Verify plugin manifests carry the bumped version
-        id: version
-        run: |
-          set -euo pipefail
-          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          claude=$(jq -r '.version' .claude-plugin/plugin.json)
-          codex=$(jq -r '.version' .codex-plugin/plugin.json)
-
-          for pair in "claude:${claude}" "codex:${codex}"; do
-            name=${pair%%:*}
-            found=${pair#*:}
-            if [ "${found}" != "${project}" ]; then
-              echo "::error::${name} manifest is at ${found}, expected ${project}." \
-                   "Check that its version string is still matched by" \
-                   "[tool.commitizen].version_files in pyproject.toml."
+          for manifest in "${manifests[@]}"; do
+            found=$(jq -r '.version' "$manifest")
+            if [ "$found" != "$VERSION" ]; then
+              echo "::error::$manifest is at $found, expected $VERSION."
               exit 1
             fi
           done
 
-          # The marketplace entry may restate the version; when it does, it wins
-          # over plugin.json for users installing from the catalog, so the two
-          # must agree. Absent is fine — plugin.json is then the only source.
           entry=$(jq -r '.plugins[] | select(.name == "dataiku-headless") | .version // empty' \
             .claude-plugin/marketplace.json)
-          if [ -n "${entry}" ] && [ "${entry}" != "${project}" ]; then
-            echo "::error::marketplace.json pins dataiku-headless at ${entry}, expected ${project}."
+          if [ -n "$entry" ] && [ "$entry" != "$VERSION" ]; then
+            echo "::error::marketplace.json is at $entry, expected $VERSION."
             exit 1
           fi
 
-          echo "version=${project}" >> "${GITHUB_OUTPUT}"
-
-      # Plugin release tag, in the form `claude plugin tag` produces. Separate
-      # from commitizen's vX.Y.Z: it marks the commit a harness resolves a plugin
-      # install to. Derived from the tag commitizen actually created, so the two
-      # can never name different versions.
-      - name: Tag the plugin release
-        if: steps.after.outputs.tag != ''
+          if ! grep -Eq "^## v${VERSION//./\\.}( \\(|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for v$VERSION."
+            exit 1
+          fi
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Create release tags
         env:
-          TAG: ${{ steps.after.outputs.tag }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          tag="dataiku-headless--${TAG}"
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-            echo "${tag} already exists; nothing to do."
-            exit 0
-          fi
-
+          git fetch --tags --force
+          expected=$(git rev-parse HEAD)
+          tags=("$TAG" "dataiku-headless--$TAG")
+          refs=()
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${tag}" -m "dataiku-headless ${TAG#v}"
-          git push origin "refs/tags/${tag}"
 
+          for tag in "${tags[@]}"; do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              target=$(git rev-list -n1 "$tag")
+              if [ "$target" != "$expected" ]; then
+                echo "::error::$tag points at $target, not main at $expected."
+                exit 1
+              fi
+              echo "$tag already exists at main."
+            else
+              git tag -a "$tag" -m "dataiku-headless ${TAG#v}" HEAD
+              refs+=("refs/tags/$tag")
+            fi
+          done
+
+          if [ "${#refs[@]}" -gt 0 ]; then
+            git push --atomic origin "${refs[@]}"
+          fi
       - name: Create GitHub release
-        if: steps.after.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.after.outputs.tag }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists - skipping."
+            echo "Release $TAG already exists."
             exit 0
           fi
-          # The newest CHANGELOG section (first "## " heading up to the next
-          # one) is the release notes for the version just cut.
-          awk '/^## /{n++} n==1' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          awk -v version="$TAG" '
+            /^## / { if (found) exit; if (index($0, version) == 4) found = 1 }
+            found { print }
+          ' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          test -s "${RUNNER_TEMP}/notes.md"
           gh release create "$TAG" --title "$TAG" --notes-file "${RUNNER_TEMP}/notes.md"
