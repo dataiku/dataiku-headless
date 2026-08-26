@@ -100,7 +100,7 @@ def test_setup_server_requires_a_successful_test_before_saving(monkeypatch):
         "action": "save",
     }
     monkeypatch.setattr(
-        setup_server.config,
+        setup_server.stdio,
         "add_instance_to_config",
         lambda **values: pytest.fail(f"Unexpected save: {values}"),
     )

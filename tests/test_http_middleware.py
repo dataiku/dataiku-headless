@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import dataiku_mcp
+from dataiku_mcp.config import request
 
 
 def _call_middleware(monkeypatch, tool_name: str):
@@ -16,24 +17,24 @@ def _call_middleware(monkeypatch, tool_name: str):
 
     monkeypatch.setattr(dataiku_mcp, "get_access_token", lambda: access_token)
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "bind_http_identity",
         lambda issuer, subject: (
             events.append(("identity", issuer, subject)) or "identity"
         ),
     )
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "pin_current_instance",
         lambda: events.append(("pin",)) or "instance",
     )
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "reset_pinned_instance",
         lambda token: events.append(("reset_instance", token)),
     )
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "reset_http_identity",
         lambda token: events.append(("reset_identity", token)),
     )
@@ -49,12 +50,12 @@ def _call_middleware(monkeypatch, tool_name: str):
 
     monkeypatch.setattr(dataiku_mcp, "run_blocking", run_blocking)
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "set_http_dss_token",
         lambda token: events.append(("set_dss", token)) or "dss",
     )
     monkeypatch.setattr(
-        dataiku_mcp.config,
+        request,
         "reset_http_dss_token",
         lambda token: events.append(("reset_dss", token)),
     )

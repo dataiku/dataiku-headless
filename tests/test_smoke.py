@@ -1,7 +1,7 @@
 """Smoke tests: the package imports cleanly and exposes its public surface.
 
 These intentionally avoid any live Dataiku connection — importing the
-package must work without credentials (``config.py`` defaults every setting to
+package must work without credentials (the configuration package defaults every setting to
 an empty value), so CI can run them on a bare runner.
 """
 

@@ -278,7 +278,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Shared runtime utilities
-│   ├── config.py              # Instance/profile loading from config file + env vars
+│   ├── config/                # Models, stdio/HTTP configuration, and request routing
 │   ├── config_mcp.py          # MCP configuration
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
 │   └── __init__.py

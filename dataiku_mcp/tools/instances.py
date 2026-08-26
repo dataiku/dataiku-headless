@@ -6,7 +6,8 @@ from dataclasses import asdict
 
 from fastmcp import Context
 
-from .. import config, mcp
+from .. import mcp
+from ..config import request, stdio
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.auth import get_current_instance_for_tool
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -15,7 +16,7 @@ from .utils.serialization import columnar, compact_json, omit_empty
 @mcp.tool()
 async def list_instances(ctx: Context) -> str:
     """List the configured Dataiku instances (name, URL, description, active flag)."""
-    instances = config.get_instances()
+    instances = request.get_instances()
     try:
         current_instance_name = get_current_instance_for_tool().name
     except ValueError:
@@ -43,7 +44,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to retrieve all available instance names).
     """
     await ctx.info(f"Switching to instance '{name}'...")
-    info = config.set_current_instance(name)
+    info = request.set_current_instance(name)
     return compact_json(info)
 
 
@@ -57,12 +58,12 @@ async def delete_instance(name: str, ctx: Context) -> str:
     Args:
         name: Instance name (run list_instances() to see available names).
     """
-    if config.is_http_request():
+    if request.is_http_request():
         raise ValueError(
             "Instances are platform-managed in HTTP mode and cannot be deleted."
         )
     await ctx.info(f"Deleting instance '{name}'...")
-    info = config.delete_instance_from_config(name)
+    info = stdio.delete_instance_from_config(name)
     return compact_json(info)
 
 
@@ -85,7 +86,7 @@ async def configure_instance(ctx: Context) -> str:
     Opens a local browser page for the user to enter the instance URL and API key,
     saved to the resolved configuration file (0600).
     """
-    if config.is_http_request():
+    if request.is_http_request():
         raise ValueError(
             "Instances are platform-managed in HTTP mode and cannot be configured."
         )

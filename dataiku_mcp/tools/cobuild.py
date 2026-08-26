@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 from fastmcp import Context
 
-from .. import config
 from .. import mcp
+from ..config import request
 from .utils.async_executor import run_blocking, run_cobuild_blocking
 from .utils.auth import get_current_instance_for_tool, get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -54,7 +54,7 @@ def _require_conversation_entry(
             f"Cobuild conversation '{conversation_id}' belongs to project "
             f"'{entry.project_key}', not '{project_key}'."
         )
-    if entry.owner != config.get_request_owner():
+    if entry.owner != request.get_request_owner():
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to another user."
         )
@@ -249,7 +249,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
-        config.get_request_owner(),
+        request.get_request_owner(),
         instance_name,
         project_key,
         conversation,
@@ -405,7 +405,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List process-local Cobuild conversations for a project and their current turns."""
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = get_current_instance_for_tool().name
-    owner = config.get_request_owner()
+    owner = request.get_request_owner()
     rows = []
     for conversation_id, entry in _conversations.items():
         if (

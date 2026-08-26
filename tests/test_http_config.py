@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from dataiku_mcp import config
+from dataiku_mcp.config import http, request
+from dataiku_mcp.config.models import DSSInstance, NoActiveInstanceError
 from dataiku_mcp.tools.utils import auth
 
 
@@ -42,50 +43,50 @@ def http_config(monkeypatch, tmp_path):
             }
         )
     )
-    config.set_http_config_path(path)
+    http.set_settings_path(path)
     yield path
-    config.set_http_config_path(None)
+    http.set_settings_path(None)
 
 
 def test_http_config_uses_canonical_default(monkeypatch, tmp_path):
     default_path = tmp_path / "http.json"
-    monkeypatch.setattr(config, "DEFAULT_HTTP_CONFIG_PATH", default_path)
-    monkeypatch.setattr(config, "_http_config_file", None)
+    monkeypatch.setattr(http, "DEFAULT_SETTINGS_PATH", default_path)
+    monkeypatch.setattr(http, "_settings_path", None)
 
-    assert config.get_http_config_path() == default_path
+    assert http.get_settings_path() == default_path
 
 
 def test_http_user_can_select_any_catalog_instance(http_config):
-    identity = config.bind_http_identity("https://idp.example", "alice")
+    identity = request.bind_http_identity("https://idp.example", "alice")
     try:
-        assert set(config.get_instances()) == {"sandbox", "prod"}
-        pinned = config.pin_current_instance()
+        assert set(request.get_instances()) == {"sandbox", "prod"}
+        pinned = request.pin_current_instance()
         try:
-            with pytest.raises(config.NoActiveInstanceError):
-                config.get_current_instance()
+            with pytest.raises(NoActiveInstanceError):
+                request.get_current_instance()
         finally:
-            config.reset_pinned_instance(pinned)
+            request.reset_pinned_instance(pinned)
 
-        config.set_current_instance("prod")
-        pinned = config.pin_current_instance()
+        request.set_current_instance("prod")
+        pinned = request.pin_current_instance()
         try:
-            assert config.get_current_instance().name == "prod"
+            assert request.get_current_instance().name == "prod"
         finally:
-            config.reset_pinned_instance(pinned)
+            request.reset_pinned_instance(pinned)
     finally:
-        config.reset_http_identity(identity)
+        request.reset_http_identity(identity)
 
     document = json.loads(http_config.read_text())
     assert document["user_defaults"] == {"https://idp.example": {"alice": "prod"}}
 
 
 def test_http_settings_are_read_from_the_settings_file(http_config):
-    assert config.get_http_server_settings() == {
+    assert http.get_server_settings() == {
         "host": "127.0.0.1",
         "port": 8000,
         "path": "/mcp",
     }
-    assert config.get_http_auth_settings()["issuer"] == "https://idp.example"
+    assert http.get_auth_settings()["issuer"] == "https://idp.example"
 
 
 def test_token_exchange_uses_selected_instance_audience(monkeypatch):
@@ -99,8 +100,8 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
             return {"access_token": "dss-token"}
 
     monkeypatch.setattr(
-        config,
-        "get_http_auth_settings",
+        http,
+        "get_auth_settings",
         lambda: {
             "token_exchange_url": "https://idp.example/token",
             "client_id": "client",
@@ -110,7 +111,7 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
     monkeypatch.setattr(
         auth,
         "get_current_instance_for_tool",
-        lambda: config.DSSInstance(
+        lambda: DSSInstance(
             "prod",
             "https://prod.example",
             "",

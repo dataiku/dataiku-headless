@@ -4,7 +4,12 @@ import dataikuapi
 import requests
 from dataikuapi.utils import DataikuException
 
-from ... import config
+from ...config import http, request
+from ...config.models import (
+    DSSInstance,
+    NoActiveInstanceError,
+    NoConfiguredInstancesError,
+)
 from .async_executor import run_blocking
 
 
@@ -18,7 +23,7 @@ def _require_instance_property(
         return
 
     alternative_instances = [
-        name for name in config.get_instances() if name != instance_name
+        name for name in request.get_instances() if name != instance_name
     ]
     message = (
         f"Dataiku instance '{instance_name}' has no {property_name}. Run "
@@ -32,20 +37,20 @@ def _require_instance_property(
     raise ValueError(message)
 
 
-def get_current_instance_for_tool() -> config.DSSInstance:
+def get_current_instance_for_tool() -> DSSInstance:
     """Return the active instance or raise guidance suitable for an MCP agent."""
     try:
-        return config.get_current_instance()
-    except config.NoConfiguredInstancesError:
-        if config.is_http_request():
+        return request.get_current_instance()
+    except NoConfiguredInstancesError:
+        if request.is_http_request():
             raise ValueError(
                 "No platform-managed Dataiku instances are configured."
             ) from None
         raise ValueError(
             "No Dataiku instances are configured. Run configure_instance."
         ) from None
-    except config.NoActiveInstanceError:
-        if config.is_http_request():
+    except NoActiveInstanceError:
+        if request.is_http_request():
             raise ValueError(
                 "No active Dataiku instance is selected. Run list_instances, then "
                 "switch_instance to choose a platform-managed instance."
@@ -67,10 +72,10 @@ def get_dss_client() -> dataikuapi.DSSClient:
         current_instance.name,
     )
 
-    if config.is_http_request():
+    if request.is_http_request():
         client = dataikuapi.DSSClient(
             current_instance.url,
-            jwt_bearer_token=config.get_http_dss_token(),
+            jwt_bearer_token=request.get_http_dss_token(),
         )
     else:
         _require_instance_property(
@@ -85,7 +90,7 @@ def get_dss_client() -> dataikuapi.DSSClient:
 
 def exchange_http_token(mcp_token: str) -> str:
     """Exchange an MCP-audience token for the selected DSS-audience token."""
-    settings = config.get_http_auth_settings()
+    settings = http.get_auth_settings()
     instance = get_current_instance_for_tool()
     try:
         response = requests.post(
