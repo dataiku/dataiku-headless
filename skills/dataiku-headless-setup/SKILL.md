@@ -1,5 +1,5 @@
 ---
-name: setup
+name: dataiku-headless-setup
 description: Set up Dataiku Headless after plugin installation. Use when the user asks to install, set up, connect, configure, or repair Dataiku Headless; when its MCP tools are unavailable; or when uv may be missing. Check the runtime, offer the official platform installer with explicit approval, then configure and verify a Dataiku instance.
 ---
 
