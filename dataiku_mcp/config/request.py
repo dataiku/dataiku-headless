@@ -75,7 +75,7 @@ def pin_current_instance() -> Token:
     issuer, subject = identity
     instances, defaults = http.get_instances_and_defaults()
     selected_name = defaults.get(issuer, {}).get(subject)
-    return _pinned_instance.set(instances[selected_name] if selected_name else None)
+    return _pinned_instance.set(instances.get(selected_name))
 
 
 def reset_pinned_instance(token: Token) -> None:
@@ -93,8 +93,9 @@ def get_current_instance() -> DSSInstance:
         assert identity is not None
         instances, defaults = http.get_instances_and_defaults()
         selected_name = defaults.get(identity[0], {}).get(identity[1])
-        if selected_name:
-            return instances[selected_name]
+        selected_instance = instances.get(selected_name)
+        if selected_instance is not None:
+            return selected_instance
     else:
         current_instance = stdio.get_current_instance()
         if current_instance is not None:

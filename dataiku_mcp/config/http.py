@@ -125,8 +125,10 @@ def _instances_and_defaults(
         if not isinstance(issuer, str) or not isinstance(subjects, dict):
             raise ValueError("HTTP user_defaults must map issuers to subject mappings.")
         for subject, instance_name in subjects.items():
-            if not isinstance(subject, str) or instance_name not in instances:
-                raise ValueError("HTTP user_defaults references an unknown instance.")
+            if not isinstance(subject, str) or not isinstance(instance_name, str):
+                raise ValueError(
+                    "HTTP user_defaults must map subjects to instance names."
+                )
     return instances, defaults
 
 

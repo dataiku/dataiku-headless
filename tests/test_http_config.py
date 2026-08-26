@@ -80,6 +80,34 @@ def test_http_user_can_select_any_catalog_instance(http_config):
     assert document["user_defaults"] == {"https://idp.example": {"alice": "prod"}}
 
 
+def test_stale_http_default_can_be_replaced(http_config):
+    document = json.loads(http_config.read_text())
+    document["dss_instances"].pop("prod")
+    document["user_defaults"] = {
+        "https://idp.example": {"alice": "prod", "bob": "sandbox"}
+    }
+    http_config.write_text(json.dumps(document))
+
+    identity = request.bind_http_identity("https://idp.example", "alice")
+    try:
+        assert set(request.get_instances()) == {"sandbox"}
+        pinned = request.pin_current_instance()
+        try:
+            with pytest.raises(NoActiveInstanceError):
+                request.get_current_instance()
+        finally:
+            request.reset_pinned_instance(pinned)
+
+        request.set_current_instance("sandbox")
+    finally:
+        request.reset_http_identity(identity)
+
+    document = json.loads(http_config.read_text())
+    assert document["user_defaults"] == {
+        "https://idp.example": {"alice": "sandbox", "bob": "sandbox"}
+    }
+
+
 def test_http_settings_are_read_from_the_settings_file(http_config):
     assert http.get_server_settings() == {
         "host": "127.0.0.1",
