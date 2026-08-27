@@ -54,7 +54,7 @@ body:
     attributes:
       label: Dataiku version
       description: The Dataiku version, if the problem involved an instance.
-      placeholder: "14.2.1 or not applicable"
+      placeholder: "15.0 or not applicable"
     validations:
       required: false
 
