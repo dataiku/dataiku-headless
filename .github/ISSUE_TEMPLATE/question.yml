@@ -17,27 +17,11 @@ body:
       required: true
 
   - type: textarea
-    id: attempted
+    id: context
     attributes:
-      label: What have you tried?
-      description: Share relevant steps, commands, or sanitized error output.
-    validations:
-      required: false
-
-  - type: input
-    id: plugin_version
-    attributes:
-      label: Plugin version
-      description: The release version or commit SHA, if known.
-      placeholder: v0.2.0
-    validations:
-      required: false
-
-  - type: input
-    id: dss_version
-    attributes:
-      label: Dataiku version
-      description: The Dataiku version, if the question involves an instance.
-      placeholder: "15.0"
+      label: Context
+      description: >-
+        Share what you tried, relevant versions, and sanitized error output, if
+        useful.
     validations:
       required: false
