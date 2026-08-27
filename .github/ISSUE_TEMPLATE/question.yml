@@ -38,6 +38,6 @@ body:
     attributes:
       label: Dataiku version
       description: The Dataiku version, if the question involves an instance.
-      placeholder: "14.2.1"
+      placeholder: "15.0"
     validations:
       required: false
