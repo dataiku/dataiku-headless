@@ -1,0 +1,43 @@
+name: Usage question
+description: Ask for help using or configuring dataiku-headless.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, customer data, instance URLs, or identifiers
+        copied from a real Dataiku environment.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you blocked?
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Share relevant steps, commands, or sanitized error output.
+    validations:
+      required: false
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: The release version or commit SHA, if known.
+      placeholder: v0.2.0
+    validations:
+      required: false
+
+  - type: input
+    id: dss_version
+    attributes:
+      label: Dataiku version
+      description: The Dataiku version, if the question involves an instance.
+      placeholder: "14.2.1"
+    validations:
+      required: false

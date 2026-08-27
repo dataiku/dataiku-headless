@@ -1,27 +1,22 @@
-name: Feature or skill proposal
-description: Propose a new tool, a tool change, or a skill/reference improvement.
-title: "feat: "
+name: Feature proposal
+description: Suggest an improvement to the plugin, skills, or documentation.
 labels: [enhancement]
 body:
   - type: markdown
     attributes:
       value: |
-        Read `CONTRIBUTING.md` first. The tool surface is deliberately small and
-        project-level writes route through Cobuild by default, so proposals that
-        add a tool need to say why an existing path does not work.
+        Search existing issues before submitting a proposal. Do not include
+        customer data or details copied from a real Dataiku environment.
 
   - type: dropdown
     id: area
     attributes:
       label: Area
-      description: What the proposal changes.
       options:
-        - Skill or reference (`skills/dataiku-headless/**`)
-        - Existing MCP tool (arguments, response, or behavior)
-        - New MCP tool
-        - Cobuild routing or conversation handling
-        - Launch, packaging, or plugin manifests
-        - Documentation
+        - Skills or documentation
+        - MCP tools
+        - Cobuild
+        - Installation or packaging
         - Other
     validations:
       required: true
@@ -29,41 +24,23 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: >-
-        The task you could not complete, or completed badly, and what the agent
-        did instead.
+      label: Problem or use case
+      description: What are you trying to accomplish, and what is difficult today?
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: >-
-        The change you want. For a skill change, name the file and the routing
-        or workflow that should differ. For a tool change, name the tool and the
-        argument or response shape.
+      label: Proposed improvement
+      description: Describe the outcome or behavior you would like.
     validations:
       required: true
 
   - type: textarea
     id: alternatives
     attributes:
-      label: Why existing paths do not cover it
-      description: >-
-        Which tools, Cobuild prompts, or references you tried, and where they
-        fell short.
+      label: Alternatives considered
+      description: Share any alternatives or workarounds you considered, if relevant.
     validations:
-      required: true
-
-  - type: dropdown
-    id: implementation
-    attributes:
-      label: Are you planning to implement this
-      options:
-        - "Yes, I want to open a PR"
-        - "No, proposing only"
-        - Undecided
-    validations:
-      required: true
+      required: false
