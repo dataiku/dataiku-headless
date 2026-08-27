@@ -526,11 +526,12 @@ async def install_plugin(
     await ctx.info(f"Installing Dataiku plugin from {source}...")
 
     def _start():
-        client = get_dss_client()
         if source == "store":
+            client = get_dss_client()
             _require_absent(client, plugin_id)
             return client, plugin_id, client.install_plugin_from_store(plugin_id)
         archive, archive_id = _local_target(plugin_id, local_path)
+        client = get_dss_client()
         _require_absent(client, archive_id)
         return client, archive_id, client.start_install_plugin_from_archive(archive)
 
@@ -592,11 +593,12 @@ async def update_plugin(
     await ctx.info(f"Updating Dataiku plugin from {source}...")
 
     def _start():
-        client = get_dss_client()
         if source == "store":
+            client = get_dss_client()
             _installed_plugin(client, plugin_id)
             return client, plugin_id, client.get_plugin(plugin_id).update_from_store()
         archive, archive_id = _local_target(plugin_id, local_path)
+        client = get_dss_client()
         _installed_plugin(client, archive_id)
         plugin = client.get_plugin(archive_id)
         return client, archive_id, plugin.start_update_from_zip(archive)

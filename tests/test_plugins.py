@@ -250,10 +250,23 @@ def _absent(plugin_id="geocoder", version="1.0.0", **futures):
     return plugin, client
 
 
+def _no_client(*args, **kwargs):
+    raise AssertionError(
+        "This test reached the real get_dss_client. Wrap it in _patch_client: the "
+        "suite must not depend on a configured Dataiku instance."
+    )
+
+
 @pytest.fixture(autouse=True)
-def _no_real_sleeping(monkeypatch):
+def _isolated(monkeypatch):
+    """No real sleeping, and no route to a live instance.
+
+    Without the client guard a test can pass on a developer machine purely because
+    ``~/.dataiku/config.json`` exists, and fail in CI where it does not.
+    """
     monkeypatch.setattr(tools, "_MIN_POLL_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(tools, "_MAX_POLL_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(tools, "get_dss_client", _no_client)
 
 
 def _patch_client(client):
