@@ -20,6 +20,7 @@ from .utils.validation import (
     require_allowed_value as _require_allowed_value,
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
+    require_int_in_range as _require_int_in_range,
     require_positive_int as _require_positive_int,
 )
 
@@ -47,13 +48,6 @@ COMPUTABLE_TO_JOB_OUTPUT_TYPE = {
 
 class _RecipeExecutionPrecondition(ValueError):
     """The recipe cannot be mapped to a supported Dataiku job output."""
-
-
-def _validate_inline_timeout(timeout_seconds: int) -> int:
-    timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
-    if timeout_seconds > MAX_INLINE_WAIT_SECONDS:
-        raise ValueError(f"'timeout_seconds' must be <= {MAX_INLINE_WAIT_SECONDS}")
-    return timeout_seconds
 
 
 async def _wait_for_job_result(
@@ -130,7 +124,9 @@ async def build_datasets(
         )
     if len(set(names)) != len(names):
         raise ValueError("'dataset_names' must not contain duplicates")
-    timeout_seconds = _validate_inline_timeout(timeout_seconds)
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
+    )
     client = get_dss_client()
 
     await ctx.info(
@@ -257,7 +253,9 @@ async def run_recipe(
     project_key = _require_non_empty_string(project_key, "project_key")
     recipe_name = _require_non_empty_string(recipe_name, "recipe_name")
     job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
-    timeout_seconds = _validate_inline_timeout(timeout_seconds)
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
+    )
     client = get_dss_client()
 
     await ctx.info(

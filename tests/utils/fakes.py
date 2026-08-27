@@ -38,3 +38,20 @@ class FakeDSSClient:
         if project_key not in self.projects:
             raise KeyError(f"Unknown fake project: {project_key}")
         return self.projects[project_key]
+
+
+def incrementing_monotonic(step=1000.0):
+    """A ``time.monotonic()`` stand-in that jumps ``step`` seconds on every call.
+
+    Every "remaining" check therefore lands well past the deadline computed on the
+    preceding call, so any bounded wait loop times out on its first iteration —
+    deterministic and with no real sleeping, regardless of call count.
+    """
+    state = {"t": 0.0}
+
+    def _next():
+        value = state["t"]
+        state["t"] += step
+        return value
+
+    return _next
