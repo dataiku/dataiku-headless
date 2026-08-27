@@ -27,43 +27,13 @@ body:
       required: true
 
   - type: input
-    id: plugin_version
-    attributes:
-      label: Plugin version
-      description: The release version or commit SHA you were running.
-      placeholder: v0.2.0
-    validations:
-      required: true
-
-  - type: dropdown
-    id: host
-    attributes:
-      label: Host
-      description: Where you were running the plugin.
-      options:
-        - Codex
-        - Claude Code
-        - Cursor
-        - Snowflake CoCo (Cortex Code)
-        - Other or not applicable
-    validations:
-      required: true
-
-  - type: input
-    id: dss_version
-    attributes:
-      label: Dataiku version
-      description: The Dataiku version, if the problem involved an instance.
-      placeholder: "15.0 or not applicable"
-    validations:
-      required: false
-
-  - type: input
     id: environment
     attributes:
       label: Environment
-      description: Your operating system and uv version, if relevant.
-      placeholder: macOS 15.3, uv 0.12.4
+      description: >-
+        Plugin version, host, Dataiku version, operating system, and uv version,
+        if relevant.
+      placeholder: dataiku-headless version; host; Dataiku 15.0; OS; uv version
     validations:
       required: false
 

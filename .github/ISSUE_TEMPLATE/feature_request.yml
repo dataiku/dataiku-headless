@@ -36,11 +36,3 @@ body:
       description: Describe the outcome or behavior you would like.
     validations:
       required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: Share any alternatives or workarounds you considered, if relevant.
-    validations:
-      required: false
