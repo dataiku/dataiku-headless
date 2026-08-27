@@ -47,8 +47,8 @@ def _project_url(entry: _Conversation) -> str:
 
 def _open_in_dss(entry: _Conversation) -> str:
     return (
-        f"Open the project at {_project_url(entry)} and its Cobuild panel to watch or "
-        "answer this conversation in the Dataiku UI."
+        f"Open the project at {_project_url(entry)} and its Cobuild panel to view this "
+        "conversation in the Dataiku UI."
     )
 
 
