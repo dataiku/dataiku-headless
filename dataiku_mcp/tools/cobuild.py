@@ -41,11 +41,7 @@ _conversations: dict[str, _Conversation] = {}
 
 
 def _project_url(entry: _Conversation) -> str:
-    # DSS exposes no conversation-scoped front-end route: `dataikuapi` only builds the
-    # REST paths under /projects/<key>/cobuild/conversations/<id>, and Cobuild opens as a
-    # panel inside a project rather than its own routed page. So this is the project's own
-    # verified UI URL, not a deep link to the conversation; the operator opens Cobuild
-    # from there.
+    # Cobuild opens from the project Flow, not a conversation-specific URL.
     return f"{entry.instance_url.rstrip('/')}/projects/{entry.project_key}/flow"
 
 
