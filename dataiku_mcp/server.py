@@ -87,21 +87,20 @@ class RequestContextMiddleware(Middleware):
 
 mcp = FastMCP("Dataiku", middleware=[RequestContextMiddleware()])
 
-stdio.initialize_current_instance()
-
 
 def run_stdio_server():
     """Run the MCP server in stdio mode."""
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Dataiku MCP server (stdio)")
+    stdio.initialize_current_instance()
     mcp.run(transport="stdio")
 
 
 def run_http_server(settings_path: Path | None = None):
     """Run the MCP server with authenticated Streamable HTTP transport."""
     logging.basicConfig(level=logging.INFO)
+    logger.info("Starting Dataiku MCP server (streamable HTTP)")
     http.set_settings_path(settings_path)
     settings = http.get_server_settings()
     mcp.auth = _http_auth()
-    logger.info("Starting Dataiku MCP server (streamable HTTP)")
     mcp.run(transport="streamable-http", **settings)

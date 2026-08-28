@@ -98,10 +98,10 @@ The inline metadata and its adjacent `bin/run_mcp.py.lock` resolve independently
 
 The inline dependency list duplicates `[project].dependencies`; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
-Inspect the MCP server interactively with MCP Inspector:
+Inspect the registered MCP server surface without starting a transport:
 
 ```bash
-uv run --with "mcp[cli]" mcp dev -m dataiku_mcp
+uv run fastmcp inspect dataiku_mcp/__init__.py:mcp --skip-env
 ```
 
 ## Commit Messages

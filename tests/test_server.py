@@ -4,21 +4,36 @@ from pathlib import Path
 
 import dataiku_mcp
 import dataiku_mcp.server as server
-from dataiku_mcp.config import http
+from dataiku_mcp.config import http, stdio
 
 
 def test_run_stdio_server_uses_stdio(monkeypatch):
     calls = []
-    monkeypatch.setattr(dataiku_mcp.mcp, "run", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(
+        stdio,
+        "initialize_current_instance",
+        lambda: calls.append("initialize_stdio"),
+    )
+    monkeypatch.setattr(
+        dataiku_mcp.mcp,
+        "run",
+        lambda **kwargs: calls.append(("run", kwargs)),
+    )
 
     dataiku_mcp.run_stdio_server()
 
-    assert calls == [{"transport": "stdio"}]
+    assert calls == ["initialize_stdio", ("run", {"transport": "stdio"})]
 
 
 def test_run_http_server_uses_streamable_http(monkeypatch):
     calls = []
     paths = []
+    stdio_initializations = []
+    monkeypatch.setattr(
+        stdio,
+        "initialize_current_instance",
+        lambda: stdio_initializations.append(True),
+    )
     monkeypatch.setattr(
         http,
         "get_server_settings",
@@ -41,3 +56,4 @@ def test_run_http_server_uses_streamable_http(monkeypatch):
     ]
     assert dataiku_mcp.mcp.auth is auth
     assert paths == [Path("/tmp/http.json")]
+    assert stdio_initializations == []
