@@ -9,7 +9,14 @@ import dataiku_mcp.server as server
 from dataiku_mcp.config import request
 
 
-def _call_middleware(monkeypatch, tool_name: str):
+def _call_middleware(
+    monkeypatch,
+    tool_name: str,
+    *,
+    tool_tags: set[str] | None = None,
+    tool_resolves: bool = True,
+    include_fastmcp_context: bool = True,
+):
     events = []
     access_token = SimpleNamespace(
         token="mcp-token",
@@ -60,7 +67,20 @@ def _call_middleware(monkeypatch, tool_name: str):
         events.append(("tool",))
         return "result"
 
-    context = SimpleNamespace(message=SimpleNamespace(name=tool_name))
+    class FakeFastMCP:
+        async def get_tool(self, name):
+            assert name == tool_name
+            if not tool_resolves:
+                return None
+            return SimpleNamespace(tags=tool_tags or set())
+
+    fastmcp_context = None
+    if include_fastmcp_context:
+        fastmcp_context = SimpleNamespace(fastmcp=FakeFastMCP())
+    context = SimpleNamespace(
+        message=SimpleNamespace(name=tool_name),
+        fastmcp_context=fastmcp_context,
+    )
     assert asyncio.run(middleware.on_call_tool(context, call_next)) == "result"
     return events
 
@@ -70,8 +90,14 @@ async def _exchange(events, token):
     return "dss-token"
 
 
-def test_http_local_only_tools_are_an_explicit_contract():
-    assert server.HTTP_LOCAL_ONLY_TOOL_NAMES == {
+def test_dss_independent_tools_are_tagged():
+    async def get_tagged_tool_names():
+        tools = await server.mcp.list_tools(run_middleware=False)
+        return {
+            tool.name for tool in tools if server.DSS_INDEPENDENT_TOOL_TAG in tool.tags
+        }
+
+    assert asyncio.run(get_tagged_tool_names()) == {
         "list_instances",
         "switch_instance",
         "delete_instance",
@@ -81,7 +107,11 @@ def test_http_local_only_tools_are_an_explicit_contract():
 
 
 def test_http_local_only_tool_skips_dss_token_exchange(monkeypatch):
-    events = _call_middleware(monkeypatch, "switch_instance")
+    events = _call_middleware(
+        monkeypatch,
+        "switch_instance",
+        tool_tags={server.DSS_INDEPENDENT_TOOL_TAG},
+    )
 
     assert ("exchange", "mcp-token") not in events
     assert ("set_dss", "dss-token") not in events
@@ -101,6 +131,23 @@ def test_http_dss_tool_exchanges_and_resets_its_dss_token(monkeypatch):
         ("reset_instance", "instance"),
         ("reset_identity", "identity"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("tool_resolves", "include_fastmcp_context"),
+    [(False, True), (True, False)],
+)
+def test_http_unknown_tool_policy_requires_dss_token_exchange(
+    monkeypatch, tool_resolves, include_fastmcp_context
+):
+    events = _call_middleware(
+        monkeypatch,
+        "unknown_tool",
+        tool_resolves=tool_resolves,
+        include_fastmcp_context=include_fastmcp_context,
+    )
+
+    assert ("exchange", "mcp-token") in events
 
 
 def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):

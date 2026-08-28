@@ -16,17 +16,8 @@ from .config import http, request, stdio
 logger = logging.getLogger("dataiku-mcp")
 
 
-# These tools only manage MCP-local instance preferences. They must never create
-# a DSS client, so HTTP requests for them deliberately skip token exchange.
-HTTP_LOCAL_ONLY_TOOL_NAMES = frozenset(
-    {
-        "list_instances",
-        "switch_instance",
-        "delete_instance",
-        "get_current_instance",
-        "configure_instance",
-    }
-)
+# Tools with this tag only manage MCP-local state and never create a DSS client.
+DSS_INDEPENDENT_TOOL_TAG = "dss-independent"
 
 
 def _http_auth() -> JWTVerifier:
@@ -44,6 +35,17 @@ def _tool_name(context: MiddlewareContext[CallToolRequestParams]) -> str:
     return getattr(message, "name", "") or getattr(
         getattr(message, "params", None), "name", ""
     )
+
+
+async def _tool_requires_dss_token(
+    context: MiddlewareContext[CallToolRequestParams],
+) -> bool:
+    fastmcp_context = context.fastmcp_context
+    if fastmcp_context is None:
+        return True
+
+    tool = await fastmcp_context.fastmcp.get_tool(_tool_name(context))
+    return tool is None or DSS_INDEPENDENT_TOOL_TAG not in tool.tags
 
 
 class RequestContextMiddleware(Middleware):
@@ -66,10 +68,7 @@ class RequestContextMiddleware(Middleware):
         pinned_instance_token = None
         try:
             pinned_instance_token = request.pin_current_instance()
-            if (
-                access_token is not None
-                and _tool_name(context) not in HTTP_LOCAL_ONLY_TOOL_NAMES
-            ):
+            if access_token is not None and await _tool_requires_dss_token(context):
                 delegated = await exchange_http_token(access_token.token)
                 delegated_token = request.set_http_dss_token(delegated)
             return await call_next(context)

@@ -6,14 +6,14 @@ from dataclasses import asdict
 
 from fastmcp import Context
 
-from ..server import mcp
 from ..config import request, stdio
+from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from ..auth import get_current_instance_for_tool
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
-@mcp.tool()
+@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
 async def list_instances(ctx: Context) -> str:
     """List the configured Dataiku instances (name, URL, description, active flag)."""
     instances = request.get_instances()
@@ -36,7 +36,7 @@ async def list_instances(ctx: Context) -> str:
     return compact_json(columnar(result, ["name", "url", "description", "active"]))
 
 
-@mcp.tool()
+@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
 async def switch_instance(name: str, ctx: Context) -> str:
     """Switch the active Dataiku instance. All subsequent tool calls will use this instance.
 
@@ -48,7 +48,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
     return compact_json(info)
 
 
-@mcp.tool()
+@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
 async def delete_instance(name: str, ctx: Context) -> str:
     """Delete a Dataiku instance from the resolved configuration file.
 
@@ -67,7 +67,7 @@ async def delete_instance(name: str, ctx: Context) -> str:
     return compact_json(info)
 
 
-@mcp.tool()
+@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
 async def get_current_instance(ctx: Context) -> str:
     """Get the active Dataiku instance configuration."""
 
@@ -79,7 +79,7 @@ async def get_current_instance(ctx: Context) -> str:
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
 async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance. Use when no instance is configured, or to add another.
 
