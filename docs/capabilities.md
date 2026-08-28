@@ -22,13 +22,13 @@ instance the local client targets.
 
 ## Surface
 
-**128 tools** · 93 read · 21 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**130 tools** · 94 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 21 | Bootstrap, project configuration, cross-project, admin |
+| Read / inspect | 94 | Never mutates |
+| Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -91,6 +91,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
+| Agent Management (MIRA) | `get_mira_api_capabilities` | `call_mira_api` | Complete fixed public API catalog; operation may read, execute, or mutate |
 
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build a recipe, a model, or an agent.

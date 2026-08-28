@@ -50,6 +50,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | Inspect ML analyses, trained models, or saved models | `./references/machine-learning.md` |
 | Inspect LLMs, Knowledge Banks, or RAG LLMs | `./references/llms-and-knowledge-banks.md` |
 | Inspect agents or agent tools | `./references/agents.md` |
+| Inspect or manage the Agent Management estate, including MIRA infrastructures, monitored agents, metrics, briefings, ingestion operations, risks, KPIs, topics, or tags | `./references/mira.md` |
 | Inspect Agent Reviews | `./references/agent-reviews.md` |
 | Inspect dashboards | `./references/dashboards.md` |
 | Inspect insights | `./references/insights.md` |
