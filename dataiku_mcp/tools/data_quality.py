@@ -4,7 +4,7 @@ from typing import Any
 
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.parsing import coerce_json_array as _coerce_json_array

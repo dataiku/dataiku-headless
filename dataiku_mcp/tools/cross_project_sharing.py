@@ -3,7 +3,7 @@
 from dataikuapi.utils import DataikuException
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json

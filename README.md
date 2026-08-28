@@ -264,8 +264,9 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Tool validation and response-shaping utilities
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
+│   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
-│   └── __init__.py
+│   └── __init__.py            # Public API and tool-registration composition root
 ├── skills/
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify

@@ -5,7 +5,7 @@ import time
 
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.errors import safe_error_text as _safe_error_text

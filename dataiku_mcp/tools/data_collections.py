@@ -2,7 +2,7 @@
 
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json
 from ..auth import get_dss_client

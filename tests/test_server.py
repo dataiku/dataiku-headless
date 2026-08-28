@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import dataiku_mcp
+import dataiku_mcp.server as server
 from dataiku_mcp.config import http
 
 
@@ -24,7 +25,7 @@ def test_run_http_server_uses_streamable_http(monkeypatch):
         lambda: {"host": "127.0.0.1", "port": 8000, "path": "/mcp"},
     )
     auth = object()
-    monkeypatch.setattr(dataiku_mcp, "_http_auth", lambda: auth)
+    monkeypatch.setattr(server, "_http_auth", lambda: auth)
     monkeypatch.setattr(http, "set_settings_path", lambda path: paths.append(path))
     monkeypatch.setattr(dataiku_mcp.mcp, "run", lambda **kwargs: calls.append(kwargs))
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import dataiku_mcp
+import dataiku_mcp.server as server
 from dataiku_mcp.config import request
 
 
@@ -15,9 +15,9 @@ def _call_middleware(monkeypatch, tool_name: str):
         token="mcp-token",
         claims={"iss": "https://idp.example", "sub": "alice"},
     )
-    middleware = dataiku_mcp.RequestContextMiddleware()
+    middleware = server.RequestContextMiddleware()
 
-    monkeypatch.setattr(dataiku_mcp, "get_access_token", lambda: access_token)
+    monkeypatch.setattr(server, "get_access_token", lambda: access_token)
     monkeypatch.setattr(
         request,
         "bind_http_identity",
@@ -41,7 +41,7 @@ def _call_middleware(monkeypatch, tool_name: str):
         lambda token: events.append(("reset_identity", token)),
     )
     monkeypatch.setattr(
-        dataiku_mcp,
+        server,
         "exchange_http_token",
         lambda token: _exchange(events, token),
     )
@@ -71,7 +71,7 @@ async def _exchange(events, token):
 
 
 def test_http_local_only_tools_are_an_explicit_contract():
-    assert dataiku_mcp.HTTP_LOCAL_ONLY_TOOL_NAMES == {
+    assert server.HTTP_LOCAL_ONLY_TOOL_NAMES == {
         "list_instances",
         "switch_instance",
         "delete_instance",
@@ -109,9 +109,9 @@ def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):
         token="mcp-token",
         claims={"iss": "https://idp.example", "sub": "alice"},
     )
-    middleware = dataiku_mcp.RequestContextMiddleware()
+    middleware = server.RequestContextMiddleware()
 
-    monkeypatch.setattr(dataiku_mcp, "get_access_token", lambda: access_token)
+    monkeypatch.setattr(server, "get_access_token", lambda: access_token)
     monkeypatch.setattr(request, "bind_http_identity", lambda *_: "identity")
 
     def fail_pinning():

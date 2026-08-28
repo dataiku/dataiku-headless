@@ -7,7 +7,7 @@ import tempfile
 
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.metrics import parse_metric_ids as _parse_metric_ids

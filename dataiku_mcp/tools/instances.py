@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 from fastmcp import Context
 
-from .. import mcp
+from ..server import mcp
 from ..config import request, stdio
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from ..auth import get_current_instance_for_tool
