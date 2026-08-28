@@ -34,9 +34,19 @@ def test_package_import_does_not_read_stdio_config(tmp_path):
     config_path = tmp_path / "invalid-config.json"
     config_path.write_text("{")
     environment = os.environ | {"DKU_CONFIG_FILE": str(config_path)}
+    code = """
+import dotenv
+
+def fail_if_called(*args, **kwargs):
+    raise AssertionError("Package import must not load .env")
+
+dotenv.load_dotenv = fail_if_called
+
+import dataiku_mcp
+"""
 
     result = subprocess.run(
-        [sys.executable, "-c", "import dataiku_mcp"],
+        [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         check=False,

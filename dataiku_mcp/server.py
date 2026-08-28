@@ -4,17 +4,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.types import CallToolRequestParams
 
-load_dotenv(Path(__file__).parent.parent / ".env")
-
-from .auth import exchange_http_token  # noqa: E402
-from .config import http, request, stdio  # noqa: E402
+from .auth import exchange_http_token
+from .config import http, request, stdio
 
 logger = logging.getLogger("dataiku-mcp")
 

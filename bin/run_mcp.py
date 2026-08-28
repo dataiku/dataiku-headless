@@ -42,6 +42,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -58,6 +60,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.http_settings is not None and args.transport != "http":
         parser.error("--http-settings requires --transport http")
+
+    load_dotenv(REPO_ROOT / ".env", override=False)
 
     from dataiku_mcp import run_http_server, run_stdio_server
 

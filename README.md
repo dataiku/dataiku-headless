@@ -207,7 +207,11 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
-`.env` only fills in variables not already set in your shell or launcher — a real environment variable of the same name always wins, even if it's empty.
+The canonical `bin/run_mcp.py` launcher reads this file after validating its
+arguments and before importing the MCP package. `.env` only fills in variables
+not already set in your shell or launcher—a real environment variable of the
+same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
+not read `.env`; embedding callers must prepare their environment first.
 
 **Connect to multiple instances:**
 Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
