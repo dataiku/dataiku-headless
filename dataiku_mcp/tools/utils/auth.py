@@ -67,8 +67,8 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
-def get_dss_version(client: dataikuapi.DSSClient) -> str:
-    """Return the instance's DSS version, or `""` when it cannot be read.
+def get_dataiku_version(client: dataikuapi.DSSClient) -> str:
+    """Return the instance's Dataiku version, or `""` when it cannot be read.
 
     `/instance-info` is permission-gated, so reporting the active instance must
     degrade to omitting the version instead of failing for a non-admin key.

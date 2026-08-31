@@ -1,4 +1,4 @@
-"""Unit tests for the current instance tool's DSS version reporting."""
+"""Unit tests for the current instance tool's Dataiku version reporting."""
 
 import asyncio
 import json
@@ -44,15 +44,15 @@ def _current(monkeypatch, client: _FakeClient) -> dict:
     return json.loads(asyncio.run(instances.get_current_instance(FakeContext())))
 
 
-def test_get_current_instance_reports_the_dss_version(monkeypatch):
+def test_get_current_instance_reports_the_dataiku_version(monkeypatch):
     client = _FakeClient({"dssVersion": "14.7.2", "nodeType": "DESIGN"})
     result = _current(monkeypatch, client)
 
-    assert result["dss_version"] == "14.7.2"
+    assert result["dataiku_version"] == "14.7.2"
     assert client.info_calls == 1
 
 
-def test_get_current_instance_omits_the_dss_version_without_credentials(monkeypatch):
+def test_get_current_instance_omits_the_dataiku_version_without_credentials(monkeypatch):
     _install(monkeypatch, ["primary"], _FakeClient({}), "primary")
 
     def missing_client():
@@ -66,5 +66,5 @@ def test_get_current_instance_omits_the_dss_version_without_credentials(monkeypa
 
     result = json.loads(asyncio.run(instances.get_current_instance(FakeContext())))
 
-    assert "dss_version" not in result
+    assert "dataiku_version" not in result
     assert result["name"] == "primary"

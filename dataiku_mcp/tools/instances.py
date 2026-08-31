@@ -9,7 +9,11 @@ from fastmcp import Context
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.async_executor import run_blocking
-from .utils.auth import get_current_instance_for_tool, get_dss_client, get_dss_version
+from .utils.auth import (
+    get_current_instance_for_tool,
+    get_dataiku_version,
+    get_dss_client,
+)
 from .utils.serialization import columnar, compact_json, omit_empty
 
 
@@ -65,9 +69,9 @@ async def delete_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance configuration and its DSS version.
+    """Get the active Dataiku instance configuration and its Dataiku version.
 
-    `dss_version` is the version of DSS running on the instance. It is omitted
+    `dataiku_version` is the version running on the instance. It is omitted
     when the configured credentials cannot read it.
     """
 
@@ -75,11 +79,11 @@ async def get_current_instance(ctx: Context) -> str:
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
     try:
-        current_instance["dss_version"] = await run_blocking(
-            lambda: get_dss_version(get_dss_client())
+        current_instance["dataiku_version"] = await run_blocking(
+            lambda: get_dataiku_version(get_dss_client())
         )
     except ValueError:
-        current_instance["dss_version"] = ""
+        current_instance["dataiku_version"] = ""
 
     result = omit_empty(current_instance)
     return compact_json(result)
