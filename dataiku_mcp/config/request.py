@@ -35,7 +35,8 @@ def reset_http_identity(token: Token) -> None:
     _http_identity.reset(token)
 
 
-def set_http_dss_token(token: str) -> Token:
+def bind_http_dss_token(token: str) -> Token:
+    """Bind the Dataiku delegated access token for one HTTP tool request."""
     return _http_dss_token.set(token)
 
 

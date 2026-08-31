@@ -54,7 +54,7 @@ def _call_middleware(
     )
     monkeypatch.setattr(
         request,
-        "set_http_dss_token",
+        "bind_http_dss_token",
         lambda token: events.append(("set_dss", token)) or "dss",
     )
     monkeypatch.setattr(

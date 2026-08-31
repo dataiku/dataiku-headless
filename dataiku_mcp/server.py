@@ -56,29 +56,30 @@ class RequestContextMiddleware(Middleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, Any],
     ) -> Any:
-        access_token = get_access_token()
-        identity_token = None
-        delegated_token = None
-        if access_token is not None:
-            claims = access_token.claims
-            identity_token = request.bind_http_identity(
+        http_identity_reset_token = None
+        delegated_token_reset_token = None
+        pinned_instance_reset_token = None
+
+        incoming_access_token = get_access_token()
+        if incoming_access_token is not None:
+            claims = incoming_access_token.claims
+            http_identity_reset_token = request.bind_http_identity(
                 str(claims.get("iss", "")), str(claims.get("sub", ""))
             )
 
-        pinned_instance_token = None
         try:
-            pinned_instance_token = request.pin_current_instance()
-            if access_token is not None and await _tool_requires_dss_token(context):
-                delegated = await exchange_http_token(access_token.token)
-                delegated_token = request.set_http_dss_token(delegated)
+            pinned_instance_reset_token = request.pin_current_instance()
+            if incoming_access_token is not None and await _tool_requires_dss_token(context):
+                delegated_dss_token = await exchange_http_token(incoming_access_token.token)
+                delegated_token_reset_token = request.bind_http_dss_token(delegated_dss_token)
             return await call_next(context)
         finally:
-            if delegated_token is not None:
-                request.reset_http_dss_token(delegated_token)
-            if pinned_instance_token is not None:
-                request.reset_pinned_instance(pinned_instance_token)
-            if identity_token is not None:
-                request.reset_http_identity(identity_token)
+            if delegated_token_reset_token is not None:
+                request.reset_http_dss_token(delegated_token_reset_token)
+            if pinned_instance_reset_token is not None:
+                request.reset_pinned_instance(pinned_instance_reset_token)
+            if http_identity_reset_token is not None:
+                request.reset_http_identity(http_identity_reset_token)
 
 
 mcp = FastMCP("Dataiku", middleware=[RequestContextMiddleware()])
