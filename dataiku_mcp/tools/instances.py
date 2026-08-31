@@ -15,39 +15,25 @@ from .utils.serialization import columnar, compact_json, omit_empty
 
 @mcp.tool()
 async def list_instances(ctx: Context) -> str:
-    """List the configured Dataiku instances (name, URL, description, active flag).
-
-    `dss_version` is reported for the active instance only; versioning every
-    configured instance would cost one round trip per instance.
-    """
+    """List the configured Dataiku instances (name, URL, description, active flag)."""
     instances = config.get_instances()
     try:
         current_instance_name = get_current_instance_for_tool().name
     except ValueError:
         current_instance_name = ""
 
-    active_dss_version = ""
-    if current_instance_name:
-        active_dss_version = await run_blocking(
-            lambda: get_dss_version(get_dss_client())
-        )
-
     # Note: caution to not include inst.api_key in tool return value
     result = []
     for name, inst in instances.items():
-        active = name == current_instance_name
         result.append(
             {
                 "name": name,
                 "url": inst.url,
                 "description": inst.description,
-                "active": active,
-                "dss_version": active_dss_version if active else "",
+                "active": name == current_instance_name,
             }
         )
-    return compact_json(
-        columnar(result, ["name", "url", "description", "active", "dss_version"])
-    )
+    return compact_json(columnar(result, ["name", "url", "description", "active"]))
 
 
 @mcp.tool()
@@ -88,9 +74,12 @@ async def get_current_instance(ctx: Context) -> str:
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
-    current_instance["dss_version"] = await run_blocking(
-        lambda: get_dss_version(get_dss_client())
-    )
+    try:
+        current_instance["dss_version"] = await run_blocking(
+            lambda: get_dss_version(get_dss_client())
+        )
+    except ValueError:
+        current_instance["dss_version"] = ""
 
     result = omit_empty(current_instance)
     return compact_json(result)
