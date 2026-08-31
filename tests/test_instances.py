@@ -52,7 +52,9 @@ def test_get_current_instance_reports_the_dataiku_version(monkeypatch):
     assert client.info_calls == 1
 
 
-def test_get_current_instance_omits_the_dataiku_version_without_credentials(monkeypatch):
+def test_get_current_instance_omits_the_dataiku_version_without_credentials(
+    monkeypatch,
+):
     _install(monkeypatch, ["primary"], _FakeClient({}), "primary")
 
     def missing_client():
