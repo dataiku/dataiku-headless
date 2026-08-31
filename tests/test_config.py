@@ -1,7 +1,6 @@
 import pytest
 
-from dataiku_mcp.config import request, stdio
-from dataiku_mcp.config.models import NoConfiguredInstancesError
+from dataiku_mcp.config import stdio
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +33,7 @@ def test_deleting_active_default_switches_to_next_instance():
     result = stdio.delete_instance_from_config("first")
 
     assert result["default_instance"] == "second"
-    assert request.get_current_instance().name == "second"
+    assert stdio.get_current_instance().name == "second"
 
 
 def test_deleting_only_active_instance_clears_current_instance():
@@ -43,8 +42,7 @@ def test_deleting_only_active_instance_clears_current_instance():
 
     stdio.delete_instance_from_config("only")
 
-    with pytest.raises(NoConfiguredInstancesError):
-        request.get_current_instance()
+    assert stdio.get_current_instance() is None
 
 
 def test_deleting_inactive_instance_preserves_current_instance():
@@ -54,4 +52,4 @@ def test_deleting_inactive_instance_preserves_current_instance():
 
     stdio.delete_instance_from_config("inactive")
 
-    assert request.get_current_instance().name == "active"
+    assert stdio.get_current_instance().name == "active"

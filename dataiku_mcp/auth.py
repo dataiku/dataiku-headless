@@ -40,7 +40,7 @@ def _require_instance_property(
 def get_current_instance_for_tool() -> DSSInstance:
     """Return the active instance or raise guidance suitable for an MCP agent."""
     try:
-        return request.get_current_instance()
+        return request.get_pinned_instance()
     except NoConfiguredInstancesError:
         if request.is_http_request():
             raise ValueError(

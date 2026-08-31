@@ -6,9 +6,8 @@ from . import http, stdio
 from .models import DSSInstance, NoActiveInstanceError, NoConfiguredInstancesError
 
 
-_UNPINNED = object()
-_pinned_instance: ContextVar[DSSInstance | None | object] = ContextVar(
-    "dataiku_mcp_pinned_instance", default=_UNPINNED
+_pinned_instance: ContextVar[DSSInstance | None] = ContextVar(
+    "dataiku_mcp_pinned_instance", default=None
 )
 _http_identity: ContextVar[tuple[str, str] | None] = ContextVar(
     "dataiku_mcp_http_identity", default=None
@@ -82,24 +81,11 @@ def reset_pinned_instance(token: Token) -> None:
     _pinned_instance.reset(token)
 
 
-def get_current_instance() -> DSSInstance:
-    """Return the active instance for this request or local process."""
+def get_pinned_instance() -> DSSInstance:
+    """Return the pinned instance in the request."""
     pinned_instance = _pinned_instance.get()
-    if pinned_instance is not _UNPINNED:
-        if pinned_instance is not None:
-            return pinned_instance
-    elif is_http_request():
-        identity = _http_identity.get()
-        assert identity is not None
-        instances, defaults = http.get_instances_and_defaults()
-        selected_name = defaults.get(identity[0], {}).get(identity[1])
-        selected_instance = instances.get(selected_name)
-        if selected_instance is not None:
-            return selected_instance
-    else:
-        current_instance = stdio.get_current_instance()
-        if current_instance is not None:
-            return current_instance
+    if pinned_instance is not None:
+        return pinned_instance
 
     if get_instances():
         raise NoActiveInstanceError("No active Dataiku instance is selected.")

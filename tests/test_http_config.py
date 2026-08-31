@@ -91,14 +91,14 @@ def test_http_user_can_select_any_catalog_instance(http_config):
         pinned = request.pin_current_instance()
         try:
             with pytest.raises(NoActiveInstanceError):
-                request.get_current_instance()
+                request.get_pinned_instance()
         finally:
             request.reset_pinned_instance(pinned)
 
         request.set_current_instance("prod")
         pinned = request.pin_current_instance()
         try:
-            assert request.get_current_instance().name == "prod"
+            assert request.get_pinned_instance().name == "prod"
         finally:
             request.reset_pinned_instance(pinned)
     finally:
@@ -122,7 +122,7 @@ def test_stale_http_default_can_be_replaced(http_config):
         pinned = request.pin_current_instance()
         try:
             with pytest.raises(NoActiveInstanceError):
-                request.get_current_instance()
+                request.get_pinned_instance()
         finally:
             request.reset_pinned_instance(pinned)
 
