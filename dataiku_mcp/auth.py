@@ -39,10 +39,11 @@ def _require_instance_property(
 
 def get_pinned_instance_for_tool() -> DSSInstance:
     """Return the active instance or raise guidance suitable for an MCP agent."""
+    is_http_request = request.is_http_request()
     try:
         return request.get_pinned_instance()
     except NoConfiguredInstancesError:
-        if request.is_http_request():
+        if is_http_request:
             raise ValueError(
                 "No platform-managed Dataiku instances are configured."
             ) from None
@@ -50,7 +51,7 @@ def get_pinned_instance_for_tool() -> DSSInstance:
             "No Dataiku instances are configured. Run configure_instance."
         ) from None
     except NoActiveInstanceError:
-        if request.is_http_request():
+        if is_http_request:
             raise ValueError(
                 "No active Dataiku instance is selected. Run list_instances, then "
                 "switch_instance to choose a platform-managed instance."
