@@ -37,7 +37,7 @@ def _require_instance_property(
     raise ValueError(message)
 
 
-def get_current_instance_for_tool() -> DSSInstance:
+def get_pinned_instance_for_tool() -> DSSInstance:
     """Return the active instance or raise guidance suitable for an MCP agent."""
     try:
         return request.get_pinned_instance()
@@ -64,7 +64,7 @@ def get_current_instance_for_tool() -> DSSInstance:
 
 def get_dss_client() -> dataikuapi.DSSClient:
     """Get a Dataiku API client for the currently active instance."""
-    current_instance = get_current_instance_for_tool()
+    current_instance = get_pinned_instance_for_tool()
 
     _require_instance_property(
         current_instance.url,
@@ -93,7 +93,7 @@ async def exchange_http_token(mcp_token: str) -> str:
 
     def _exchange() -> str:
         settings = http.get_auth_settings()
-        instance = get_current_instance_for_tool()
+        instance = get_pinned_instance_for_tool()
         try:
             response = requests.post(
                 settings["token_exchange_url"],

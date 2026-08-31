@@ -109,7 +109,7 @@ def environment(monkeypatch):
     monkeypatch.setattr(cobuild, "get_dss_client", lambda: client)
     monkeypatch.setattr(
         cobuild,
-        "get_current_instance_for_tool",
+        "get_pinned_instance_for_tool",
         lambda: SimpleNamespace(name=active_instance["name"]),
     )
     yield client, active_instance

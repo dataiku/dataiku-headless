@@ -12,7 +12,7 @@ from fastmcp import Context
 
 from ..server import mcp
 from ..config import request
-from ..auth import get_current_instance_for_tool, get_dss_client
+from ..auth import get_dss_client, get_pinned_instance_for_tool
 from ..executors import run_blocking, run_cobuild_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
@@ -58,7 +58,7 @@ def _require_conversation_entry(
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to another user."
         )
-    active_instance = get_current_instance_for_tool().name
+    active_instance = get_pinned_instance_for_tool().name
     if entry.instance_name != active_instance:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to instance "
@@ -243,7 +243,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
-    instance_name = get_current_instance_for_tool().name
+    instance_name = get_pinned_instance_for_tool().name
     client = get_dss_client()
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
@@ -404,7 +404,7 @@ async def get_cobuild_turn_status(
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """List process-local Cobuild conversations for a project and their current turns."""
     project_key = _require_non_empty_string(project_key, "project_key")
-    active_instance = get_current_instance_for_tool().name
+    active_instance = get_pinned_instance_for_tool().name
     owner = request.get_request_owner()
     rows = []
     for conversation_id, entry in _conversations.items():

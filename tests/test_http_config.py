@@ -166,7 +166,7 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
     )
     monkeypatch.setattr(
         auth,
-        "get_current_instance_for_tool",
+        "get_pinned_instance_for_tool",
         lambda: DSSInstance(
             "prod",
             "https://prod.example",
