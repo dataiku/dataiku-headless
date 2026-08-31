@@ -8,7 +8,7 @@ import pytest
 
 import dataiku_mcp.auth as auth
 from dataiku_mcp.config import http, request
-from dataiku_mcp.config.models import DSSInstance, NoActiveInstanceError
+from dataiku_mcp.config.models import DSSInstance
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def test_http_user_can_select_any_catalog_instance(http_config):
         assert set(request.get_instances()) == {"sandbox", "prod"}
         pinned = request.pin_current_instance()
         try:
-            with pytest.raises(NoActiveInstanceError):
+            with pytest.raises(ValueError, match="No active Dataiku instance"):
                 request.get_pinned_instance()
         finally:
             request.reset_pinned_instance(pinned)
@@ -121,7 +121,7 @@ def test_stale_http_default_can_be_replaced(http_config):
         assert set(request.get_instances()) == {"sandbox"}
         pinned = request.pin_current_instance()
         try:
-            with pytest.raises(NoActiveInstanceError):
+            with pytest.raises(ValueError, match="No active Dataiku instance"):
                 request.get_pinned_instance()
         finally:
             request.reset_pinned_instance(pinned)
@@ -165,8 +165,8 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        auth,
-        "get_pinned_instance_for_tool",
+        request,
+        "get_pinned_instance",
         lambda: DSSInstance(
             "prod",
             "https://prod.example",

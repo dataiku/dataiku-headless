@@ -1,6 +1,6 @@
 import pytest
 
-from dataiku_mcp.config import stdio
+from dataiku_mcp.config import request, stdio
 
 
 @pytest.fixture(autouse=True)
@@ -43,6 +43,11 @@ def test_deleting_only_active_instance_clears_current_instance():
     stdio.delete_instance_from_config("only")
 
     assert stdio.get_current_instance() is None
+    with pytest.raises(
+        ValueError,
+        match="No Dataiku instances are configured. Run configure_instance.",
+    ):
+        request.get_pinned_instance()
 
 
 def test_deleting_inactive_instance_preserves_current_instance():

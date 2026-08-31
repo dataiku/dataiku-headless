@@ -108,8 +108,8 @@ def environment(monkeypatch):
     client = Client()
     monkeypatch.setattr(cobuild, "get_dss_client", lambda: client)
     monkeypatch.setattr(
-        cobuild,
-        "get_pinned_instance_for_tool",
+        request,
+        "get_pinned_instance",
         lambda: SimpleNamespace(name=active_instance["name"]),
     )
     yield client, active_instance

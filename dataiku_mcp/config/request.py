@@ -3,7 +3,7 @@
 from contextvars import ContextVar, Token
 
 from . import http, stdio
-from .models import DSSInstance, NoActiveInstanceError, NoConfiguredInstancesError
+from .models import DSSInstance
 
 
 _pinned_instance: ContextVar[DSSInstance | None] = ContextVar(
@@ -82,14 +82,27 @@ def reset_pinned_instance(token: Token) -> None:
 
 
 def get_pinned_instance() -> DSSInstance:
-    """Return the pinned instance in the request."""
+    """Return the pinned instance or agent guidance for selecting one."""
     pinned_instance = _pinned_instance.get()
     if pinned_instance is not None:
         return pinned_instance
 
-    if get_instances():
-        raise NoActiveInstanceError("No active Dataiku instance is selected.")
-    raise NoConfiguredInstancesError("No Dataiku instances are configured.")
+    is_http = is_http_request()
+    if not get_instances():
+        if is_http:
+            raise ValueError("No platform-managed Dataiku instances are configured.")
+        raise ValueError("No Dataiku instances are configured. Run configure_instance.")
+
+    if is_http:
+        raise ValueError(
+            "No active Dataiku instance is selected. Run list_instances, then "
+            "switch_instance to choose a platform-managed instance."
+        )
+    raise ValueError(
+        "No active Dataiku instance is selected. Run list_instances, then ask "
+        "the user which configured instance to switch to, or whether to "
+        "configure a new one."
+    )
 
 
 def set_current_instance(name: str) -> dict:

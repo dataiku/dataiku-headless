@@ -5,11 +5,6 @@ import requests
 from dataikuapi.utils import DataikuException
 
 from .config import http, request
-from .config.models import (
-    DSSInstance,
-    NoActiveInstanceError,
-    NoConfiguredInstancesError,
-)
 from .executors import run_blocking
 
 
@@ -37,35 +32,9 @@ def _require_instance_property(
     raise ValueError(message)
 
 
-def get_pinned_instance_for_tool() -> DSSInstance:
-    """Return the active instance or raise guidance suitable for an MCP agent."""
-    is_http_request = request.is_http_request()
-    try:
-        return request.get_pinned_instance()
-    except NoConfiguredInstancesError:
-        if is_http_request:
-            raise ValueError(
-                "No platform-managed Dataiku instances are configured."
-            ) from None
-        raise ValueError(
-            "No Dataiku instances are configured. Run configure_instance."
-        ) from None
-    except NoActiveInstanceError:
-        if is_http_request:
-            raise ValueError(
-                "No active Dataiku instance is selected. Run list_instances, then "
-                "switch_instance to choose a platform-managed instance."
-            ) from None
-        raise ValueError(
-            "No active Dataiku instance is selected. Run list_instances, then ask "
-            "the user which configured instance to switch to, or whether to "
-            "configure a new one."
-        ) from None
-
-
 def get_dss_client() -> dataikuapi.DSSClient:
     """Get a Dataiku API client for the currently active instance."""
-    current_instance = get_pinned_instance_for_tool()
+    current_instance = request.get_pinned_instance()
 
     _require_instance_property(
         current_instance.url,
@@ -94,7 +63,7 @@ async def exchange_http_token(mcp_token: str) -> str:
 
     def _exchange() -> str:
         settings = http.get_auth_settings()
-        instance = get_pinned_instance_for_tool()
+        instance = request.get_pinned_instance()
         try:
             response = requests.post(
                 settings["token_exchange_url"],
