@@ -67,11 +67,10 @@ def get_instances() -> dict[str, DSSInstance]:
 
 def pin_current_instance() -> Token:
     """Snapshot the active instance for the current MCP request."""
-    if not is_http_request():
+    identity = _http_identity.get()
+    if identity is None:
         return _pinned_instance.set(stdio.get_current_instance())
 
-    identity = _http_identity.get()
-    assert identity is not None
     issuer, subject = identity
     instances, defaults = http.get_instances_and_defaults()
     selected_name = defaults.get(issuer, {}).get(subject)
