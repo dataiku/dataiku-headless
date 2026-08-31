@@ -49,14 +49,14 @@ def _require_conversation_entry(
         raise ValueError(
             f"Unknown Cobuild conversation_id '{conversation_id}'. Start a new conversation first."
         )
+    if entry.owner != request.get_request_owner():
+        raise ValueError(
+            f"Cobuild conversation '{conversation_id}' belongs to another user."
+        )
     if entry.project_key != project_key:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to project "
             f"'{entry.project_key}', not '{project_key}'."
-        )
-    if entry.owner != request.get_request_owner():
-        raise ValueError(
-            f"Cobuild conversation '{conversation_id}' belongs to another user."
         )
     active_instance = request.get_pinned_instance().name
     if entry.instance_name != active_instance:
@@ -205,25 +205,6 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
     return turn
 
 
-def _answer_confirmation(entry: _Conversation, choice: str):
-    entry.sdk_conversation.client = get_dss_client()
-    return entry.sdk_conversation.answer_confirmation(choice)
-
-
-def _answer_question(
-    entry: _Conversation,
-    answers: list[str],
-    rejected: bool,
-    used_custom_answer: bool,
-):
-    entry.sdk_conversation.client = get_dss_client()
-    return entry.sdk_conversation.answer_question(
-        answers,
-        rejected=rejected,
-        used_custom_answer=used_custom_answer,
-    )
-
-
 async def _wait_for_turn(
     conversation_id: str, entry: _Conversation, turn: _Turn
 ) -> dict:
@@ -340,12 +321,11 @@ async def answer_cobuild_confirmation(
                 f"{status_payload} and inspect the result before answering."
             )
 
-    turn = _start_turn(
-        conversation_id,
-        entry,
-        check,
-        lambda: _answer_confirmation(entry, choice),
-    )
+    def call():
+        entry.sdk_conversation.client = get_dss_client()
+        return entry.sdk_conversation.answer_confirmation(choice)
+
+    turn = _start_turn(conversation_id, entry, check, call)
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
@@ -378,11 +358,19 @@ async def answer_cobuild_question(
                 f"{status_payload} and inspect the result before answering."
             )
 
+    def call():
+        entry.sdk_conversation.client = get_dss_client()
+        return entry.sdk_conversation.answer_question(
+            answers,
+            rejected=rejected,
+            used_custom_answer=used_custom_answer,
+        )
+
     turn = _start_turn(
         conversation_id,
         entry,
         check,
-        lambda: _answer_question(entry, answers, rejected, used_custom_answer),
+        call,
     )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 

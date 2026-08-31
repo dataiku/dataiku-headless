@@ -54,7 +54,7 @@ def get_http_dss_token() -> str:
 def get_request_owner() -> tuple[str, ...]:
     """Return a stable, request-scoped owner identity for retained state."""
     identity = _http_identity.get()
-    return ("local",) if identity is None else ("oidc", *identity)
+    return ("stdio",) if identity is None else ("oidc", *identity)
 
 
 def get_instances() -> dict[str, DSSInstance]:
