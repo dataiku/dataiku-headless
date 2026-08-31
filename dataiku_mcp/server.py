@@ -30,13 +30,6 @@ def _http_auth() -> JWTVerifier:
     )
 
 
-def _tool_name(context: MiddlewareContext[CallToolRequestParams]) -> str:
-    message = context.message
-    return getattr(message, "name", "") or getattr(
-        getattr(message, "params", None), "name", ""
-    )
-
-
 async def _tool_requires_dss_token(
     context: MiddlewareContext[CallToolRequestParams],
 ) -> bool:
@@ -44,7 +37,7 @@ async def _tool_requires_dss_token(
     if fastmcp_context is None:
         return True
 
-    tool = await fastmcp_context.fastmcp.get_tool(_tool_name(context))
+    tool = await fastmcp_context.fastmcp.get_tool(context.message.name)
     return tool is None or DSS_INDEPENDENT_TOOL_TAG not in tool.tags
 
 
