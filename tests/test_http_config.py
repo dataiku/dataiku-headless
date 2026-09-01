@@ -58,6 +58,29 @@ def test_http_config_uses_canonical_default(monkeypatch):
     assert http.get_settings_path() == default_path
 
 
+def test_http_config_requires_existing_settings_file(tmp_path, monkeypatch):
+    path = tmp_path / "missing.json"
+    monkeypatch.setattr(http, "_settings_path", path)
+
+    with pytest.raises(
+        ValueError,
+        match="HTTP instance configuration was not found",
+    ):
+        http.get_server_settings()
+
+
+def test_http_config_rejects_non_object(tmp_path, monkeypatch):
+    path = tmp_path / "http-config.json"
+    path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(http, "_settings_path", path)
+
+    with pytest.raises(
+        ValueError,
+        match="HTTP instance configuration must be a JSON object",
+    ):
+        http.get_server_settings()
+
+
 def test_http_config_example_is_valid(monkeypatch):
     example_path = Path(__file__).parents[1] / ".dataiku" / "http-config.json.example"
     monkeypatch.setattr(http, "_settings_path", example_path)

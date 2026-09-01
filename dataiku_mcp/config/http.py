@@ -1,11 +1,9 @@
 """Operator-managed Streamable HTTP configuration."""
 
-import json
-import os
-import tempfile
 import threading
 from pathlib import Path
 
+from .files import read_json_object, write_json_atomic
 from .models import DSSInstance
 
 
@@ -24,21 +22,17 @@ def set_settings_path(path: Path | None) -> Path:
 
 def get_settings_path() -> Path:
     """Return the single operator-managed HTTP settings file."""
-    global _settings_path
     return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
 def _load_document() -> dict:
+    path = get_settings_path()
     try:
-        with open(get_settings_path()) as file:
-            document = json.load(file)
+        return read_json_object(path, description="HTTP instance configuration")
     except FileNotFoundError as err:
         raise ValueError(
-            f"HTTP instance configuration was not found at '{get_settings_path()}'."
+            f"HTTP instance configuration was not found at '{path}'."
         ) from err
-    if not isinstance(document, dict):
-        raise ValueError("HTTP instance configuration must be a JSON object.")
-    return document
 
 
 def _require_section(document: dict, name: str) -> dict:
@@ -138,19 +132,6 @@ def get_instances_and_defaults() -> tuple[
     return _instances_and_defaults(_load_document())
 
 
-def _save_document(document: dict) -> None:
-    path = get_settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
-    ) as temp_file:
-        json.dump(document, temp_file, indent=2)
-        temp_file.write("\n")
-        temp_path = Path(temp_file.name)
-    temp_path.chmod(0o600)
-    os.replace(temp_path, path)
-
-
 def set_user_default(issuer: str, subject: str, instance_name: str) -> None:
     """Persist an authenticated user's selected catalog instance."""
     with _settings_lock:
@@ -167,4 +148,4 @@ def set_user_default(issuer: str, subject: str, instance_name: str) -> None:
         if not isinstance(issuer_defaults, dict):
             raise ValueError("HTTP user_defaults must map issuers to subject mappings.")
         issuer_defaults[subject] = instance_name
-        _save_document(document)
+        write_json_atomic(get_settings_path(), document)

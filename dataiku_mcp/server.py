@@ -64,7 +64,9 @@ class RequestContextMiddleware(Middleware):
             pinned_instance_reset_token = request.pin_current_instance()
             if access_token is not None and await _tool_requires_dss_token(context):
                 delegated_token = await exchange_http_token(access_token.token)
-                delegated_token_reset_token = request.bind_http_dss_token(delegated_token)
+                delegated_token_reset_token = request.bind_http_dss_token(
+                    delegated_token
+                )
             return await call_next(context)
         finally:
             if delegated_token_reset_token is not None:

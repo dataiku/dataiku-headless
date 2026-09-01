@@ -49,6 +49,51 @@ def test_stdio_config_prefers_existing_cwd_settings(tmp_path, monkeypatch):
     assert stdio.get_settings_path() == settings_path
 
 
+def test_stdio_config_rejects_non_object():
+    stdio.get_settings_path().write_text("[]", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="Stdio instance configuration must be a JSON object",
+    ):
+        stdio.get_instances()
+
+
+def test_stdio_mutations_hold_settings_lock(monkeypatch):
+    class RecordingLock:
+        held = False
+        entries = 0
+
+        def __enter__(self):
+            assert not self.held
+            self.held = True
+            self.entries += 1
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.held = False
+
+    lock = RecordingLock()
+    load_config = stdio._load_config
+    save_config = stdio._save_config
+
+    def load_while_locked():
+        assert lock.held
+        return load_config()
+
+    def save_while_locked(config):
+        assert lock.held
+        save_config(config)
+
+    monkeypatch.setattr(stdio, "_settings_lock", lock)
+    monkeypatch.setattr(stdio, "_load_config", load_while_locked)
+    monkeypatch.setattr(stdio, "_save_config", save_while_locked)
+
+    add_instance("only", set_default=True)
+    stdio.delete_instance_from_config("only")
+
+    assert lock.entries == 2
+
+
 def test_deleting_active_default_switches_to_next_instance():
     add_instance("first", set_default=True)
     add_instance("second")

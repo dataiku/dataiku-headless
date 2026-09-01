@@ -1,10 +1,10 @@
 """Local stdio configuration from environment variables and profile files."""
 
-import json
 import os
-import tempfile
+import threading
 from pathlib import Path
 
+from .files import read_json_object, write_json_atomic
 from .models import DSSConfig, DSSInstance
 
 
@@ -12,21 +12,19 @@ DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
 
 _current_instance: DSSInstance | None = None
 _settings_path: Path | None = None
-
-
-def _resolve_settings_path() -> Path:
-    """Select the stdio profile path for the current launch context."""
-    cwd_settings_path = Path.cwd() / ".dataiku" / "stdio-config.json"
-    if cwd_settings_path.exists():
-        return cwd_settings_path
-
-    return DEFAULT_SETTINGS_PATH
+_settings_lock = threading.Lock()
 
 
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
     global _settings_path
-    _settings_path = path.expanduser() if path is not None else _resolve_settings_path()
+    if path is not None:
+        _settings_path = path.expanduser()
+    else:
+        cwd_settings_path = Path.cwd() / ".dataiku" / "stdio-config.json"
+        _settings_path = (
+            cwd_settings_path if cwd_settings_path.exists() else DEFAULT_SETTINGS_PATH
+        )
     return _settings_path
 
 
@@ -35,20 +33,17 @@ def get_settings_path() -> Path:
     return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
-def _parse_no_check_certificate(value: str) -> bool:
-    return bool(value.strip()) and value.strip().lower() != "false"
-
-
 def _load_instance_from_env_vars() -> DSSInstance | None:
     if not os.environ.get("DKU_DSS_URL"):
         return None
 
+    no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
     return DSSInstance(
         name=os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
         url=os.environ.get("DKU_DSS_URL", ""),
         api_key=os.environ.get("DKU_API_KEY", ""),
-        no_check_certificate=_parse_no_check_certificate(
-            os.environ.get("DKU_NO_CHECK_CERTIFICATE", "")
+        no_check_certificate=(
+            bool(no_check_certificate) and no_check_certificate.lower() != "false"
         ),
         source="environment",
     )
@@ -56,8 +51,9 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
 
 def _load_config() -> DSSConfig:
     try:
-        with open(get_settings_path()) as file:
-            document = json.load(file)
+        document = read_json_object(
+            get_settings_path(), description="Stdio instance configuration"
+        )
     except FileNotFoundError:
         return DSSConfig()
 
@@ -83,18 +79,6 @@ def _load_config() -> DSSConfig:
     return DSSConfig(default_instance_name, instances)
 
 
-def _save_json(document: dict, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=path.parent, prefix="config.", suffix=".tmp", delete=False
-    ) as temp_file:
-        json.dump(document, temp_file, indent=2)
-        temp_file.write("\n")
-        temp_path = Path(temp_file.name)
-    temp_path.chmod(0o600)
-    os.replace(temp_path, path)
-
-
 def _save_config(config: DSSConfig) -> None:
     instances = {}
     for name, instance in config.dss_instances.items():
@@ -106,9 +90,9 @@ def _save_config(config: DSSConfig) -> None:
         if instance.description:
             serialized["description"] = instance.description
         instances[name] = serialized
-    _save_json(
-        {"default_instance": config.default_instance or "", "dss_instances": instances},
+    write_json_atomic(
         get_settings_path(),
+        {"default_instance": config.default_instance or "", "dss_instances": instances},
     )
 
 
@@ -153,54 +137,56 @@ def add_instance_to_config(
     set_default: bool = False,
 ) -> dict:
     """Add an instance to the resolved local profile file."""
-    instance = DSSInstance(
-        name=name,
-        url=url,
-        api_key=api_key,
-        description=description,
-        no_check_certificate=no_check_certificate,
-        source="config",
-    )
-    config = _load_config()
-    config.dss_instances[name] = instance
-    if set_default:
-        config.default_instance = name
-    _save_config(config)
-    return {
-        "name": name,
-        "url": url,
-        "description": description,
-        "path": str(get_settings_path()),
-        "default_instance": config.default_instance,
-    }
+    with _settings_lock:
+        instance = DSSInstance(
+            name=name,
+            url=url,
+            api_key=api_key,
+            description=description,
+            no_check_certificate=no_check_certificate,
+            source="config",
+        )
+        config = _load_config()
+        config.dss_instances[name] = instance
+        if set_default:
+            config.default_instance = name
+        _save_config(config)
+        return {
+            "name": name,
+            "url": url,
+            "description": description,
+            "path": str(get_settings_path()),
+            "default_instance": config.default_instance,
+        }
 
 
 def delete_instance_from_config(name: str) -> dict:
     """Remove a profile-file instance and update the active/default selection."""
     global _current_instance
-    config = _load_config()
-    instances = config.dss_instances
-    if name not in instances:
-        raise ValueError(
-            f"Instance '{name}' not found in config file. Available: {list(instances)}"
-        )
+    with _settings_lock:
+        config = _load_config()
+        instances = config.dss_instances
+        if name not in instances:
+            raise ValueError(
+                f"Instance '{name}' not found in config file. Available: {list(instances)}"
+            )
 
-    was_current = (
-        _current_instance is not None
-        and _current_instance.source == "config"
-        and _current_instance.name == name
-    )
-    instances.pop(name)
-    if config.default_instance == name:
-        config.default_instance = next(iter(instances), None)
-    _save_config(config)
-    if was_current:
-        _current_instance = (
-            instances[config.default_instance] if config.default_instance else None
+        was_current = (
+            _current_instance is not None
+            and _current_instance.source == "config"
+            and _current_instance.name == name
         )
-    return {
-        "deleted": name,
-        "path": str(get_settings_path()),
-        "default_instance": config.default_instance,
-        "remaining": list(instances),
-    }
+        instances.pop(name)
+        if config.default_instance == name:
+            config.default_instance = next(iter(instances), None)
+        _save_config(config)
+        if was_current:
+            _current_instance = (
+                instances[config.default_instance] if config.default_instance else None
+            )
+        return {
+            "deleted": name,
+            "path": str(get_settings_path()),
+            "default_instance": config.default_instance,
+            "remaining": list(instances),
+        }
