@@ -46,7 +46,7 @@ def http_config(monkeypatch, tmp_path):
                         "scope": "dss.api",
                     },
                 },
-                "user_defaults": {},
+                "user_selections": {},
             }
         )
     )
@@ -102,6 +102,15 @@ def test_http_config_rejects_unknown_fields(http_config, location):
         http.get_server_settings()
 
 
+def test_http_config_rejects_obsolete_user_defaults_key(http_config):
+    document = json.loads(http_config.read_text())
+    document["user_defaults"] = document.pop("user_selections")
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="unknown fields.*user_defaults"):
+        http.get_server_settings()
+
+
 def test_http_config_validates_the_complete_document(http_config):
     document = json.loads(http_config.read_text())
     document.pop("oidc")
@@ -127,13 +136,13 @@ def test_http_config_example_is_valid(monkeypatch):
         client_id="dataiku-mcp",
         client_secret="replace-with-secret",
     )
-    instances, defaults = http.get_instances_and_defaults()
+    instances, selections = http.get_instances_and_selections()
     assert isinstance(http._load_config(), HTTPConfig)
     assert set(instances) == {"prod"}
     assert instances["prod"].url == "https://dss.example"
     assert instances["prod"].jwt_audience == "dss-prod"
     assert instances["prod"].jwt_scope == "dss.api"
-    assert defaults == {}
+    assert selections == {}
 
 
 def test_http_user_can_select_any_catalog_instance(http_config):
@@ -157,13 +166,13 @@ def test_http_user_can_select_any_catalog_instance(http_config):
         request.reset_http_identity(identity)
 
     document = json.loads(http_config.read_text())
-    assert document["user_defaults"] == {"https://idp.example": {"alice": "prod"}}
+    assert document["user_selections"] == {"https://idp.example": {"alice": "prod"}}
 
 
-def test_stale_http_default_can_be_replaced(http_config):
+def test_stale_http_selection_can_be_replaced(http_config):
     document = json.loads(http_config.read_text())
     document["dss_instances"].pop("prod")
-    document["user_defaults"] = {
+    document["user_selections"] = {
         "https://idp.example": {"alice": "prod", "bob": "sandbox"}
     }
     http_config.write_text(json.dumps(document))
@@ -183,7 +192,7 @@ def test_stale_http_default_can_be_replaced(http_config):
         request.reset_http_identity(identity)
 
     document = json.loads(http_config.read_text())
-    assert document["user_defaults"] == {
+    assert document["user_selections"] == {
         "https://idp.example": {"alice": "sandbox", "bob": "sandbox"}
     }
 

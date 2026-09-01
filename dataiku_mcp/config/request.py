@@ -60,7 +60,7 @@ def get_request_owner() -> tuple[str, ...]:
 def get_instances() -> dict[str, DSSInstance]:
     """Return the instances available to the current request."""
     if is_http_request():
-        instances, _ = http.get_instances_and_defaults()
+        instances, _ = http.get_instances_and_selections()
         return instances
     return stdio.get_instances()
 
@@ -72,8 +72,8 @@ def pin_current_instance() -> Token:
         return _pinned_instance.set(stdio.get_current_instance())
 
     issuer, subject = identity
-    instances, defaults = http.get_instances_and_defaults()
-    selected_name = defaults.get(issuer, {}).get(subject)
+    instances, selections = http.get_instances_and_selections()
+    selected_name = selections.get(issuer, {}).get(subject)
     return _pinned_instance.set(instances.get(selected_name))
 
 
@@ -115,7 +115,7 @@ def set_current_instance(name: str) -> dict:
     if is_http_request():
         identity = _http_identity.get()
         assert identity is not None
-        http.set_user_default(identity[0], identity[1], name)
+        http.set_user_selection(identity[0], identity[1], name)
     else:
         stdio.set_current_instance(selected)
     return {

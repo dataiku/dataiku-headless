@@ -162,9 +162,9 @@ chmod 600 ~/.dataiku/http-config.json
 ```
 
 Keep this file access-restricted (`0600` on POSIX): it contains a confidential
-OAuth client secret. `user_defaults` is not a user allow-list. Any
-authenticated user may select an endpoint from the catalog; DSS applies its
-normal JWT user permissions.
+OAuth client secret. `user_selections` records each user's currently selected
+instance; it is not a user allow-list. Any authenticated user may select an
+endpoint from the catalog, and DSS applies its normal JWT user permissions.
 
 ## Agent Skills
 

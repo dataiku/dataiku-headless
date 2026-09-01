@@ -39,7 +39,7 @@ def _load_config() -> HTTPConfig:
         "oidc",
         "token_exchange",
         "dss_instances",
-        "user_defaults",
+        "user_selections",
     }
     unknown = set(document) - expected_top_level
     if unknown:
@@ -85,13 +85,15 @@ def _load_config() -> HTTPConfig:
         raise ValueError("HTTP settings requires integer 'server.port'.")
 
     raw_instances = document.get("dss_instances")
-    defaults = document.get("user_defaults", {})
+    selections = document.get("user_selections", {})
     if not isinstance(raw_instances, dict) or not raw_instances:
         raise ValueError(
             "HTTP instance configuration requires non-empty dss_instances."
         )
-    if not isinstance(defaults, dict):
-        raise ValueError("HTTP instance configuration user_defaults must be an object.")
+    if not isinstance(selections, dict):
+        raise ValueError(
+            "HTTP instance configuration user_selections must be an object."
+        )
 
     instances: dict[str, DSSInstance] = {}
     for name, details in raw_instances.items():
@@ -136,13 +138,15 @@ def _load_config() -> HTTPConfig:
             jwt_scope=scope,
         )
 
-    for issuer, subjects in defaults.items():
+    for issuer, subjects in selections.items():
         if not isinstance(issuer, str) or not isinstance(subjects, dict):
-            raise ValueError("HTTP user_defaults must map issuers to subject mappings.")
+            raise ValueError(
+                "HTTP user_selections must map issuers to subject mappings."
+            )
         for subject, instance_name in subjects.items():
             if not isinstance(subject, str) or not isinstance(instance_name, str):
                 raise ValueError(
-                    "HTTP user_defaults must map subjects to instance names."
+                    "HTTP user_selections must map subjects to instance names."
                 )
     return HTTPConfig(
         server=HTTPServerConfig(
@@ -160,7 +164,7 @@ def _load_config() -> HTTPConfig:
             client_secret=token_exchange["client_secret"],
         ),
         dss_instances=instances,
-        user_defaults=defaults,
+        user_selections=selections,
     )
 
 
@@ -197,7 +201,7 @@ def _save_config(config: HTTPConfig) -> None:
                 "client_secret": config.auth.client_secret,
             },
             "dss_instances": instances,
-            "user_defaults": config.user_defaults,
+            "user_selections": config.user_selections,
         },
     )
 
@@ -212,19 +216,19 @@ def get_server_settings() -> HTTPServerConfig:
     return _load_config().server
 
 
-def get_instances_and_defaults() -> tuple[
+def get_instances_and_selections() -> tuple[
     dict[str, DSSInstance], dict[str, dict[str, str]]
 ]:
-    """Return the global HTTP catalog and validated per-user defaults."""
+    """Return the global HTTP catalog and persisted user selections."""
     config = _load_config()
-    return config.dss_instances, config.user_defaults
+    return config.dss_instances, config.user_selections
 
 
-def set_user_default(issuer: str, subject: str, instance_name: str) -> None:
+def set_user_selection(issuer: str, subject: str, instance_name: str) -> None:
     """Persist an authenticated user's selected catalog instance."""
     with _settings_lock:
         config = _load_config()
         if instance_name not in config.dss_instances:
             raise ValueError(f"Unknown HTTP instance '{instance_name}'.")
-        config.user_defaults.setdefault(issuer, {})[subject] = instance_name
+        config.user_selections.setdefault(issuer, {})[subject] = instance_name
         _save_config(config)

@@ -46,7 +46,7 @@ class HTTPConfig:
     server: HTTPServerConfig
     auth: HTTPAuthConfig
     dss_instances: dict[str, DSSInstance]
-    user_defaults: dict[str, dict[str, str]] = field(default_factory=dict)
+    user_selections: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class NoConfiguredInstancesError(ValueError):
