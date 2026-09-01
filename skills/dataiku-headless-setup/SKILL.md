@@ -19,4 +19,4 @@ Bring a new or broken plugin installation to a verified Dataiku connection. A re
 6. When the MCP tools are available, run `list_instances`. If no instance is configured, run `configure_instance` and have the user complete the local setup page. If multiple instances exist without an active one, ask which to use and run `switch_instance`.
 7. Verify the active profile with `get_current_instance`, then make a lightweight read-only Dataiku call such as `list_projects` to validate the saved connection. Never request or repeat the API key in chat.
 
-Report completion with the uv version, active instance name and URL, and whether the Dataiku read succeeded. If a restart is required, say that setup is incomplete and give the single next action.
+Report completion with the uv version, active instance name and URL, Dataiku version when available, and whether the Dataiku read succeeded. If a restart is required, say that setup is incomplete and give the single next action.
