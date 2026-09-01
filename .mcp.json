@@ -16,8 +16,7 @@
         "DKU_INSTANCE_NAME",
         "DKU_DSS_URL",
         "DKU_API_KEY",
-        "DKU_NO_CHECK_CERTIFICATE",
-        "DKU_CONFIG_FILE"
+        "DKU_NO_CHECK_CERTIFICATE"
       ]
     }
   }

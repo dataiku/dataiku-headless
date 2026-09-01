@@ -5,7 +5,7 @@ from dataiku_mcp.config import request, stdio
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
-    monkeypatch.setattr(stdio, "_config_file", tmp_path / "config.json")
+    monkeypatch.setattr(stdio, "_settings_path", tmp_path / "stdio-config.json")
     monkeypatch.setattr(stdio, "_current_instance", None)
     for variable in (
         "DKU_DSS_URL",
@@ -23,6 +23,30 @@ def add_instance(name: str, *, set_default: bool = False) -> None:
         f"{name}-api-key",
         set_default=set_default,
     )
+
+
+def test_stdio_config_uses_explicit_settings_path(tmp_path):
+    path = tmp_path / "custom.json"
+
+    assert stdio.set_settings_path(path) == path
+    assert stdio.get_settings_path() == path
+
+
+def test_stdio_config_uses_canonical_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == stdio.DEFAULT_SETTINGS_PATH
+
+
+def test_stdio_config_prefers_existing_cwd_settings(tmp_path, monkeypatch):
+    settings_path = tmp_path / ".dataiku" / "stdio-config.json"
+    settings_path.parent.mkdir()
+    settings_path.write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == settings_path
 
 
 def test_deleting_active_default_switches_to_next_instance():

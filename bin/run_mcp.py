@@ -53,22 +53,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Dataiku MCP server.")
     parser.add_argument("--transport", choices=("stdio", "http"), required=True)
     parser.add_argument(
-        "--http-settings",
+        "--settings-path",
         type=Path,
-        help="Path to the HTTP settings file (valid only with --transport http).",
+        help="Path to the transport-specific settings file.",
     )
     args = parser.parse_args()
-    if args.http_settings is not None and args.transport != "http":
-        parser.error("--http-settings requires --transport http")
 
     load_dotenv(REPO_ROOT / ".env", override=False)
 
     from dataiku_mcp import run_http_server, run_stdio_server
 
     if args.transport == "stdio":
-        run_stdio_server()
+        run_stdio_server(args.settings_path)
     else:
-        run_http_server(args.http_settings)
+        run_http_server(args.settings_path)
 
 
 if __name__ == "__main__":

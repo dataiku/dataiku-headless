@@ -134,7 +134,7 @@ limited direct actions Headless supports, see the
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication for the local stdio plugin (env API key or `.dataiku/config.json`)
+- Server-side authentication for the local stdio plugin (env API key or `.dataiku/stdio-config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
@@ -148,17 +148,17 @@ It accepts
 an OIDC access token for the MCP server on every request, exchanges it through
 RFC 8693 for a short-lived DSS JWT, and sends only that exchanged JWT to DSS.
 
-It reads `~/.dataiku/http.json` by default, alongside the local stdio profiles
-in `~/.dataiku/config.json`. Use `--http-settings PATH` only when the deployment
+It reads `~/.dataiku/http-config.json` by default, alongside the local stdio profiles
+in `~/.dataiku/stdio-config.json`. Use `--settings-path PATH` only when the deployment
 needs a different filesystem location. The HTTP file contains the OIDC verifier,
 token-exchange client, transport settings, approved DSS catalog, and user
-instance preferences. Copy [`.dataiku/http.json.example`](.dataiku/http.json.example)
+instance preferences. Copy [`.dataiku/http-config.json.example`](.dataiku/http-config.json.example)
 as a starting point:
 
 ```bash
 mkdir -p ~/.dataiku
-cp .dataiku/http.json.example ~/.dataiku/http.json
-chmod 600 ~/.dataiku/http.json
+cp .dataiku/http-config.json.example ~/.dataiku/http-config.json
+chmod 600 ~/.dataiku/http-config.json
 ```
 
 Keep this file access-restricted (`0600` on POSIX): it contains a confidential
@@ -189,13 +189,12 @@ instance for the authenticated user.
 
 ### Where configuration lives
 
-The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. The server selects its configuration file once at startup, in this order:
+The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. Use `--settings-path PATH` to select an explicit path; otherwise, the server selects its configuration file once at startup in this order:
 
-1. The explicit `DKU_CONFIG_FILE` path, when set.
-2. An existing `./.dataiku/config.json` in the server's working directory.
-3. `~/.dataiku/config.json` otherwise.
+1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
+2. `~/.dataiku/stdio-config.json` otherwise.
 
-All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/config.json.example`](.dataiku/config.json.example) for the file shape.
+All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
 Environment variables are an explicit override:
 
@@ -214,7 +213,7 @@ same name always wins, even if it is empty. Importing `dataiku_mcp` directly doe
 not read `.env`; embedding callers must prepare their environment first.
 
 **Connect to multiple instances:**
-Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
+Put instance info in the resolved configuration file. See `.dataiku/stdio-config.json.example` for the expected shape.
 
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 

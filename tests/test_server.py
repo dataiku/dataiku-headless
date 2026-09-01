@@ -9,6 +9,8 @@ from dataiku_mcp.config import http, stdio
 
 def test_run_stdio_server_uses_stdio(monkeypatch):
     calls = []
+    paths = []
+    monkeypatch.setattr(stdio, "set_settings_path", lambda path: paths.append(path))
     monkeypatch.setattr(
         stdio,
         "initialize_current_instance",
@@ -20,8 +22,9 @@ def test_run_stdio_server_uses_stdio(monkeypatch):
         lambda **kwargs: calls.append(("run", kwargs)),
     )
 
-    dataiku_mcp.run_stdio_server()
+    dataiku_mcp.run_stdio_server(Path("/tmp/stdio-config.json"))
 
+    assert paths == [Path("/tmp/stdio-config.json")]
     assert calls == ["initialize_stdio", ("run", {"transport": "stdio"})]
 
 

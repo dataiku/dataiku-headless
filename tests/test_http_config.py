@@ -51,7 +51,7 @@ def http_config(monkeypatch, tmp_path):
 
 
 def test_http_config_uses_canonical_default(monkeypatch):
-    default_path = Path.home() / ".dataiku" / "http.json"
+    default_path = Path.home() / ".dataiku" / "http-config.json"
     monkeypatch.setattr(http, "_settings_path", None)
 
     assert http.DEFAULT_SETTINGS_PATH == default_path
@@ -59,7 +59,7 @@ def test_http_config_uses_canonical_default(monkeypatch):
 
 
 def test_http_config_example_is_valid(monkeypatch):
-    example_path = Path(__file__).parents[1] / ".dataiku" / "http.json.example"
+    example_path = Path(__file__).parents[1] / ".dataiku" / "http-config.json.example"
     monkeypatch.setattr(http, "_settings_path", example_path)
 
     assert http.get_server_settings() == {

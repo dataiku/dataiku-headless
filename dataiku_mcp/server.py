@@ -53,18 +53,18 @@ class RequestContextMiddleware(Middleware):
         delegated_token_reset_token = None
         pinned_instance_reset_token = None
 
-        incoming_access_token = get_access_token()
-        if incoming_access_token is not None:
-            claims = incoming_access_token.claims
+        access_token = get_access_token()
+        if access_token is not None:
+            claims = access_token.claims
             http_identity_reset_token = request.bind_http_identity(
                 str(claims.get("iss", "")), str(claims.get("sub", ""))
             )
 
         try:
             pinned_instance_reset_token = request.pin_current_instance()
-            if incoming_access_token is not None and await _tool_requires_dss_token(context):
-                delegated_dss_token = await exchange_http_token(incoming_access_token.token)
-                delegated_token_reset_token = request.bind_http_dss_token(delegated_dss_token)
+            if access_token is not None and await _tool_requires_dss_token(context):
+                delegated_token = await exchange_http_token(access_token.token)
+                delegated_token_reset_token = request.bind_http_dss_token(delegated_token)
             return await call_next(context)
         finally:
             if delegated_token_reset_token is not None:
@@ -78,10 +78,11 @@ class RequestContextMiddleware(Middleware):
 mcp = FastMCP("Dataiku", middleware=[RequestContextMiddleware()])
 
 
-def run_stdio_server():
+def run_stdio_server(settings_path: Path | None = None):
     """Run the MCP server in stdio mode."""
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Dataiku MCP server (stdio)")
+    stdio.set_settings_path(settings_path)
     stdio.initialize_current_instance()
     mcp.run(transport="stdio")
 

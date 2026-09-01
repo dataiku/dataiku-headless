@@ -9,24 +9,23 @@ from pathlib import Path
 from .models import DSSInstance
 
 
-DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http.json"
+DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http-config.json"
 
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()
 
 
-def set_settings_path(path: Path | None) -> None:
+def set_settings_path(path: Path | None) -> Path:
     """Select the HTTP settings file for this server process."""
     global _settings_path
     _settings_path = path.expanduser() if path is not None else DEFAULT_SETTINGS_PATH
+    return _settings_path
 
 
 def get_settings_path() -> Path:
     """Return the single operator-managed HTTP settings file."""
     global _settings_path
-    if _settings_path is None:
-        _settings_path = DEFAULT_SETTINGS_PATH
-    return _settings_path
+    return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
 def _load_document() -> dict:

@@ -8,29 +8,31 @@ from pathlib import Path
 from .models import DSSConfig, DSSInstance
 
 
+DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
+
 _current_instance: DSSInstance | None = None
-_config_file: Path | None = None
+_settings_path: Path | None = None
 
 
-def _resolve_config_file() -> Path:
-    """Select the profile file path for the current launch context."""
-    explicit = os.environ.get("DKU_CONFIG_FILE")
-    if explicit:
-        return Path(explicit).expanduser()
+def _resolve_settings_path() -> Path:
+    """Select the stdio profile path for the current launch context."""
+    cwd_settings_path = Path.cwd() / ".dataiku" / "stdio-config.json"
+    if cwd_settings_path.exists():
+        return cwd_settings_path
 
-    cwd_config = Path.cwd() / ".dataiku" / "config.json"
-    if cwd_config.exists():
-        return cwd_config
-
-    return Path.home() / ".dataiku" / "config.json"
+    return DEFAULT_SETTINGS_PATH
 
 
-def get_config_path() -> Path:
+def set_settings_path(path: Path | None) -> Path:
+    """Select the stdio profile file for this server process."""
+    global _settings_path
+    _settings_path = path.expanduser() if path is not None else _resolve_settings_path()
+    return _settings_path
+
+
+def get_settings_path() -> Path:
     """Return the profile file selected for this server process."""
-    global _config_file
-    if _config_file is None:
-        _config_file = _resolve_config_file()
-    return _config_file
+    return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
 def _parse_no_check_certificate(value: str) -> bool:
@@ -54,7 +56,7 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
 
 def _load_config() -> DSSConfig:
     try:
-        with open(get_config_path()) as file:
+        with open(get_settings_path()) as file:
             document = json.load(file)
     except FileNotFoundError:
         return DSSConfig()
@@ -64,7 +66,7 @@ def _load_config() -> DSSConfig:
     if default_instance_name and default_instance_name not in raw_instances:
         raise ValueError(
             f"Default instance '{default_instance_name}' not found in "
-            f".dataiku/config.json. Available: {raw_instances.keys()}."
+            f".dataiku/stdio-config.json. Available: {raw_instances.keys()}."
         )
 
     instances = {
@@ -106,7 +108,7 @@ def _save_config(config: DSSConfig) -> None:
         instances[name] = serialized
     _save_json(
         {"default_instance": config.default_instance or "", "dss_instances": instances},
-        get_config_path(),
+        get_settings_path(),
     )
 
 
@@ -168,7 +170,7 @@ def add_instance_to_config(
         "name": name,
         "url": url,
         "description": description,
-        "path": str(get_config_path()),
+        "path": str(get_settings_path()),
         "default_instance": config.default_instance,
     }
 
@@ -198,7 +200,7 @@ def delete_instance_from_config(name: str) -> dict:
         )
     return {
         "deleted": name,
-        "path": str(get_config_path()),
+        "path": str(get_settings_path()),
         "default_instance": config.default_instance,
         "remaining": list(instances),
     }
