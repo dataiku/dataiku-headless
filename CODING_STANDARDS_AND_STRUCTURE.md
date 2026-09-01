@@ -59,6 +59,13 @@ export DKU_API_KEY="your-api-key"
 - Do not add boolean confirmation flags (`confirm*`) to tool APIs; they are not reliable authorization boundaries for agent callers.
 - Represent destructive intent through semantic operation parameters (for example `overwrite=true`, `drop_data=true`, `mode="replace"`, `job_type="RECURSIVE_FORCED_BUILD"`).
 
+## Tool Metadata
+
+- Give each tool a short human title and a one-line description of what it is for and when to reach for it.
+- The tool catalog is re-sent to the model on every turn of every session, used or not. Keep workflow detail and safety rules in the relevant `skills/**/references/` guide, which loads on demand, and describe only parameters whose correct use a name and type cannot convey.
+- Set `readOnlyHint`, `destructiveHint`, and `openWorldHint` explicitly, classified from the handler's actual code paths rather than its name. Omit `idempotentHint` where it cannot apply. A tool whose effect depends on a runtime argument is catalogued at its maximum possible effect.
+- Annotations are catalog-time labels for host UX. They are not authorization and never replace an argument check, a permission, or a confirmation policy.
+
 ## Cobuild Write-Routing Convention
 - This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead.
 - Do not add a new direct write tool for an in-project asset type. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.

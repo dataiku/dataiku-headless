@@ -42,6 +42,7 @@ Do not copy volatile inventories, versions, or command details into this file wh
 - Never return API keys, credentials, unredacted connection secrets, or sensitive exception text.
 - Represent destructive intent with semantic parameters such as `overwrite`, `drop_data`, or a replace/run mode. Do not add `confirm*` parameters; confirmation is a harness concern.
 - If adding a tool module, import it in `dataiku_mcp/__init__.py`. For every add, remove, or rename, update `tests/test_tool_surface.py` in the same change.
+- Give a tool you add or change the advertised metadata described under **Tool Metadata** in `CODING_STANDARDS_AND_STRUCTURE.md`. Most existing tools predate this and are being migrated module by module.
 - Add focused tests with fakes or monkeypatching. Tests must not require a live Dataiku instance.
 
 ## Changing Cobuild, launch, or packaging code
