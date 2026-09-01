@@ -16,11 +16,37 @@ class DSSInstance:
 
 
 @dataclass
-class DSSConfig:
+class StdioConfig:
     """Persisted Dataiku instance profiles and their startup default."""
 
     default_instance: str | None = None
     dss_instances: dict[str, DSSInstance] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HTTPServerConfig:
+    host: str
+    port: int
+    path: str
+
+
+@dataclass(frozen=True)
+class HTTPAuthConfig:
+    issuer: str
+    jwks_uri: str
+    audience: str
+    scope: str
+    token_exchange_url: str
+    client_id: str
+    client_secret: str = field(repr=False)
+
+
+@dataclass
+class HTTPConfig:
+    server: HTTPServerConfig
+    auth: HTTPAuthConfig
+    dss_instances: dict[str, DSSInstance]
+    user_defaults: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class NoConfiguredInstancesError(ValueError):

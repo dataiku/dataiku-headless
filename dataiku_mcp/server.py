@@ -21,12 +21,12 @@ DSS_INDEPENDENT_TOOL_TAG = "dss-independent"
 
 
 def _http_auth() -> JWTVerifier:
-    settings = http.get_auth_settings()
+    auth_settings = http.get_auth_settings()
     return JWTVerifier(
-        jwks_uri=settings["jwks_uri"],
-        issuer=settings["issuer"],
-        audience=settings["audience"],
-        required_scopes=[settings["scope"]],
+        jwks_uri=auth_settings.jwks_uri,
+        issuer=auth_settings.issuer,
+        audience=auth_settings.audience,
+        required_scopes=[auth_settings.scope],
     )
 
 
@@ -50,7 +50,7 @@ class RequestContextMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, Any],
     ) -> Any:
         http_identity_reset_token = None
-        delegated_token_reset_token = None
+        dss_token_reset_token = None
         pinned_instance_reset_token = None
 
         access_token = get_access_token()
@@ -63,14 +63,12 @@ class RequestContextMiddleware(Middleware):
         try:
             pinned_instance_reset_token = request.pin_current_instance()
             if access_token is not None and await _tool_requires_dss_token(context):
-                delegated_token = await exchange_http_token(access_token.token)
-                delegated_token_reset_token = request.bind_http_dss_token(
-                    delegated_token
-                )
+                dss_token = await exchange_http_token(access_token.token)
+                dss_token_reset_token = request.bind_http_dss_token(dss_token)
             return await call_next(context)
         finally:
-            if delegated_token_reset_token is not None:
-                request.reset_http_dss_token(delegated_token_reset_token)
+            if dss_token_reset_token is not None:
+                request.reset_http_dss_token(dss_token_reset_token)
             if pinned_instance_reset_token is not None:
                 request.reset_pinned_instance(pinned_instance_reset_token)
             if http_identity_reset_token is not None:
@@ -94,6 +92,11 @@ def run_http_server(settings_path: Path | None = None):
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Dataiku MCP server (streamable HTTP)")
     http.set_settings_path(settings_path)
-    settings = http.get_server_settings()
+    server_settings = http.get_server_settings()
     mcp.auth = _http_auth()
-    mcp.run(transport="streamable-http", **settings)
+    mcp.run(
+        transport="streamable-http",
+        host=server_settings.host,
+        port=server_settings.port,
+        path=server_settings.path,
+    )

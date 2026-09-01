@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 from .files import read_json_object, write_json_atomic
-from .models import DSSInstance
+from .models import HTTPAuthConfig, HTTPConfig, HTTPServerConfig, DSSInstance
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http-config.json"
@@ -25,62 +25,65 @@ def get_settings_path() -> Path:
     return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
-def _load_document() -> dict:
+def _load_config() -> HTTPConfig:
     path = get_settings_path()
     try:
-        return read_json_object(path, description="HTTP instance configuration")
+        document = read_json_object(path, description="HTTP instance configuration")
     except FileNotFoundError as err:
         raise ValueError(
             f"HTTP instance configuration was not found at '{path}'."
         ) from err
 
-
-def _require_section(document: dict, name: str) -> dict:
-    section = document.get(name)
-    if not isinstance(section, dict):
-        raise ValueError(f"HTTP settings requires an object named '{name}'.")
-    return section
-
-
-def _require_string(section: dict, section_name: str, key: str) -> str:
-    value = section.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"HTTP settings requires '{section_name}.{key}'.")
-    return value
-
-
-def get_auth_settings() -> dict[str, str]:
-    """Return validated OIDC and RFC 8693 settings."""
-    document = _load_document()
-    oidc = _require_section(document, "oidc")
-    token_exchange = _require_section(document, "token_exchange")
-    return {
-        "issuer": _require_string(oidc, "oidc", "issuer"),
-        "jwks_uri": _require_string(oidc, "oidc", "jwks_uri"),
-        "audience": _require_string(oidc, "oidc", "audience"),
-        "scope": _require_string(oidc, "oidc", "scope"),
-        "token_exchange_url": _require_string(token_exchange, "token_exchange", "url"),
-        "client_id": _require_string(token_exchange, "token_exchange", "client_id"),
-        "client_secret": _require_string(
-            token_exchange, "token_exchange", "client_secret"
-        ),
+    expected_top_level = {
+        "server",
+        "oidc",
+        "token_exchange",
+        "dss_instances",
+        "user_defaults",
     }
+    unknown = set(document) - expected_top_level
+    if unknown:
+        raise ValueError(
+            f"HTTP instance configuration contains unknown fields: {sorted(unknown)}."
+        )
 
+    sections = {}
+    expected_section_fields = {
+        "server": {"host", "port", "path"},
+        "oidc": {"issuer", "jwks_uri", "audience", "scope"},
+        "token_exchange": {"url", "client_id", "client_secret"},
+    }
+    for section_name, expected_fields in expected_section_fields.items():
+        section = document.get(section_name)
+        if not isinstance(section, dict):
+            raise ValueError(
+                f"HTTP settings requires an object named '{section_name}'."
+            )
+        unknown = set(section) - expected_fields
+        if unknown:
+            raise ValueError(
+                f"HTTP settings section '{section_name}' contains unknown fields: "
+                f"{sorted(unknown)}."
+            )
+        sections[section_name] = section
 
-def get_server_settings() -> dict[str, str | int]:
-    """Return validated Streamable HTTP transport settings."""
-    server = _require_section(_load_document(), "server")
-    host = _require_string(server, "server", "host")
-    path = _require_string(server, "server", "path")
+    server = sections["server"]
+    oidc = sections["oidc"]
+    token_exchange = sections["token_exchange"]
+    for section_name, section, keys in (
+        ("server", server, ("host", "path")),
+        ("oidc", oidc, ("issuer", "jwks_uri", "audience", "scope")),
+        ("token_exchange", token_exchange, ("url", "client_id", "client_secret")),
+    ):
+        for key in keys:
+            value = section.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"HTTP settings requires '{section_name}.{key}'.")
+
     port = server.get("port")
     if not isinstance(port, int):
         raise ValueError("HTTP settings requires integer 'server.port'.")
-    return {"host": host, "port": port, "path": path}
 
-
-def _instances_and_defaults(
-    document: dict,
-) -> tuple[dict[str, DSSInstance], dict[str, dict[str, str]]]:
     raw_instances = document.get("dss_instances")
     defaults = document.get("user_defaults", {})
     if not isinstance(raw_instances, dict) or not raw_instances:
@@ -94,6 +97,17 @@ def _instances_and_defaults(
     for name, details in raw_instances.items():
         if not isinstance(details, dict):
             raise ValueError(f"HTTP instance '{name}' must be an object.")
+        unknown = set(details) - {
+            "url",
+            "audience",
+            "scope",
+            "no_check_certificate",
+            "description",
+        }
+        if unknown:
+            raise ValueError(
+                f"HTTP instance '{name}' contains unknown fields: {sorted(unknown)}."
+            )
         url = details.get("url", "")
         audience = details.get("audience", "")
         scope = details.get("scope", "")
@@ -103,13 +117,21 @@ def _instances_and_defaults(
             raise ValueError(
                 f"HTTP instance '{name}' requires non-empty url, audience, and scope."
             )
+        description = details.get("description", "")
+        if not isinstance(description, str):
+            raise ValueError(f"HTTP instance '{name}' description must be a string.")
+        no_check_certificate = details.get("no_check_certificate", False)
+        if not isinstance(no_check_certificate, bool):
+            raise ValueError(
+                f"HTTP instance '{name}' no_check_certificate must be a boolean."
+            )
         instances[name] = DSSInstance(
             name=name,
             url=url,
             api_key="",
-            no_check_certificate=bool(details.get("no_check_certificate", False)),
+            no_check_certificate=no_check_certificate,
             source="http",
-            description=details.get("description", ""),
+            description=description,
             jwt_audience=audience,
             jwt_scope=scope,
         )
@@ -122,30 +144,87 @@ def _instances_and_defaults(
                 raise ValueError(
                     "HTTP user_defaults must map subjects to instance names."
                 )
-    return instances, defaults
+    return HTTPConfig(
+        server=HTTPServerConfig(
+            host=server["host"],
+            port=port,
+            path=server["path"],
+        ),
+        auth=HTTPAuthConfig(
+            issuer=oidc["issuer"],
+            jwks_uri=oidc["jwks_uri"],
+            audience=oidc["audience"],
+            scope=oidc["scope"],
+            token_exchange_url=token_exchange["url"],
+            client_id=token_exchange["client_id"],
+            client_secret=token_exchange["client_secret"],
+        ),
+        dss_instances=instances,
+        user_defaults=defaults,
+    )
+
+
+def _save_config(config: HTTPConfig) -> None:
+    instances = {}
+    for name, instance in config.dss_instances.items():
+        serialized = {
+            "url": instance.url,
+            "audience": instance.jwt_audience,
+            "scope": instance.jwt_scope,
+            "no_check_certificate": instance.no_check_certificate,
+        }
+        if instance.description:
+            serialized["description"] = instance.description
+        instances[name] = serialized
+
+    write_json_atomic(
+        get_settings_path(),
+        {
+            "server": {
+                "host": config.server.host,
+                "port": config.server.port,
+                "path": config.server.path,
+            },
+            "oidc": {
+                "issuer": config.auth.issuer,
+                "jwks_uri": config.auth.jwks_uri,
+                "audience": config.auth.audience,
+                "scope": config.auth.scope,
+            },
+            "token_exchange": {
+                "url": config.auth.token_exchange_url,
+                "client_id": config.auth.client_id,
+                "client_secret": config.auth.client_secret,
+            },
+            "dss_instances": instances,
+            "user_defaults": config.user_defaults,
+        },
+    )
+
+
+def get_auth_settings() -> HTTPAuthConfig:
+    """Return validated OIDC and RFC 8693 settings."""
+    return _load_config().auth
+
+
+def get_server_settings() -> HTTPServerConfig:
+    """Return validated Streamable HTTP transport settings."""
+    return _load_config().server
 
 
 def get_instances_and_defaults() -> tuple[
     dict[str, DSSInstance], dict[str, dict[str, str]]
 ]:
     """Return the global HTTP catalog and validated per-user defaults."""
-    return _instances_and_defaults(_load_document())
+    config = _load_config()
+    return config.dss_instances, config.user_defaults
 
 
 def set_user_default(issuer: str, subject: str, instance_name: str) -> None:
     """Persist an authenticated user's selected catalog instance."""
     with _settings_lock:
-        document = _load_document()
-        instances, _ = _instances_and_defaults(document)
-        if instance_name not in instances:
+        config = _load_config()
+        if instance_name not in config.dss_instances:
             raise ValueError(f"Unknown HTTP instance '{instance_name}'.")
-        defaults = document.setdefault("user_defaults", {})
-        if not isinstance(defaults, dict):
-            raise ValueError(
-                "HTTP instance configuration user_defaults must be an object."
-            )
-        issuer_defaults = defaults.setdefault(issuer, {})
-        if not isinstance(issuer_defaults, dict):
-            raise ValueError("HTTP user_defaults must map issuers to subject mappings.")
-        issuer_defaults[subject] = instance_name
-        write_json_atomic(get_settings_path(), document)
+        config.user_defaults.setdefault(issuer, {})[subject] = instance_name
+        _save_config(config)

@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from .files import read_json_object, write_json_atomic
-from .models import DSSConfig, DSSInstance
+from .models import DSSInstance, StdioConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
@@ -49,13 +49,13 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
     )
 
 
-def _load_config() -> DSSConfig:
+def _load_config() -> StdioConfig:
     try:
         document = read_json_object(
             get_settings_path(), description="Stdio instance configuration"
         )
     except FileNotFoundError:
-        return DSSConfig()
+        return StdioConfig()
 
     default_instance_name = document.get("default_instance") or None
     raw_instances = document.get("dss_instances", {})
@@ -76,10 +76,10 @@ def _load_config() -> DSSConfig:
         )
         for name, details in raw_instances.items()
     }
-    return DSSConfig(default_instance_name, instances)
+    return StdioConfig(default_instance_name, instances)
 
 
-def _save_config(config: DSSConfig) -> None:
+def _save_config(config: StdioConfig) -> None:
     instances = {}
     for name, instance in config.dss_instances.items():
         serialized = {

@@ -8,7 +8,12 @@ import pytest
 
 import dataiku_mcp.auth as auth
 from dataiku_mcp.config import http, request
-from dataiku_mcp.config.models import DSSInstance
+from dataiku_mcp.config.models import (
+    HTTPAuthConfig,
+    HTTPConfig,
+    HTTPServerConfig,
+    DSSInstance,
+)
 
 
 @pytest.fixture
@@ -81,25 +86,49 @@ def test_http_config_rejects_non_object(tmp_path, monkeypatch):
         http.get_server_settings()
 
 
+@pytest.mark.parametrize(
+    "location",
+    [(), ("server",), ("dss_instances", "sandbox")],
+)
+def test_http_config_rejects_unknown_fields(http_config, location):
+    document = json.loads(http_config.read_text())
+    target = document
+    for key in location:
+        target = target[key]
+    target["unexpected"] = True
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        http.get_server_settings()
+
+
+def test_http_config_validates_the_complete_document(http_config):
+    document = json.loads(http_config.read_text())
+    document.pop("oidc")
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="object named 'oidc'"):
+        http.get_server_settings()
+
+
 def test_http_config_example_is_valid(monkeypatch):
     example_path = Path(__file__).parents[1] / ".dataiku" / "http-config.json.example"
     monkeypatch.setattr(http, "_settings_path", example_path)
 
-    assert http.get_server_settings() == {
-        "host": "127.0.0.1",
-        "port": 8000,
-        "path": "/mcp",
-    }
-    assert http.get_auth_settings() == {
-        "issuer": "https://idp.example",
-        "jwks_uri": "https://idp.example/jwks",
-        "audience": "dataiku-mcp",
-        "scope": "mcp.access",
-        "token_exchange_url": "https://idp.example/token",
-        "client_id": "dataiku-mcp",
-        "client_secret": "replace-with-secret",
-    }
+    assert http.get_server_settings() == HTTPServerConfig(
+        host="127.0.0.1", port=8000, path="/mcp"
+    )
+    assert http.get_auth_settings() == HTTPAuthConfig(
+        issuer="https://idp.example",
+        jwks_uri="https://idp.example/jwks",
+        audience="dataiku-mcp",
+        scope="mcp.access",
+        token_exchange_url="https://idp.example/token",
+        client_id="dataiku-mcp",
+        client_secret="replace-with-secret",
+    )
     instances, defaults = http.get_instances_and_defaults()
+    assert isinstance(http._load_config(), HTTPConfig)
     assert set(instances) == {"prod"}
     assert instances["prod"].url == "https://dss.example"
     assert instances["prod"].jwt_audience == "dss-prod"
@@ -160,12 +189,10 @@ def test_stale_http_default_can_be_replaced(http_config):
 
 
 def test_http_settings_are_read_from_the_settings_file(http_config):
-    assert http.get_server_settings() == {
-        "host": "127.0.0.1",
-        "port": 8000,
-        "path": "/mcp",
-    }
-    assert http.get_auth_settings()["issuer"] == "https://idp.example"
+    assert http.get_server_settings() == HTTPServerConfig(
+        host="127.0.0.1", port=8000, path="/mcp"
+    )
+    assert http.get_auth_settings().issuer == "https://idp.example"
 
 
 def test_token_exchange_uses_selected_instance_audience(monkeypatch):
@@ -181,11 +208,15 @@ def test_token_exchange_uses_selected_instance_audience(monkeypatch):
     monkeypatch.setattr(
         http,
         "get_auth_settings",
-        lambda: {
-            "token_exchange_url": "https://idp.example/token",
-            "client_id": "client",
-            "client_secret": "secret",
-        },
+        lambda: HTTPAuthConfig(
+            issuer="https://idp.example",
+            jwks_uri="https://idp.example/jwks",
+            audience="dataiku-mcp",
+            scope="mcp.access",
+            token_exchange_url="https://idp.example/token",
+            client_id="client",
+            client_secret="secret",
+        ),
     )
     monkeypatch.setattr(
         request,

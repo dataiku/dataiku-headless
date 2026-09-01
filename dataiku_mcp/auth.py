@@ -66,7 +66,7 @@ async def exchange_http_token(mcp_token: str) -> str:
         instance = request.get_pinned_instance()
         try:
             response = requests.post(
-                settings["token_exchange_url"],
+                settings.token_exchange_url,
                 data={
                     "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
                     "subject_token": mcp_token,
@@ -74,7 +74,7 @@ async def exchange_http_token(mcp_token: str) -> str:
                     "audience": instance.jwt_audience,
                     "scope": instance.jwt_scope,
                 },
-                auth=(settings["client_id"], settings["client_secret"]),
+                auth=(settings.client_id, settings.client_secret),
                 timeout=10,
             )
             response.raise_for_status()
