@@ -663,9 +663,9 @@ async def create_plugin_code_env(
     Requires administrator or plugin-developer permission. Dataiku creates the
     environment and binds it in two steps, so this tool does both: it binds an existing
     unbound ``plugin_<id>_managed`` environment rather than creating a numbered
-    duplicate, which makes it safe to re-run after an inline wait times out. Read
-    ``build`` on the response: the environment can be bound and still have failed to
-    install its dependencies.
+    duplicate, which makes it safe to re-run after an inline wait times out. A recovered
+    environment has an unknown build outcome because the earlier result is unavailable.
+    Read ``build`` on the response before treating the plugin as ready.
 
     Args:
         plugin_id: Installed plugin id.
@@ -746,6 +746,15 @@ async def create_plugin_code_env(
         build = _build_outcome(result, env_name)
     else:
         env_name = orphan
+        build = {
+            "status": "unknown",
+            "code_env_name": env_name,
+            "hint": (
+                "The environment was recovered after an earlier creation did not return "
+                "a verified build result. Rebuild it with "
+                "update_plugin(rebuild_code_env=true) before treating the plugin as ready."
+            ),
+        }
 
     def _bind():
         settings = plugin.get_settings()

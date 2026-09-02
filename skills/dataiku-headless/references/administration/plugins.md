@@ -66,10 +66,13 @@ plus the `operation` it describes.
   `future_id` per `../jobs.md`, and **do not start a duplicate operation**; a second
   code-environment creation is what produces `plugin_<id>_managed_1` duplicates.
 - `create_plugin_code_env` is safe to re-run after a timeout: it binds an existing
-  unbound environment for that plugin instead of creating another one.
+  unbound environment for that plugin instead of creating another one. Because the
+  earlier build result is unavailable, the recovered environment reports
+  `build.status: "unknown"`; rebuild it before treating the plugin as ready.
 - Dataiku reports a failed action as an ordinary successful response, so the absence of
-  an error is not evidence of success. These tools check the reported outcome and raise
-  in that case, so `completed` means it really succeeded.
+  an error is not evidence of success. Install, update, and delete check the reported
+  outcome before returning `completed`; for code environments, read the nested build
+  status.
 
 ## Code environments
 

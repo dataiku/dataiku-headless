@@ -844,7 +844,7 @@ def test_create_plugin_code_env_is_a_no_op_when_one_is_already_bound():
 
 
 def test_create_plugin_code_env_binds_an_orphan_instead_of_duplicating_it():
-    """Re-running after a timed-out creation must not leave a numbered duplicate."""
+    """A recovered environment is bound without claiming its earlier build succeeded."""
     plugin, client = _installed(
         code_envs=[
             {"envName": "shared-python", "deploymentMode": "DESIGN_MANAGED"},
@@ -858,7 +858,15 @@ def test_create_plugin_code_env_binds_an_orphan_instead_of_duplicating_it():
     assert res["status"] == "completed"
     assert res["created"] is False
     assert res["code_env_name"] == "plugin_geocoder_managed"
-    assert "build" not in res
+    assert res["build"] == {
+        "status": "unknown",
+        "code_env_name": "plugin_geocoder_managed",
+        "hint": (
+            "The environment was recovered after an earlier creation did not return a "
+            "verified build result. Rebuild it with "
+            "update_plugin(rebuild_code_env=true) before treating the plugin as ready."
+        ),
+    }
     assert "create_code_env" not in plugin.futures
 
 
