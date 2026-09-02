@@ -112,9 +112,8 @@ def set_current_instance(name: str) -> dict:
         raise ValueError(f"Unknown instance '{name}'. Available: {list(instances)}")
 
     selected = instances[name]
-    if is_http_request():
-        identity = _http_identity.get()
-        assert identity is not None
+    identity = _http_identity.get()
+    if identity is not None:
         http.set_user_selection(identity[0], identity[1], name)
     else:
         stdio.set_current_instance(selected)
