@@ -58,23 +58,37 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
-async def exchange_http_token(mcp_token: str) -> str:
+async def exchange_http_token(subject_token: str) -> str:
     """Exchange an MCP-audience token for the selected DSS-audience token."""
 
     def _exchange() -> str:
-        settings = http.get_auth_settings()
+        auth_settings = http.get_auth_settings()
+        settings = http.get_token_exchange_settings()
         instance = request.get_pinned_instance()
+        if auth_settings.provider == "entra":
+            data = {
+                "client_id": settings.client_id,
+                "client_secret": settings.client_secret,
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": subject_token,
+                "scope": instance.jwt_scope,
+                "requested_token_use": "on_behalf_of",
+            }
+            client_auth = None
+        else:
+            data = {
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "subject_token": subject_token,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "audience": instance.jwt_audience,
+                "scope": instance.jwt_scope,
+            }
+            client_auth = (settings.client_id, settings.client_secret)
         try:
             response = requests.post(
-                settings.token_exchange_url,
-                data={
-                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-                    "subject_token": mcp_token,
-                    "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                    "audience": instance.jwt_audience,
-                    "scope": instance.jwt_scope,
-                },
-                auth=(settings.client_id, settings.client_secret),
+                settings.url,
+                data=data,
+                auth=client_auth,
                 timeout=10,
             )
             response.raise_for_status()

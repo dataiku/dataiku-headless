@@ -3,8 +3,12 @@
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import MultiAuth
+from fastmcp.server.auth.oidc_proxy import OIDCProxy
+from fastmcp.server.auth.providers.azure import AzureProvider
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
@@ -20,14 +24,47 @@ logger = logging.getLogger("dataiku-mcp")
 DSS_INDEPENDENT_TOOL_TAG = "dss-independent"
 
 
-def _http_auth() -> JWTVerifier:
+def _http_auth() -> JWTVerifier | MultiAuth:
     auth_settings = http.get_auth_settings()
-    return JWTVerifier(
+    direct_token_verifier = JWTVerifier(
         jwks_uri=auth_settings.jwks_uri,
         issuer=auth_settings.issuer,
         audience=auth_settings.audience,
         required_scopes=[auth_settings.scope],
     )
+    interactive_settings = auth_settings.interactive
+    if interactive_settings is None:
+        return direct_token_verifier
+
+    server_settings = http.get_server_settings()
+    if auth_settings.provider == "entra":
+        identifier_uri = (
+            None
+            if auth_settings.audience == interactive_settings.client_id
+            else auth_settings.audience
+        )
+        interactive_provider = AzureProvider(
+            client_id=interactive_settings.client_id,
+            client_secret=interactive_settings.client_secret,
+            tenant_id=interactive_settings.tenant_id,
+            required_scopes=[auth_settings.scope],
+            base_url=server_settings.public_url,
+            identifier_uri=identifier_uri,
+            token_issuer=auth_settings.issuer,
+            base_authority=urlparse(auth_settings.issuer).netloc,
+        )
+    else:
+        interactive_provider = OIDCProxy(
+            config_url=(
+                f"{auth_settings.issuer.rstrip('/')}/.well-known/openid-configuration"
+            ),
+            client_id=interactive_settings.client_id,
+            client_secret=interactive_settings.client_secret,
+            token_verifier=direct_token_verifier,
+            base_url=server_settings.public_url,
+            forward_resource=False,
+        )
+    return MultiAuth(server=interactive_provider, verifiers=direct_token_verifier)
 
 
 async def _tool_requires_dss_token(

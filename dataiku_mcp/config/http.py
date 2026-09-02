@@ -2,9 +2,17 @@
 
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .files import read_json_object, write_json_atomic
-from .models import HTTPAuthConfig, HTTPConfig, HTTPServerConfig, DSSInstance
+from .models import (
+    DSSInstance,
+    HTTPAuthConfig,
+    HTTPConfig,
+    HTTPInteractiveAuthConfig,
+    HTTPServerConfig,
+    HTTPTokenExchangeConfig,
+)
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http-config.json"
@@ -49,8 +57,15 @@ def _load_config() -> HTTPConfig:
 
     sections = {}
     expected_section_fields = {
-        "server": {"host", "port", "path"},
-        "oidc": {"issuer", "jwks_uri", "audience", "scope"},
+        "server": {"host", "port", "path", "public_url"},
+        "oidc": {
+            "provider",
+            "issuer",
+            "jwks_uri",
+            "audience",
+            "scope",
+            "interactive",
+        },
         "token_exchange": {"url", "client_id", "client_secret"},
     }
     for section_name, expected_fields in expected_section_fields.items():
@@ -72,8 +87,16 @@ def _load_config() -> HTTPConfig:
     token_exchange = sections["token_exchange"]
     for section_name, section, keys in (
         ("server", server, ("host", "path")),
-        ("oidc", oidc, ("issuer", "jwks_uri", "audience", "scope")),
-        ("token_exchange", token_exchange, ("url", "client_id", "client_secret")),
+        (
+            "oidc",
+            oidc,
+            ("provider", "issuer", "jwks_uri", "audience", "scope"),
+        ),
+        (
+            "token_exchange",
+            token_exchange,
+            ("url", "client_id", "client_secret"),
+        ),
     ):
         for key in keys:
             value = section.get(key)
@@ -83,6 +106,57 @@ def _load_config() -> HTTPConfig:
     port = server.get("port")
     if not isinstance(port, int):
         raise ValueError("HTTP settings requires integer 'server.port'.")
+
+    provider = oidc["provider"]
+    if provider not in {"entra", "oidc"}:
+        raise ValueError("HTTP settings 'oidc.provider' must be 'entra' or 'oidc'.")
+
+    public_url = server.get("public_url", "")
+    if "public_url" in server:
+        parsed_public_url = (
+            urlparse(public_url) if isinstance(public_url, str) else None
+        )
+        if (
+            parsed_public_url is None
+            or parsed_public_url.scheme not in {"http", "https"}
+            or not parsed_public_url.netloc
+        ):
+            raise ValueError("HTTP settings requires an absolute 'server.public_url'.")
+
+    raw_interactive = oidc.get("interactive")
+    interactive = None
+    if raw_interactive is not None:
+        if not isinstance(raw_interactive, dict):
+            raise ValueError("HTTP settings 'oidc.interactive' must be an object.")
+        unknown = set(raw_interactive) - {"client_id", "client_secret", "tenant_id"}
+        if unknown:
+            raise ValueError(
+                "HTTP settings section 'oidc.interactive' contains unknown fields: "
+                f"{sorted(unknown)}."
+            )
+        for key in ("client_id", "client_secret"):
+            value = raw_interactive.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"HTTP settings requires 'oidc.interactive.{key}'.")
+        tenant_id = raw_interactive.get("tenant_id", "")
+        if provider == "entra":
+            if not isinstance(tenant_id, str) or not tenant_id:
+                raise ValueError(
+                    "HTTP settings requires 'oidc.interactive.tenant_id' for Entra."
+                )
+        elif "tenant_id" in raw_interactive:
+            raise ValueError(
+                "HTTP settings 'oidc.interactive.tenant_id' is only valid for Entra."
+            )
+        if not public_url:
+            raise ValueError(
+                "HTTP settings requires 'server.public_url' for interactive OAuth."
+            )
+        interactive = HTTPInteractiveAuthConfig(
+            client_id=raw_interactive["client_id"],
+            client_secret=raw_interactive["client_secret"],
+            tenant_id=tenant_id,
+        )
 
     raw_instances = document.get("dss_instances")
     selections = document.get("user_selections", {})
@@ -153,13 +227,18 @@ def _load_config() -> HTTPConfig:
             host=server["host"],
             port=port,
             path=server["path"],
+            public_url=public_url.rstrip("/"),
         ),
         auth=HTTPAuthConfig(
+            provider=provider,
             issuer=oidc["issuer"],
             jwks_uri=oidc["jwks_uri"],
             audience=oidc["audience"],
             scope=oidc["scope"],
-            token_exchange_url=token_exchange["url"],
+            interactive=interactive,
+        ),
+        token_exchange=HTTPTokenExchangeConfig(
+            url=token_exchange["url"],
             client_id=token_exchange["client_id"],
             client_secret=token_exchange["client_secret"],
         ),
@@ -188,17 +267,38 @@ def _save_config(config: HTTPConfig) -> None:
                 "host": config.server.host,
                 "port": config.server.port,
                 "path": config.server.path,
+                **(
+                    {"public_url": config.server.public_url}
+                    if config.server.public_url
+                    else {}
+                ),
             },
             "oidc": {
+                "provider": config.auth.provider,
                 "issuer": config.auth.issuer,
                 "jwks_uri": config.auth.jwks_uri,
                 "audience": config.auth.audience,
                 "scope": config.auth.scope,
+                **(
+                    {
+                        "interactive": {
+                            "client_id": config.auth.interactive.client_id,
+                            "client_secret": config.auth.interactive.client_secret,
+                            **(
+                                {"tenant_id": config.auth.interactive.tenant_id}
+                                if config.auth.interactive.tenant_id
+                                else {}
+                            ),
+                        }
+                    }
+                    if config.auth.interactive is not None
+                    else {}
+                ),
             },
             "token_exchange": {
-                "url": config.auth.token_exchange_url,
-                "client_id": config.auth.client_id,
-                "client_secret": config.auth.client_secret,
+                "url": config.token_exchange.url,
+                "client_id": config.token_exchange.client_id,
+                "client_secret": config.token_exchange.client_secret,
             },
             "dss_instances": instances,
             "user_selections": config.user_selections,
@@ -207,8 +307,13 @@ def _save_config(config: HTTPConfig) -> None:
 
 
 def get_auth_settings() -> HTTPAuthConfig:
-    """Return validated OIDC and RFC 8693 settings."""
+    """Return validated HTTP authentication settings."""
     return _load_config().auth
+
+
+def get_token_exchange_settings() -> HTTPTokenExchangeConfig:
+    """Return validated delegated-token exchange settings."""
+    return _load_config().token_exchange
 
 
 def get_server_settings() -> HTTPServerConfig:

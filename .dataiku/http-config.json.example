@@ -2,18 +2,24 @@
   "server": {
     "host": "127.0.0.1",
     "port": 8000,
-    "path": "/mcp"
+    "path": "/mcp",
+    "public_url": "https://mcp.example"
   },
   "oidc": {
-    "issuer": "https://idp.example",
-    "jwks_uri": "https://idp.example/jwks",
+    "provider": "oidc",
+    "issuer": "https://example.okta.com/oauth2/mcp",
+    "jwks_uri": "https://example.okta.com/oauth2/mcp/v1/keys",
     "audience": "dataiku-mcp",
-    "scope": "mcp.access"
+    "scope": "mcp.access",
+    "interactive": {
+      "client_id": "dataiku-mcp",
+      "client_secret": "replace-with-secret"
+    }
   },
   "token_exchange": {
-    "url": "https://idp.example/token",
-    "client_id": "dataiku-mcp",
-    "client_secret": "replace-with-secret"
+    "url": "https://example.okta.com/oauth2/dss/v1/token",
+    "client_id": "dataiku-mcp-exchange",
+    "client_secret": "replace-with-exchange-secret"
   },
   "dss_instances": {
     "prod": {
