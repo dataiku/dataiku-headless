@@ -24,6 +24,7 @@ from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.serialization import columnar, compact_json
+from .utils.validation import require_allowed_value, require_non_empty_string
 
 CODE_RECIPE_TYPES = {
     "python",
@@ -39,6 +40,7 @@ CODE_RECIPE_TYPES = {
     "ksql",
     "streaming_spark_scala",
 }
+_CONTAINER_MODES = {"INHERIT", "NONE", "EXPLICIT_CONTAINER"}
 
 
 def _safe_copy_io_roles(raw_roles: dict | None) -> dict[str, list[dict[str, Any]]]:
@@ -61,6 +63,37 @@ def _get_outputs_by_role(settings) -> dict[str, list[dict[str, Any]]]:
 
 def _get_recipe_type(settings) -> str:
     return settings.get_recipe_raw_definition().get("type", "unknown")
+
+
+def _get_container_selection(settings) -> dict:
+    params = settings.get_recipe_params() or {}
+    selection = params.get("containerSelection")
+    if isinstance(selection, dict):
+        return selection
+
+    engine_params = params.get("engineParams") or {}
+    selection = engine_params.get("containerSelection")
+    if isinstance(selection, dict):
+        return selection
+
+    if _get_recipe_type(settings) not in CODE_RECIPE_TYPES:
+        payload = settings.get_json_payload() or {}
+        engine_params = payload.get("engineParams") or {}
+        selection = engine_params.get("containerSelection")
+        if isinstance(selection, dict):
+            return selection
+
+    raise ValueError("This recipe does not expose a container execution override")
+
+
+def _set_container_selection(
+    selection: dict, container_mode: str, container_config: str | None
+) -> None:
+    selection["containerMode"] = container_mode
+    if container_mode == "EXPLICIT_CONTAINER":
+        selection["containerConf"] = container_config
+    else:
+        selection.pop("containerConf", None)
 
 
 def _settings_view(settings, include_engine_params: bool = False) -> dict:
@@ -143,5 +176,52 @@ async def get_recipe_settings(
         return _settings_view(
             recipe.get_settings(), include_engine_params=include_engine_params
         )
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool()
+async def set_recipe_container_exec_config(
+    project_key: str,
+    recipe_name: str,
+    container_mode: str,
+    ctx: Context,
+    container_config: str | None = None,
+) -> str:
+    """Set one existing recipe's container execution override.
+
+    INHERIT uses the project default, NONE runs without a container, and
+    EXPLICIT_CONTAINER requires container_config.
+    """
+    project_key = require_non_empty_string(project_key, "project_key")
+    recipe_name = require_non_empty_string(recipe_name, "recipe_name")
+    container_mode = require_allowed_value(
+        container_mode, "container_mode", _CONTAINER_MODES
+    )
+    if container_mode == "EXPLICIT_CONTAINER":
+        container_config = require_non_empty_string(
+            container_config, "container_config"
+        )
+    elif container_config is not None:
+        raise ValueError(
+            "'container_config' is only valid with container_mode='EXPLICIT_CONTAINER'"
+        )
+    await ctx.info(
+        f"Setting container execution for recipe '{recipe_name}' in {project_key}..."
+    )
+
+    def _run():
+        recipe = get_dss_client().get_project(project_key).get_recipe(recipe_name)
+        settings = recipe.get_settings()
+        selection = _get_container_selection(settings)
+        _set_container_selection(selection, container_mode, container_config)
+        settings.save()
+        saved_settings = recipe.get_settings()
+        return {
+            "project_key": project_key,
+            "recipe_name": recipe_name,
+            "recipe_type": _get_recipe_type(saved_settings),
+            "container_selection": _get_container_selection(saved_settings),
+        }
 
     return compact_json(await run_blocking(_run))
