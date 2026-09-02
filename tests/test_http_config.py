@@ -419,19 +419,37 @@ def test_token_exchange_uses_provider_protocol(monkeypatch, provider, expected_d
     ("failure", "message"),
     [
         ("request", "DSS token exchange failed"),
+        ("network", "DSS token exchange failed"),
         ("json", "DSS token exchange returned an invalid response"),
+        ("non_object", "DSS token exchange returned an invalid response"),
         ("missing", "DSS token exchange returned no access token"),
     ],
 )
-def test_token_exchange_reports_sanitized_failures(monkeypatch, failure, message):
+def test_token_exchange_reports_sanitized_failures(
+    monkeypatch, caplog, failure, message
+):
     class Response:
+        status_code = 400 if failure == "request" else 200
+        headers = {"content-type": "text/html"}
+
         def raise_for_status(self):
             if failure == "request":
-                raise auth.requests.RequestException("sensitive response")
+                raise auth.requests.HTTPError("sensitive response", response=self)
 
         def json(self):
             if failure == "json":
                 raise ValueError("sensitive response")
+            if failure == "request":
+                return {
+                    "error": "invalid_grant",
+                    "error_description": (
+                        "AADSTS65001 mcp-subject-token exchange-client-secret"
+                    ),
+                    "correlation_id": "correlation-id",
+                    "trace_id": "trace-id",
+                }
+            if failure == "non_object":
+                return []
             return {}
 
     monkeypatch.setattr(
@@ -451,7 +469,7 @@ def test_token_exchange_reports_sanitized_failures(monkeypatch, failure, message
         lambda: HTTPTokenExchangeConfig(
             url="https://idp.example/token",
             client_id="client",
-            client_secret="secret",
+            client_secret="exchange-client-secret",
         ),
     )
     monkeypatch.setattr(
@@ -467,9 +485,32 @@ def test_token_exchange_reports_sanitized_failures(monkeypatch, failure, message
             jwt_scope="dss.api",
         ),
     )
-    monkeypatch.setattr(auth.requests, "post", lambda *args, **kwargs: Response())
+
+    def post(*args, **kwargs):
+        if failure == "network":
+            raise auth.requests.RequestException("sensitive response")
+        return Response()
+
+    monkeypatch.setattr(auth.requests, "post", post)
+    caplog.set_level("WARNING", logger="dataiku-mcp")
 
     with pytest.raises(PermissionError, match=message) as exc_info:
-        asyncio.run(auth.exchange_http_token("mcp-token"))
+        asyncio.run(auth.exchange_http_token("mcp-subject-token"))
 
     assert "sensitive response" not in str(exc_info.value)
+    assert "mcp-subject-token" not in caplog.text
+    assert "exchange-client-secret" not in caplog.text
+    assert "sensitive response" not in caplog.text
+
+    if failure == "request":
+        assert "status=400 exception=HTTPError error=invalid_grant" in caplog.text
+        assert "description=AADSTS65001 <redacted> <redacted>" in caplog.text
+        assert "correlation_id=correlation-id trace_id=trace-id" in caplog.text
+    elif failure == "network":
+        assert "status=None exception=RequestException error=None" in caplog.text
+    elif failure == "json":
+        assert "returned invalid JSON" in caplog.text
+    elif failure == "non_object":
+        assert "returned a non-object response" in caplog.text
+    else:
+        assert "contained no access token" in caplog.text

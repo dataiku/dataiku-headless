@@ -1,11 +1,16 @@
 """Authentication and Dataiku client creation."""
 
+import logging
+from urllib.parse import urlparse
+
 import dataikuapi
 import requests
 from dataikuapi.utils import DataikuException
 
 from .config import http, request
 from .executors import run_blocking
+
+logger = logging.getLogger("dataiku-mcp")
 
 
 def _require_instance_property(
@@ -92,14 +97,72 @@ async def exchange_http_token(subject_token: str) -> str:
                 timeout=10,
             )
             response.raise_for_status()
-            delegated_token = response.json().get("access_token")
         except requests.RequestException as err:
+            response = err.response
+            details = {}
+            if response is not None:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                if isinstance(payload, dict):
+                    details = payload
+
+            description = str(details.get("error_description", ""))
+            for secret in (subject_token, settings.client_secret):
+                if secret:
+                    description = description.replace(secret, "<redacted>")
+            description = " ".join(description.split())[:500]
+            logger.warning(
+                "DSS token exchange failed: provider=%s instance=%s endpoint=%s "
+                "status=%s exception=%s error=%s description=%s "
+                "correlation_id=%s trace_id=%s",
+                auth_settings.provider,
+                instance.name,
+                urlparse(settings.url).netloc,
+                response.status_code if response is not None else None,
+                type(err).__name__,
+                details.get("error"),
+                description or None,
+                details.get("correlation_id"),
+                details.get("trace_id"),
+            )
             raise PermissionError("DSS token exchange failed.") from err
+
+        try:
+            payload = response.json()
         except ValueError as err:
+            logger.warning(
+                "DSS token exchange returned invalid JSON: provider=%s "
+                "instance=%s status=%s content_type=%s",
+                auth_settings.provider,
+                instance.name,
+                response.status_code,
+                response.headers.get("content-type"),
+            )
             raise PermissionError(
                 "DSS token exchange returned an invalid response."
             ) from err
+        if not isinstance(payload, dict):
+            logger.warning(
+                "DSS token exchange returned a non-object response: "
+                "provider=%s instance=%s status=%s",
+                auth_settings.provider,
+                instance.name,
+                response.status_code,
+            )
+            raise PermissionError("DSS token exchange returned an invalid response.")
+
+        delegated_token = payload.get("access_token")
         if not isinstance(delegated_token, str) or not delegated_token:
+            logger.warning(
+                "DSS token exchange response contained no access token: "
+                "provider=%s instance=%s status=%s error=%s",
+                auth_settings.provider,
+                instance.name,
+                response.status_code,
+                payload.get("error"),
+            )
             raise PermissionError("DSS token exchange returned no access token.")
         return delegated_token
 
