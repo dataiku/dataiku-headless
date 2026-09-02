@@ -27,7 +27,8 @@ topic-family administration, and tags.
 1. Call `get_mira_api_capabilities` for the relevant domain. Never guess a path
    or probe speculative endpoints.
 2. Discover infrastructure and agent IDs through `list_infras` and
-   `list_mira_agents` rather than inventing identifiers.
+   `search_mira_agents` (use an empty JSON body for an unfiltered search) rather
+   than inventing identifiers.
 3. Read the current status, settings, metrics, assessment, or taxonomy before
    proposing a change. Preserve the returned revision for optimistic writes.
 4. Use `call_mira_api` with the exact `operation_id`, required `path_params`,

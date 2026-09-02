@@ -61,17 +61,16 @@ EXPECTED_OPERATION_IDS = {
     "get_risk_exposure",
     "get_risk_taxonomy",
     "get_topic_family",
-    "list_agent_operations",
     "list_business_kpis",
-    "list_infra_operations",
     "list_infras",
-    "list_mira_agents",
     "list_mira_tags",
     "list_topic_families",
     "remove_agent_risk_sign_off",
     "rename_mira_tag",
     "run_infra_uptime_tests",
     "scan_infra",
+    "search_mira_agents",
+    "search_mira_operations",
     "setup_agent_log_fetch_dataset",
     "sign_off_agent_risk_assessment",
     "update_agent_risk_assessment",
@@ -82,6 +81,7 @@ EXPECTED_OPERATION_IDS = {
     "update_mira_tag",
     "update_risk_taxonomy",
     "update_topic_family",
+    "validate_agent_log_fetch",
 }
 
 
@@ -149,7 +149,7 @@ def test_operation_catalog_pins_every_public_controller_operation():
         "tags",
     }
     assert all(
-        operation.path.startswith("/mira/")
+        operation.path.startswith("/dam/")
         for operation in mira.MIRA_OPERATIONS.values()
     )
     assert (
@@ -200,7 +200,7 @@ def test_json_calls_use_catalog_method_encoded_path_query_and_body(monkeypatch):
     assert client.json_calls == [
         {
             "method": "PUT",
-            "path": "/mira/infras/bedrock%2Fdemo/agents/agent%20one/settings",
+            "path": "/dam/infras/bedrock%2Fdemo/agents/agent%20one/settings",
             "params": None,
             "body": {"expectedRevision": "rev", "displayName": "Updated"},
             "raw_body": None,
@@ -227,6 +227,24 @@ def test_read_call_passes_only_documented_query_parameters(monkeypatch):
         "family": "performance",
         "timezone": "UTC",
     }
+
+
+@pytest.mark.parametrize(
+    ("operation_id", "path"),
+    [
+        ("search_mira_agents", "/dam/agents/search"),
+        ("search_mira_operations", "/dam/operations/search"),
+    ],
+)
+def test_global_search_calls_use_required_json_filters(monkeypatch, operation_id, path):
+    client = FakeMiraClient()
+    monkeypatch.setattr(mira, "get_dss_client", lambda: client)
+
+    _call(mira.call_mira_api(operation_id, FakeContext(), body={}))
+
+    assert client.json_calls[0]["method"] == "POST"
+    assert client.json_calls[0]["path"] == path
+    assert client.json_calls[0]["body"] == {}
 
 
 def test_multipart_risk_assessment_pairs_evidence_ids_and_files(monkeypatch, tmp_path):
