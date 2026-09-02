@@ -7,9 +7,11 @@ its object-specific references as directed.
 
 ## The rule
 
-**Flow and analytic assets are always built by Cobuild.** Headless has no tool to create
-or modify a recipe, ML analysis, dashboard, insight, agent, agent tool, scenario, webapp,
-wiki article, data quality rule, knowledge bank, semantic model, or evaluation store.
+**Flow and analytic logic is always built by Cobuild.** Headless has no tool to create
+or change recipe logic, code, inputs, or outputs, or to create or modify an ML analysis,
+dashboard, insight, agent, agent tool, scenario, webapp, wiki article, data quality rule,
+knowledge bank, semantic model, or evaluation store. The recipe container execution
+override below changes only where an existing recipe runs.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
@@ -22,13 +24,13 @@ instance the local client targets.
 
 ## Surface
 
-**128 tools** · 93 read · 21 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**129 tools** · 93 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 21 | Bootstrap, project configuration, cross-project, admin |
+| Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -38,16 +40,16 @@ Buckets count each tool once by what it does. The tables below group by area ins
 tool can appear in the **Local instance targeting** section while counting in a different
 bucket here.
 
-## Built by Cobuild — Headless only inspects
+## Built by Cobuild — limited direct exceptions
 
-Two partial exceptions: Headless can create an Uploaded Files dataset from supplied
-rows (or, in stdio only, a local file) and create an empty managed folder (see
-*Handled directly by Headless*). It cannot build anything else here.
+Three partial exceptions: Headless can create a dataset from a local file, create an
+empty managed folder, and select container execution for an existing recipe (see
+*Handled directly by Headless*). It cannot build or change analytic logic here.
 
-| Area | Inspect | Run |
+| Area | Inspect | Direct action |
 |---|---|---|
 | Datasets | `list_datasets`, `get_dataset_info`, `get_dataset_sample`, `get_dataset_profile`, `get_dataset_metrics`, `get_dataset_column_descriptions`, `export_dataset` | `build_datasets` |
-| Recipes | `list_recipes`, `get_recipe_settings` | `run_recipe` |
+| Recipes | `list_recipes`, `get_recipe_settings` | `set_recipe_container_exec_config`, `run_recipe` |
 | Flow & zones | `get_flow_graph`, `list_flow_zones`, `get_flow_object_metadata` | — |
 | ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | — |
 | Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
@@ -80,6 +82,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
+| Recipe execution placement | `list_recipes`, `get_recipe_settings` | `set_recipe_container_exec_config` | Project configuration, **in-project** — does not change recipe logic |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
@@ -94,7 +97,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
 The **in-project** writes above configure or supply a project; they do not build its
-analytic logic. None of them build a recipe, a model, or an agent.
+analytic logic. None of them build recipe logic, a model, or an agent.
 
 ## Local instance targeting
 
