@@ -600,9 +600,25 @@ async def abort_job(
             }
         )
 
-    timed_out, after = await _wait_for_job_result(
-        project_key, job, timeout_seconds, job_id
-    )
+    try:
+        timed_out, after = await _wait_for_job_result(
+            project_key, job, timeout_seconds, job_id
+        )
+    except Exception as exc:
+        return compact_json(
+            {
+                "status": "abort_poll_failed",
+                "abort_requested": True,
+                "job": before,
+                "error_type": type(exc).__name__,
+                "error": _safe_error_text(exc),
+                "hint": (
+                    "The abort request was accepted, but status polling failed. "
+                    "Use get_job_status or wait_for_job before starting a "
+                    "replacement run."
+                ),
+            }
+        )
     if timed_out:
         return compact_json(
             {
@@ -617,6 +633,18 @@ async def abort_job(
                 ),
             }
         )
+    if after["state"] == "ABORTED":
+        return compact_json(
+            {"status": "job_aborted", "abort_requested": True, "job": after}
+        )
     return compact_json(
-        {"status": "job_aborted", "abort_requested": True, "job": after}
+        {
+            "status": "job_finished_after_abort_request",
+            "abort_requested": True,
+            "job": after,
+            "hint": (
+                "The abort request was accepted, but the job reached a terminal "
+                "state other than ABORTED. Inspect its outputs before rerunning."
+            ),
+        }
     )

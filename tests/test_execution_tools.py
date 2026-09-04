@@ -569,6 +569,47 @@ def test_run_recipe_start_failure_is_raised_as_outcome_unknown():
 
 
 # --------------------------------------------------------------------------- #
+# abort_job
+# --------------------------------------------------------------------------- #
+
+
+def test_abort_job_reports_terminal_state_after_abort_request():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        _raw_status("J1", end_time=200, runtime_state="DONE"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "job_finished_after_abort_request"
+    assert res["job"]["state"] == "DONE"
+
+
+def test_abort_job_poll_failure_returns_confirmed_abort_outcome():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        ConnectionError("poll dropped"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "abort_poll_failed"
+    assert res["abort_requested"] is True
+    assert res["job"]["job_id"] == "J1"
+    assert res["error_type"] == "ConnectionError"
+
+
+# --------------------------------------------------------------------------- #
 # run_scenario
 # --------------------------------------------------------------------------- #
 
