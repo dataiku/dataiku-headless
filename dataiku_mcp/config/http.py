@@ -69,16 +69,7 @@ def get_instances_and_selections() -> tuple[
     """Return the global HTTP catalog and persisted user selections."""
     config = _load_config()
     instances = {
-        name: DSSInstance(
-            name=name,
-            url=instance.url,
-            api_key="",
-            no_check_certificate=instance.no_check_certificate,
-            source="http",
-            description=instance.description,
-            delegated_audience=instance.delegated_audience or "",
-            delegated_scope=instance.delegated_scope,
-        )
+        name: instance.to_instance(name)
         for name, instance in config.dss_instances.items()
     }
     return instances, config.user_selections

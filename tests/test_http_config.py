@@ -15,6 +15,7 @@ from dataiku_mcp.config.models import (
     GenericOIDCDelegationConfig,
     GenericOIDCInteractiveLoginConfig,
     HTTPConfig,
+    HTTPDSSInstanceConfig,
     HTTPServerConfig,
 )
 
@@ -126,6 +127,36 @@ def test_http_config_rejects_unknown_fields(http_config, location):
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         http.get_server_settings()
+
+
+def test_http_config_rejects_api_keys(http_config):
+    document = json.loads(http_config.read_text())
+    document["dss_instances"]["prod"]["api_key"] = "not-allowed"
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        http.get_server_settings()
+
+
+def test_http_instance_config_converts_to_runtime_instance():
+    config = HTTPDSSInstanceConfig(
+        url="https://prod.example.com",
+        delegated_audience="dss-prod",
+        delegated_scope="dss.api",
+        no_check_certificate=True,
+        description="Production",
+    )
+
+    assert config.to_instance("prod") == DSSInstance(
+        name="prod",
+        url="https://prod.example.com",
+        api_key="",
+        no_check_certificate=True,
+        source="http",
+        description="Production",
+        delegated_audience="dss-prod",
+        delegated_scope="dss.api",
+    )
 
 
 def test_http_config_rejects_obsolete_user_defaults_key(http_config):

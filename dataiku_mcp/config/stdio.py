@@ -4,8 +4,10 @@ import os
 import threading
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .files import read_json_object, write_json_atomic
-from .models import DSSInstance, StdioConfig
+from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
@@ -38,61 +40,38 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
         return None
 
     no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
-    return DSSInstance(
-        name=os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
-        url=os.environ.get("DKU_DSS_URL", ""),
-        api_key=os.environ.get("DKU_API_KEY", ""),
-        no_check_certificate=(
-            bool(no_check_certificate) and no_check_certificate.lower() != "false"
-        ),
+    try:
+        instance = StdioDSSInstanceConfig(
+            url=os.environ["DKU_DSS_URL"],
+            api_key=os.environ.get("DKU_API_KEY", ""),
+            no_check_certificate=(
+                bool(no_check_certificate) and no_check_certificate.lower() != "false"
+            ),
+        )
+    except ValidationError as err:
+        raise ValueError(f"Invalid stdio environment settings: {err}") from None
+    return instance.to_instance(
+        os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
         source="environment",
     )
 
 
 def _load_config() -> StdioConfig:
+    path = get_settings_path()
     try:
-        document = read_json_object(
-            get_settings_path(), description="Stdio instance configuration"
-        )
+        document = read_json_object(path, description="Stdio instance configuration")
     except FileNotFoundError:
         return StdioConfig()
-
-    default_instance_name = document.get("default_instance") or None
-    raw_instances = document.get("dss_instances", {})
-    if default_instance_name and default_instance_name not in raw_instances:
-        raise ValueError(
-            f"Default instance '{default_instance_name}' not found in "
-            f".dataiku/stdio-config.json. Available: {raw_instances.keys()}."
-        )
-
-    instances = {
-        name: DSSInstance(
-            name=name,
-            url=details["url"],
-            api_key=details.get("api_key", ""),
-            description=details.get("description", ""),
-            no_check_certificate=details.get("no_check_certificate", False),
-            source="config",
-        )
-        for name, details in raw_instances.items()
-    }
-    return StdioConfig(default_instance_name, instances)
+    try:
+        return StdioConfig.model_validate(document)
+    except ValidationError as err:
+        raise ValueError(f"Invalid stdio settings at '{path}': {err}") from None
 
 
 def _save_config(config: StdioConfig) -> None:
-    instances = {}
-    for name, instance in config.dss_instances.items():
-        serialized = {
-            "url": instance.url,
-            "api_key": instance.api_key,
-            "no_check_certificate": instance.no_check_certificate,
-        }
-        if instance.description:
-            serialized["description"] = instance.description
-        instances[name] = serialized
     write_json_atomic(
         get_settings_path(),
-        {"default_instance": config.default_instance or "", "dss_instances": instances},
+        config.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
     )
 
 
@@ -104,7 +83,9 @@ def initialize_current_instance() -> None:
     if environment_instance:
         _current_instance = environment_instance
     elif config.default_instance:
-        _current_instance = config.dss_instances[config.default_instance]
+        _current_instance = config.dss_instances[config.default_instance].to_instance(
+            config.default_instance
+        )
     else:
         _current_instance = None
 
@@ -112,7 +93,10 @@ def initialize_current_instance() -> None:
 def get_instances() -> dict[str, DSSInstance]:
     """Return local instances, with an environment instance taking precedence."""
     environment_instance = _load_instance_from_env_vars()
-    instances = _load_config().dss_instances
+    instances = {
+        name: instance.to_instance(name)
+        for name, instance in _load_config().dss_instances.items()
+    }
     if environment_instance:
         return instances | {environment_instance.name: environment_instance}
     return instances
@@ -138,13 +122,11 @@ def add_instance_to_config(
 ) -> dict:
     """Add an instance to the resolved local profile file."""
     with _settings_lock:
-        instance = DSSInstance(
-            name=name,
+        instance = StdioDSSInstanceConfig(
             url=url,
             api_key=api_key,
             description=description,
             no_check_certificate=no_check_certificate,
-            source="config",
         )
         config = _load_config()
         config.dss_instances[name] = instance
@@ -182,7 +164,9 @@ def delete_instance_from_config(name: str) -> dict:
         _save_config(config)
         if was_current:
             _current_instance = (
-                instances[config.default_instance] if config.default_instance else None
+                instances[config.default_instance].to_instance(config.default_instance)
+                if config.default_instance
+                else None
             )
         return {
             "deleted": name,

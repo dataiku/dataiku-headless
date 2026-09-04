@@ -13,39 +13,9 @@ from .executors import run_blocking
 logger = logging.getLogger("dataiku-mcp")
 
 
-def _require_instance_property(
-    value: str,
-    property_name: str,
-    instance_name: str,
-) -> None:
-    """Require an active-instance property and provide actionable guidance."""
-    if value:
-        return
-
-    alternative_instances = [
-        name for name in request.get_instances() if name != instance_name
-    ]
-    message = (
-        f"Dataiku instance '{instance_name}' has no {property_name}. Run "
-        "configure_instance to update it."
-    )
-    if alternative_instances:
-        message += (
-            " Alternatively, run list_instances, then ask the user whether to "
-            "switch to another configured instance."
-        )
-    raise ValueError(message)
-
-
 def get_dss_client() -> dataikuapi.DSSClient:
     """Get a Dataiku API client for the currently active instance."""
     current_instance = request.get_pinned_instance()
-
-    _require_instance_property(
-        current_instance.url,
-        "URL",
-        current_instance.name,
-    )
 
     if request.is_http_request():
         client = dataikuapi.DSSClient(
@@ -53,11 +23,6 @@ def get_dss_client() -> dataikuapi.DSSClient:
             jwt_bearer_token=request.get_http_dss_token(),
         )
     else:
-        _require_instance_property(
-            current_instance.api_key,
-            "API key",
-            current_instance.name,
-        )
         client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
     client._session.verify = not current_instance.no_check_certificate
     return client

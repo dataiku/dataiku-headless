@@ -1,6 +1,6 @@
 """Shared configuration models."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -24,18 +24,10 @@ class DSSInstance:
     delegated_scope: str = ""
 
 
-@dataclass
-class StdioConfig:
-    """Persisted Dataiku instance profiles and their startup default."""
-
-    default_instance: str | None = None
-    dss_instances: dict[str, DSSInstance] = field(default_factory=dict)
-
-
 NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 
 
-class _StrictHTTPModel(BaseModel):
+class _StrictConfigModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         strict=True,
@@ -43,25 +35,71 @@ class _StrictHTTPModel(BaseModel):
     )
 
 
-class HTTPServerConfig(_StrictHTTPModel):
+class _DSSInstanceConfig(_StrictConfigModel):
+    url: NonEmptyString
+    no_check_certificate: bool = False
+    description: str = ""
+
+
+class StdioDSSInstanceConfig(_DSSInstanceConfig):
+    api_key: NonEmptyString = Field(repr=False)
+
+    def to_instance(
+        self,
+        name: str,
+        *,
+        source: str = "config",
+    ) -> DSSInstance:
+        return DSSInstance(
+            name=name,
+            url=self.url,
+            api_key=self.api_key,
+            no_check_certificate=self.no_check_certificate,
+            source=source,
+            description=self.description,
+        )
+
+
+class StdioConfig(_StrictConfigModel):
+    default_instance: str | None = None
+    dss_instances: dict[NonEmptyString, StdioDSSInstanceConfig] = Field(
+        default_factory=dict
+    )
+
+    @model_validator(mode="after")
+    def validate_default_instance(self) -> "StdioConfig":
+        if self.default_instance == "":
+            self.default_instance = None
+        if (
+            self.default_instance is not None
+            and self.default_instance not in self.dss_instances
+        ):
+            raise ValueError(
+                f"Default instance '{self.default_instance}' was not found in "
+                f"dss_instances. Available: {list(self.dss_instances)}"
+            )
+        return self
+
+
+class HTTPServerConfig(_StrictConfigModel):
     host: NonEmptyString
     port: int
     path: NonEmptyString
     public_url: str = ""
 
 
-class GenericOIDCInteractiveLoginConfig(_StrictHTTPModel):
+class GenericOIDCInteractiveLoginConfig(_StrictConfigModel):
     client_id: NonEmptyString
     client_secret: NonEmptyString = Field(repr=False)
 
 
-class GenericOIDCDelegationConfig(_StrictHTTPModel):
+class GenericOIDCDelegationConfig(_StrictConfigModel):
     token_endpoint: NonEmptyString
     client_id: NonEmptyString
     client_secret: NonEmptyString = Field(repr=False)
 
 
-class GenericOIDCAuthConfig(_StrictHTTPModel):
+class GenericOIDCAuthConfig(_StrictConfigModel):
     provider: Literal["generic_oidc"]
     issuer: NonEmptyString
     jwks_uri: NonEmptyString
@@ -71,7 +109,7 @@ class GenericOIDCAuthConfig(_StrictHTTPModel):
     delegation: GenericOIDCDelegationConfig
 
 
-class EntraAuthConfig(_StrictHTTPModel):
+class EntraAuthConfig(_StrictConfigModel):
     provider: Literal["entra"]
     tenant_id: NonEmptyString
     client_id: NonEmptyString
@@ -102,15 +140,24 @@ HTTPAuthConfig = Annotated[
 ]
 
 
-class HTTPDSSInstanceConfig(_StrictHTTPModel):
-    url: NonEmptyString
+class HTTPDSSInstanceConfig(_DSSInstanceConfig):
     delegated_scope: NonEmptyString
     delegated_audience: NonEmptyString | None = None
-    no_check_certificate: bool = False
-    description: str = ""
+
+    def to_instance(self, name: str) -> DSSInstance:
+        return DSSInstance(
+            name=name,
+            url=self.url,
+            api_key="",
+            no_check_certificate=self.no_check_certificate,
+            source="http",
+            description=self.description,
+            delegated_audience=self.delegated_audience or "",
+            delegated_scope=self.delegated_scope,
+        )
 
 
-class HTTPConfig(_StrictHTTPModel):
+class HTTPConfig(_StrictConfigModel):
     server: HTTPServerConfig
     auth: HTTPAuthConfig
     dss_instances: dict[NonEmptyString, HTTPDSSInstanceConfig] = Field(min_length=1)
