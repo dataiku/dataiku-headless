@@ -35,6 +35,16 @@ jobs:
           # Cache hook environments across CI runs.
           PRE_COMMIT_HOME: ${{ github.workspace }}/.cache/pre-commit
 
+  license-headers:
+    name: Apache 2.0 license headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Fails if any tracked Python, shell, JavaScript, CSS, or HTML file is missing
+      # the Apache 2.0 preamble. Stdlib only, so no dependency install needed.
+      - name: Check license headers
+        run: python3 scripts/check_license_headers.py
+
   test:
     name: Pytest (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
