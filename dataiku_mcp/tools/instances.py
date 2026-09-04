@@ -69,21 +69,25 @@ async def delete_instance(name: str, ctx: Context) -> str:
 
 @mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance configuration and its Dataiku version.
+    """Get the active instance configuration, connection status, and Dataiku version.
 
-    `dataiku_version` is the version running on the instance. It is omitted
-    when the configured credentials cannot read it.
+    `connection_status` is `connected` only when the saved URL and API key can
+    reach Dataiku. `dataiku_version` is omitted when the connection cannot be
+    verified.
     """
 
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
+    current_instance["connection_status"] = "failed"
     try:
-        current_instance["dataiku_version"] = await run_blocking(
-            lambda: get_dataiku_version(get_dss_client())
-        )
-    except ValueError:
-        current_instance["dataiku_version"] = ""
+        client = get_dss_client()
+        version = await run_blocking(lambda: get_dataiku_version(client))
+    except Exception:
+        pass
+    else:
+        current_instance["connection_status"] = "connected"
+        current_instance["dataiku_version"] = version
 
     result = omit_empty(current_instance)
     return compact_json(result)
