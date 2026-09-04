@@ -16,7 +16,7 @@
 
 """Verify that every tracked source file carries the Apache 2.0 preamble.
 
-Checks Python, JavaScript, CSS, and HTML files. Comment syntax differs per
+Checks Python, shell, JavaScript, CSS, and HTML files. Comment syntax differs per
 language, so the header is matched against a comment-stripped, whitespace-
 collapsed view of the top of each file. Exits non-zero if any file is missing
 the preamble.
@@ -33,7 +33,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-CHECKED_SUFFIXES = frozenset({".py", ".js", ".css", ".html"})
+CHECKED_SUFFIXES = frozenset({".py", ".sh", ".js", ".css", ".html"})
 
 # Number of leading lines searched for the preamble. Generous enough to allow a
 # shebang, a PEP 723 metadata block, or an HTML doctype ahead of the header.
