@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2026 Dataiku
+# Copyright 2026 Dataiku SAS
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ LICENSE_BODY = (
 # Any single year or year range is accepted so the header does not need a
 # yearly sweep across the tree.
 PREAMBLE_PATTERN = re.compile(
-    r"Copyright \d{4}(?:[-,] ?\d{4})* Dataiku " + re.escape(LICENSE_BODY)
+    r"Copyright \d{4}(?:[-,] ?\d{4})* Dataiku SAS " + re.escape(LICENSE_BODY)
 )
 
 # Leading comment markers, stripped line by line before matching.
