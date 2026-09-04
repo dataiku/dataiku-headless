@@ -1,6 +1,6 @@
 """Shared configuration models."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -16,7 +16,7 @@ from pydantic import (
 class DSSInstance:
     name: str
     url: str
-    api_key: str
+    api_key: str = field(repr=False)
     no_check_certificate: bool
     source: str
     description: str = ""
@@ -201,11 +201,3 @@ class HTTPConfig(_StrictConfigModel):
                     f"{sorted(missing_instances)}"
                 )
         return self
-
-
-class NoConfiguredInstancesError(ValueError):
-    """Raised when no Dataiku instances are available."""
-
-
-class NoActiveInstanceError(ValueError):
-    """Raised when instances exist but none is selected."""

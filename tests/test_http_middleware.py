@@ -103,6 +103,8 @@ def test_dss_independent_tools_are_tagged():
         "delete_instance",
         "get_current_instance",
         "configure_instance",
+        "get_cobuild_turn_status",
+        "list_cobuild_conversations",
     }
 
 

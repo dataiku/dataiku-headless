@@ -11,6 +11,8 @@ venv/
 .env
 .dataiku/config.json
 .dataiku/http.json
+.dataiku/stdio-config.json
+.dataiku/http-config.json
 
 # Local snapshot corpora (keep folder scaffold only)
 learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/*

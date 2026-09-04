@@ -189,6 +189,18 @@ def test_stdio_instance_config_converts_to_runtime_instance():
     )
 
 
+def test_runtime_instance_repr_hides_api_key():
+    instance = DSSInstance(
+        name="dev",
+        url="https://dev.example.com",
+        api_key="do-not-print-this-api-key",
+        no_check_certificate=False,
+        source="config",
+    )
+
+    assert "do-not-print-this-api-key" not in repr(instance)
+
+
 @pytest.mark.parametrize("api_key", [None, ""])
 def test_stdio_environment_requires_api_key(monkeypatch, api_key):
     monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
