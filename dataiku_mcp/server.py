@@ -3,7 +3,6 @@
 import logging
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import MultiAuth
@@ -29,31 +28,28 @@ def _http_auth() -> JWTVerifier | MultiAuth:
     direct_token_verifier = JWTVerifier(
         jwks_uri=auth_settings.jwks_uri,
         issuer=auth_settings.issuer,
-        audience=auth_settings.audience,
-        required_scopes=[auth_settings.scope],
+        audience=auth_settings.required_audience,
+        required_scopes=[auth_settings.required_scope],
     )
-    interactive_settings = auth_settings.interactive
-    if interactive_settings is None:
+    if auth_settings.provider == "entra":
+        interactive_enabled = auth_settings.interactive_login
+    else:
+        interactive_enabled = auth_settings.interactive_login is not None
+    if not interactive_enabled:
         return direct_token_verifier
 
     server_settings = http.get_server_settings()
     if auth_settings.provider == "entra":
-        identifier_uri = (
-            None
-            if auth_settings.audience == interactive_settings.client_id
-            else auth_settings.audience
-        )
         interactive_provider = AzureProvider(
-            client_id=interactive_settings.client_id,
-            client_secret=interactive_settings.client_secret,
-            tenant_id=interactive_settings.tenant_id,
-            required_scopes=[auth_settings.scope],
+            client_id=auth_settings.client_id,
+            client_secret=auth_settings.client_secret,
+            tenant_id=auth_settings.tenant_id,
+            required_scopes=[auth_settings.required_scope],
             base_url=server_settings.public_url,
-            identifier_uri=identifier_uri,
             token_issuer=auth_settings.issuer,
-            base_authority=urlparse(auth_settings.issuer).netloc,
         )
     else:
+        interactive_settings = auth_settings.interactive_login
         interactive_provider = OIDCProxy(
             config_url=(
                 f"{auth_settings.issuer.rstrip('/')}/.well-known/openid-configuration"

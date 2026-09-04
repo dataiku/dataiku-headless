@@ -496,6 +496,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dataiku-api-client" },
     { name = "fastmcp" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "requests" },
 ]
@@ -512,6 +513,7 @@ dev = [
 requires-dist = [
     { name = "dataiku-api-client", specifier = ">=14.7.2" },
     { name = "fastmcp", specifier = ">=3.4.5,<4" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "python-dotenv" },
     { name = "requests", specifier = ">=2.32" },
 ]

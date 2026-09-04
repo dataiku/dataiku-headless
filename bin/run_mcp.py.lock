@@ -14,6 +14,7 @@ resolution-markers = [
 requirements = [
     { name = "dataiku-api-client", specifier = "==14.7.2" },
     { name = "fastmcp", specifier = "==3.4.5" },
+    { name = "pydantic", specifier = "==2.13.4" },
     { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "requests", specifier = "==2.34.2" },
 ]

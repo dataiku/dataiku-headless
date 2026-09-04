@@ -151,44 +151,64 @@ respectively, then sends only the resulting short-lived JWT to DSS.
 
 It reads `~/.dataiku/http-config.json` by default, alongside the local stdio profiles
 in `~/.dataiku/stdio-config.json`. Use `--settings-path PATH` only when the deployment
-needs a different filesystem location. The HTTP file contains the OIDC verifier,
-token-exchange client, transport settings, approved DSS catalog, and user
-instance preferences. Copy [`.dataiku/http-config.json.example`](.dataiku/http-config.json.example)
-as a starting point:
+needs a different filesystem location. The HTTP file contains authentication,
+transport settings, the approved DSS catalog, and user instance preferences.
+Copy the matching [generic OIDC](.dataiku/http-config.json.generic_oidc-example)
+or [Entra](.dataiku/http-config.json.entra-example) example as a starting point:
 
 ```bash
 mkdir -p ~/.dataiku
-cp .dataiku/http-config.json.example ~/.dataiku/http-config.json
+cp .dataiku/http-config.json.generic_oidc-example ~/.dataiku/http-config.json
 chmod 600 ~/.dataiku/http-config.json
 ```
 
 Keep this file access-restricted (`0600` on POSIX): it contains confidential
-OAuth client secrets. When `oidc.interactive` is configured,
+OAuth client secrets. When `auth.interactive_login` is enabled,
 `server.public_url` is required as the externally visible base URL and the IdP
 app's redirect URI is `<public_url>/auth/callback`. Omit both to run in direct
-bearer-token mode. `user_selections` records each user's currently selected
-instance; it is not a user allow-list. Any authenticated user may select an
-endpoint from the catalog, and DSS applies its normal JWT user permissions.
+bearer-token mode. For generic OIDC, `auth.interactive_login` requires its own
+non-empty `client_id` and `client_secret`. `user_selections`
+records each user's currently selected instance; it is not a user allow-list.
+Any authenticated user may select an endpoint from the catalog, and DSS applies
+its normal JWT user permissions.
 
-For Okta, set `oidc.provider` to `oidc`. The example uses an OIDC web application
+For Okta, set `auth.provider` to `generic_oidc`. The example uses an OIDC web application
 for interactive login and an API Services application with the Token Exchange
 grant for downstream DSS access. Configure access policies for the requested
 scopes, and configure trust between the MCP and DSS authorization servers if
-they differ. Because the exchange URL is global, every DSS instance in one
-settings file must use that target authorization server and exchange client.
+they differ. The exchange client is configured under `auth.delegation`. Because
+the exchange URL is global, every DSS instance in one settings file must use
+that target authorization server and exchange client.
 
-For Entra ID, set `oidc.provider` to `entra` and add `tenant_id` inside the
-optional `oidc.interactive` object. The interactive and token-exchange clients
-may be separate Entra app registrations: the latter must represent the MCP
-middle-tier API targeted by the incoming token. Register
-`<public_url>/auth/callback`, expose the configured MCP scope, add each DSS API's
-delegated permission, and grant administrator consent. Each instance's `scope`
-must be the fully qualified downstream scope, such as
-`api://<dss-application-id>/dss.access`. Entra OBO supports delegated user
+For Entra ID, use one confidential MCP app registration for interactive login,
+incoming-token verification, and OBO:
+
+```json
+"auth": {
+  "provider": "entra",
+  "tenant_id": "replace-with-tenant-id",
+  "client_id": "replace-with-mcp-app-client-id",
+  "client_secret": "replace-with-secret",
+  "required_scope": "mcp.access",
+  "interactive_login": true
+}
+```
+
+The server supports public-cloud, single-tenant Entra v2 tokens. It derives the
+issuer, JWKS URI, token endpoint, and incoming audience from `tenant_id` and
+`client_id`. Omit `interactive_login` for direct-bearer mode. On the MCP
+registration, set `api.requestedAccessTokenVersion` to `2`, register
+`<public_url>/auth/callback` when interactive login is enabled, expose the
+configured MCP scope, add each DSS API's delegated permission, and grant
+administrator consent. Each
+instance's `delegated_scope` must be the fully qualified downstream scope, such as
+`api://<dss-application-id>/dss.access`. The DSS API remains a separate resource
+registration. Omit `delegated_audience` from Entra DSS instances because OBO uses
+the downstream scope to identify the resource. Entra OBO supports delegated user
 tokens, not application-only tokens.
 
 A custom application can skip interactive login and supply a bearer token
-directly. The token must be a signed user access JWT with the configured issuer,
+directly. The token must be a signed user access JWT with the expected issuer,
 audience, and `scope` or `scp` value.
 
 ## Agent Skills

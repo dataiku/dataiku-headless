@@ -68,30 +68,34 @@ async def exchange_http_token(subject_token: str) -> str:
 
     def _exchange() -> str:
         auth_settings = http.get_auth_settings()
-        settings = http.get_token_exchange_settings()
         instance = request.get_pinned_instance()
         if auth_settings.provider == "entra":
+            token_endpoint = auth_settings.token_endpoint
+            client_secret = auth_settings.client_secret
             data = {
-                "client_id": settings.client_id,
-                "client_secret": settings.client_secret,
+                "client_id": auth_settings.client_id,
+                "client_secret": client_secret,
                 "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 "assertion": subject_token,
-                "scope": instance.jwt_scope,
+                "scope": instance.delegated_scope,
                 "requested_token_use": "on_behalf_of",
             }
             client_auth = None
         else:
+            delegation = auth_settings.delegation
+            token_endpoint = delegation.token_endpoint
+            client_secret = delegation.client_secret
             data = {
                 "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
                 "subject_token": subject_token,
                 "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                "audience": instance.jwt_audience,
-                "scope": instance.jwt_scope,
+                "audience": instance.delegated_audience,
+                "scope": instance.delegated_scope,
             }
-            client_auth = (settings.client_id, settings.client_secret)
+            client_auth = (delegation.client_id, client_secret)
         try:
             response = requests.post(
-                settings.url,
+                token_endpoint,
                 data=data,
                 auth=client_auth,
                 timeout=10,
@@ -109,7 +113,7 @@ async def exchange_http_token(subject_token: str) -> str:
                     details = payload
 
             description = str(details.get("error_description", ""))
-            for secret in (subject_token, settings.client_secret):
+            for secret in (subject_token, client_secret):
                 if secret:
                     description = description.replace(secret, "<redacted>")
             description = " ".join(description.split())[:500]
@@ -119,7 +123,7 @@ async def exchange_http_token(subject_token: str) -> str:
                 "correlation_id=%s trace_id=%s",
                 auth_settings.provider,
                 instance.name,
-                urlparse(settings.url).netloc,
+                urlparse(token_endpoint).netloc,
                 response.status_code if response is not None else None,
                 type(err).__name__,
                 details.get("error"),

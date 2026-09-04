@@ -5,27 +5,27 @@
     "path": "/mcp",
     "public_url": "https://mcp.example"
   },
-  "oidc": {
-    "provider": "oidc",
+  "auth": {
+    "provider": "generic_oidc",
     "issuer": "https://example.okta.com/oauth2/mcp",
     "jwks_uri": "https://example.okta.com/oauth2/mcp/v1/keys",
-    "audience": "dataiku-mcp",
-    "scope": "mcp.access",
-    "interactive": {
+    "required_audience": "dataiku-mcp",
+    "required_scope": "mcp.access",
+    "interactive_login": {
       "client_id": "dataiku-mcp",
       "client_secret": "replace-with-secret"
+    },
+    "delegation": {
+      "token_endpoint": "https://example.okta.com/oauth2/dss/v1/token",
+      "client_id": "dataiku-mcp-exchange",
+      "client_secret": "replace-with-exchange-secret"
     }
-  },
-  "token_exchange": {
-    "url": "https://example.okta.com/oauth2/dss/v1/token",
-    "client_id": "dataiku-mcp-exchange",
-    "client_secret": "replace-with-exchange-secret"
   },
   "dss_instances": {
     "prod": {
       "url": "https://dss.example",
-      "audience": "dss-prod",
-      "scope": "dss.api"
+      "delegated_audience": "dss-prod",
+      "delegated_scope": "dss.api"
     }
   },
   "user_selections": {}
