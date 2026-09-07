@@ -737,6 +737,26 @@ def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
     assert "pip resolution failed" in res["code_env_rebuild"]["error"]
 
 
+def test_update_plugin_timeout_says_the_requested_rebuild_never_started():
+    """Absent code_env_rebuild would read as a rebuild that quietly succeeded."""
+    _, client = _installed(
+        settings={"codeEnvName": "plugin_geocoder"},
+        futures={"update": FakeFuture("F2", [_alive(), _alive()])},
+    )
+
+    with _patch_client(client), _exhausted_clock() as mock_time:
+        mock_time.monotonic.side_effect = incrementing_monotonic()
+        res = _load(
+            tools.update_plugin(
+                "store", FakeContext(), plugin_id="geocoder", rebuild_code_env=True
+            )
+        )
+
+    assert res["status"] == "still_running"
+    assert res["code_env_rebuild"]["status"] == "not_started"
+    assert "rebuild_code_env=true" in res["code_env_rebuild"]["hint"]
+
+
 def test_update_plugin_from_local_path_targets_the_manifest_id(tmp_path):
     directory = _plugin_directory(tmp_path)
     plugin, client = _installed(
@@ -868,6 +888,80 @@ def test_create_plugin_code_env_binds_an_orphan_instead_of_duplicating_it():
         ),
     }
     assert "create_code_env" not in plugin.futures
+
+
+def test_create_plugin_code_env_reports_dataikus_reason_when_nothing_was_created():
+    """A creation that fails outright names no environment, only a reason."""
+    _, client = _installed(
+        futures={
+            "create_code_env": FakeFuture(
+                "F4",
+                [
+                    {
+                        "alive": False,
+                        "aborted": False,
+                        "hasResult": True,
+                        "result": {
+                            "messages": {
+                                "error": True,
+                                "fatal": True,
+                                "messages": [
+                                    {
+                                        "severity": "ERROR",
+                                        "message": "No python interpreter PYTHON399",
+                                    }
+                                ],
+                            }
+                        },
+                    }
+                ],
+            )
+        }
+    )
+
+    with _patch_client(client), pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(tools.create_plugin_code_env("geocoder", FakeContext()))
+
+    assert "PYTHON399" in str(excinfo.value)
+
+
+def test_create_plugin_code_env_binds_the_newest_of_several_orphans():
+    """Repeated failures leave debris; the newest attempt is the one worth binding."""
+    plugin, client = _installed(
+        code_envs=[
+            {"envName": name, "deploymentMode": "PLUGIN_MANAGED"}
+            for name in (
+                "plugin_geocoder_managed_10",
+                "plugin_geocoder_managed",
+                "plugin_geocoder_managed_2",
+            )
+        ]
+    )
+
+    with _patch_client(client):
+        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
+
+    assert res["created"] is False
+    assert res["code_env_name"] == "plugin_geocoder_managed_10"
+    assert res["other_unbound_environments"] == [
+        "plugin_geocoder_managed",
+        "plugin_geocoder_managed_2",
+    ]
+    assert plugin.settings.raw["codeEnvName"] == "plugin_geocoder_managed_10"
+
+
+def test_create_plugin_code_env_omits_leftovers_when_there_is_one_orphan():
+    _, client = _installed(
+        code_envs=[
+            {"envName": "plugin_geocoder_managed", "deploymentMode": "PLUGIN_MANAGED"}
+        ]
+    )
+
+    with _patch_client(client):
+        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
+
+    assert res["code_env_name"] == "plugin_geocoder_managed"
+    assert "other_unbound_environments" not in res
 
 
 def test_create_plugin_code_env_ignores_another_plugins_environment():

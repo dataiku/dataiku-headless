@@ -68,7 +68,12 @@ plus the `operation` it describes.
 - `create_plugin_code_env` is safe to re-run after a timeout: it binds an existing
   unbound environment for that plugin instead of creating another one. Because the
   earlier build result is unavailable, the recovered environment reports
-  `build.status: "unknown"`; rebuild it before treating the plugin as ready.
+  `build.status: "unknown"`; rebuild it before treating the plugin as ready. Where
+  repeated failures already left several unbound environments, the newest is bound and
+  the rest come back as `other_unbound_environments` for you to remove.
+- An update that does not complete inline never starts its rebuild, and reports
+  `code_env_rebuild.status: "not_started"`. Follow the update, then ask for the rebuild
+  again.
 - Dataiku reports a failed action as an ordinary successful response, so the absence of
   an error is not evidence of success. Install, update, and delete check the reported
   outcome before returning `completed`; for code environments, read the nested build

@@ -516,7 +516,8 @@ async def install_plugin(
         local_path: Plugin directory containing plugin.json at its root, or a plugin
             ZIP. Required for ``local_path``.
         wait_for_completion: Wait up to timeout_seconds for a verified outcome. When
-            false, a store install returns a future_id to follow instead.
+            false, return a future_id to follow instead, unless Dataiku already
+            answered with a completed result.
         timeout_seconds: Inline wait budget, checked between polls.
     """
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
@@ -580,8 +581,9 @@ async def update_plugin(
             ZIP. Required for ``local_path``.
         rebuild_code_env: Rebuild the plugin's bound code environment after the update.
         wait_for_completion: Wait up to timeout_seconds for a verified outcome. When
-            false, a store update returns a future_id to follow instead. Ignored while
-            ``rebuild_code_env`` is true, which needs the update to have completed.
+            false, return a future_id to follow instead, unless Dataiku already
+            answered with a completed result. Ignored while ``rebuild_code_env`` is
+            true, which needs the update to have completed.
         timeout_seconds: Inline wait budget for each stage, checked between polls.
     """
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
@@ -608,7 +610,19 @@ async def update_plugin(
         "update", resolved_id, future, wait_for_completion, timeout_seconds
     )
     if result is None:
-        return compact_json({**payload, "source": source})
+        in_flight = {**payload, "source": source}
+        if rebuild_code_env:
+            # A rebuild needs the update to have landed, so it never started. Saying
+            # so keeps the caller from reading its absence as a completed rebuild.
+            in_flight["code_env_rebuild"] = {
+                "status": "not_started",
+                "reason": "The update has not completed, and a rebuild needs it to.",
+                "hint": (
+                    "Follow the update to completion, then call "
+                    "update_plugin(rebuild_code_env=true) again."
+                ),
+            }
+        return compact_json(in_flight)
     plugin = await run_blocking(
         lambda: _serialize_summary(_installed_plugin(client, resolved_id))
     )
@@ -651,6 +665,20 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
     return _build_outcome(result, bound)
 
 
+def _creation_order(env_name: str) -> tuple[int, str]:
+    """Order a plugin's managed code environments by creation, newest last.
+
+    Dataiku names the first one ``plugin_<id>_managed`` and appends ``_1``, ``_2`` to
+    every later one, so the numeric suffix is creation order. A name that does not fit
+    that shape has no knowable position and sorts oldest, so a numbered environment is
+    always preferred over it.
+    """
+    suffix = env_name.rpartition("_managed")[2].lstrip("_")
+    if not suffix:
+        return 0, ""
+    return (int(suffix), "") if suffix.isdigit() else (-1, env_name)
+
+
 @mcp.tool()
 async def create_plugin_code_env(
     plugin_id: str,
@@ -666,6 +694,11 @@ async def create_plugin_code_env(
     duplicate, which makes it safe to re-run after an inline wait times out. A recovered
     environment has an unknown build outcome because the earlier result is unavailable.
     Read ``build`` on the response before treating the plugin as ready.
+
+    When several unbound environments exist for the plugin — the debris of repeated
+    failed attempts — the most recently created one is bound and the rest are reported
+    as ``other_unbound_environments``. Nothing uses those; remove them with
+    ``delete_code_env``.
 
     Args:
         plugin_id: Installed plugin id.
@@ -690,19 +723,22 @@ async def create_plugin_code_env(
         plugin = client.get_plugin(plugin_id)
         bound = plugin.get_settings().get_raw().get("codeEnvName")
         if bound:
-            return plugin, bound, None
+            return plugin, bound, []
         # Dataiku names a plugin's managed environment after the plugin, so an
         # unbound one is a previous creation that never got bound.
         prefix = f"plugin_{plugin_id}_managed"
         orphans = sorted(
-            str(raw.get("envName", ""))
-            for raw in client.list_code_envs()
-            if raw.get("deploymentMode") == "PLUGIN_MANAGED"
-            and str(raw.get("envName", "")).startswith(prefix)
+            (
+                str(raw.get("envName", ""))
+                for raw in client.list_code_envs()
+                if raw.get("deploymentMode") == "PLUGIN_MANAGED"
+                and str(raw.get("envName", "")).startswith(prefix)
+            ),
+            key=_creation_order,
         )
-        return plugin, None, orphans[0] if orphans else None
+        return plugin, None, orphans
 
-    plugin, bound, orphan = await run_blocking(_bound_or_orphan_env)
+    plugin, bound, orphans = await run_blocking(_bound_or_orphan_env)
     if bound:
         return compact_json(
             {
@@ -719,8 +755,9 @@ async def create_plugin_code_env(
             }
         )
 
-    created = orphan is None
+    created = not orphans
     build = None
+    other_unbound: list[str] = []
     if created:
         future = await run_blocking(
             lambda: plugin.create_code_env(python_interpreter=python_interpreter)
@@ -740,12 +777,20 @@ async def create_plugin_code_env(
                 }
             )
         result = _terminal_result("create_plugin_code_env", plugin_id, state)
-        env_name = _require_non_empty_string(
-            str(result.get("envName", "")), "created code environment name"
-        )
+        env_name = str(result.get("envName", "")).strip()
+        if not env_name:
+            # A creation that failed outright names no environment, so there is
+            # nothing to bind and no build to report on. Dataiku's nested report is
+            # the only thing the result carries, and it is what the caller needs.
+            detail = _report_failure(result) or "Dataiku reported no error detail."
+            raise RuntimeError(
+                f"Dataiku created no code environment for plugin '{plugin_id}': "
+                f"{detail}"
+            )
         build = _build_outcome(result, env_name)
     else:
-        env_name = orphan
+        env_name = orphans[-1]
+        other_unbound = orphans[:-1]
         build = {
             "status": "unknown",
             "code_env_name": env_name,
@@ -771,6 +816,7 @@ async def create_plugin_code_env(
                 "code_env_name": env_name,
                 "created": created,
                 "build": build,
+                "other_unbound_environments": other_unbound,
                 "hint": (
                     "Inspect it with list_code_envs(search=code_env_name, "
                     "search_mode='exact', include_details=true)."
