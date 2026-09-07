@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Process-local Cobuild conversations with safe retained turns."""
 
 from __future__ import annotations
@@ -30,6 +44,7 @@ class _Turn:
 @dataclass
 class _Conversation:
     instance_name: str
+    instance_url: str
     project_key: str
     sdk_conversation: object
     created_at: str
@@ -37,6 +52,18 @@ class _Conversation:
 
 
 _conversations: dict[str, _Conversation] = {}
+
+
+def _project_url(entry: _Conversation) -> str:
+    # Cobuild opens from the project Flow, not a conversation-specific URL.
+    return f"{entry.instance_url.rstrip('/')}/projects/{entry.project_key}/flow"
+
+
+def _open_in_dss(entry: _Conversation) -> str:
+    return (
+        f"Open the project at {_project_url(entry)} and its Cobuild panel to view this "
+        "conversation in the Dataiku UI."
+    )
 
 
 def _require_conversation_entry(
@@ -80,6 +107,7 @@ def _terminal_turn_result(
         "turn_id": turn.id,
         "instance_name": entry.instance_name,
         "project_key": entry.project_key,
+        "project_url": _project_url(entry),
         "message": str(getattr(response, "message", "")),
         "response_type": response_type,
         "is_error": is_error,
@@ -113,6 +141,8 @@ def _pending_turn_result(
         "status": status,
         "conversation_id": conversation_id,
         "turn_id": turn.id,
+        "project_key": entry.project_key,
+        "project_url": _project_url(entry),
         "next_action": (
             "The turn is queued for a Cobuild worker; poll after a short interval."
             if status == "queued"
@@ -143,13 +173,14 @@ def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
         status = "in progress" if turn.started.is_set() else "queued"
         raise ValueError(
             f"Cannot start a new Cobuild turn: current turn '{turn.id}' is {status}. "
-            f"First call get_cobuild_turn_status with {poll_payload}."
+            f"First call get_cobuild_turn_status with {poll_payload}. "
+            f"{_open_in_dss(entry)}"
         )
     if not turn.observed:
         raise ValueError(
             f"Cannot start a new Cobuild turn: current turn '{turn.id}' has a "
             "terminal result that has not been observed. First call "
-            f"get_cobuild_turn_status with {poll_payload}."
+            f"get_cobuild_turn_status with {poll_payload}. {_open_in_dss(entry)}"
         )
 
 
@@ -187,6 +218,8 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
                 "status": "failed",
                 "conversation_id": conversation_id,
                 "turn_id": turn.id,
+                "project_key": entry.project_key,
+                "project_url": _project_url(entry),
                 "error_type": type(exc).__name__,
                 "message": str(exc) or type(exc).__name__,
                 "is_confirmation_request": False,
@@ -218,13 +251,14 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
-    instance_name = get_current_instance_for_tool().name
+    instance = get_current_instance_for_tool()
     client = get_dss_client()
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
-        instance_name,
+        instance.name,
+        instance.url,
         project_key,
         conversation,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -235,6 +269,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             "conversation_id": conversation.conversation_id,
             "instance_name": entry.instance_name,
             "project_key": entry.project_key,
+            "project_url": _project_url(entry),
             "created_at": entry.created_at,
         }
     )
@@ -393,6 +428,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                 "conversation_id": conversation_id,
                 "instance_name": entry.instance_name,
                 "project_key": entry.project_key,
+                "project_url": _project_url(entry),
                 "created_at": entry.created_at,
                 "current_turn_id": turn.id if turn else None,
                 "current_turn_status": (
@@ -414,6 +450,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "conversation_id",
                     "instance_name",
                     "project_key",
+                    "project_url",
                     "created_at",
                     "current_turn_id",
                     "current_turn_status",

@@ -1,3 +1,9 @@
+## v0.5.0 (2026-09-02)
+
+### Feat
+
+- **instances**: report the active Dataiku instance version (#135)
+
 ## v0.4.0 (2026-08-26)
 
 ### Feat

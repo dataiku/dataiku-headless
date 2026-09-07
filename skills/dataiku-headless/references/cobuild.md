@@ -17,6 +17,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
+- Every Cobuild payload carries `project_url`, the Dataiku UI URL of the conversation's project on the instance that conversation is pinned to. Dataiku exposes no per-conversation URL: Cobuild opens as a panel inside the project, so `project_url` points at the project and the user opens Cobuild from there.
 
 ## When To Use This Skill
 
@@ -73,6 +74,7 @@ Do not use this guide when:
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
 - `send_cobuild_message` defaults `allow_edit_project` to `false`.
 - A terminal turn may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`, or `is_question_request=true`, with answer constraints in `question`.
+- Treat `project_url` as an optional link for viewing the conversation in Dataiku. Surface it when the user asks to inspect or continue the conversation in the UI.
 - Before answering a confirmation or question, always retrieve and inspect its exact current `turn_id` with `get_cobuild_turn_status`.
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
@@ -84,5 +86,5 @@ Do not use this guide when:
 - When a turn is `queued` or `in_progress`, retain its exact IDs and continue polling until its terminal result. Independent work is allowed, but do not send another message in the same conversation, take an action that depends on the turn succeeding, or report the relevant Cobuild work complete while it remains pending.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `./jobs.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
-- If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.
+- If Cobuild cannot perform the request and no direct tool covers it, stop and report the gap. Include the Dataiku version when known, but attribute the gap to that version only when the requirement is established; otherwise, do not guess or fall back to raw APIs.
 - There is no close or delete conversation tool.
