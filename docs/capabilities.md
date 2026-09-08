@@ -66,9 +66,9 @@ empty managed folder (see *Handled directly by Headless*). It cannot build anyth
 | Tool | Use |
 |---|---|
 | `start_cobuild_conversation` | Open a retained conversation on a project |
-| `send_cobuild_message` | Ask Cobuild to build or change something |
-| `answer_cobuild_question` | Answer a question Cobuild asked |
-| `answer_cobuild_confirmation` | Approve or reject a proposed action |
+| `send_cobuild_message` | Ask Cobuild to inspect a project, or to build or change something — edits are opt-in via allow_edit_project |
+| `answer_cobuild_question` | Answer a question Cobuild asked, resuming its pending work |
+| `answer_cobuild_confirmation` | Approve or cancel a deletion Cobuild proposed; `APPROVE` deletes the listed objects |
 | `get_cobuild_turn_status` | Poll a turn; recovers after a timeout or cancellation |
 | `list_cobuild_conversations` | Find existing conversations for this instance and project |
 
