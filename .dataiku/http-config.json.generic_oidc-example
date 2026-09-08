@@ -7,8 +7,8 @@
   },
   "auth": {
     "provider": "generic_oidc",
-    "issuer": "https://example.okta.com/oauth2/mcp",
-    "jwks_uri": "https://example.okta.com/oauth2/mcp/v1/keys",
+    "issuer": "https://idp.example/oauth2/mcp",
+    "jwks_uri": "https://idp.example/oauth2/mcp/keys",
     "required_audience": "dataiku-mcp",
     "required_scope": "mcp.access",
     "interactive_login": {
@@ -16,7 +16,7 @@
       "client_secret": "replace-with-secret"
     },
     "delegation": {
-      "token_endpoint": "https://example.okta.com/oauth2/dss/v1/token",
+      "token_endpoint": "https://idp.example/oauth2/token",
       "client_id": "dataiku-mcp-exchange",
       "client_secret": "replace-with-exchange-secret"
     }

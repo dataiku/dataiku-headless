@@ -415,8 +415,8 @@ def test_generic_oidc_http_config_example_is_valid(monkeypatch):
     )
     assert http.get_auth_settings() == GenericOIDCAuthConfig(
         provider="generic_oidc",
-        issuer="https://example.okta.com/oauth2/mcp",
-        jwks_uri="https://example.okta.com/oauth2/mcp/v1/keys",
+        issuer="https://idp.example/oauth2/mcp",
+        jwks_uri="https://idp.example/oauth2/mcp/keys",
         required_audience="dataiku-mcp",
         required_scope="mcp.access",
         interactive_login=GenericOIDCInteractiveLoginConfig(
@@ -424,7 +424,7 @@ def test_generic_oidc_http_config_example_is_valid(monkeypatch):
             client_secret="replace-with-secret",
         ),
         delegation=GenericOIDCDelegationConfig(
-            token_endpoint="https://example.okta.com/oauth2/dss/v1/token",
+            token_endpoint="https://idp.example/oauth2/token",
             client_id="dataiku-mcp-exchange",
             client_secret="replace-with-exchange-secret",
         ),
@@ -460,7 +460,7 @@ def test_entra_http_config_example_is_valid(monkeypatch):
     instances, selections = http.get_instances_and_selections()
     assert instances["prod"].delegated_audience == ""
     assert instances["prod"].delegated_scope == (
-        "api://replace-with-dss-app-id/dss.access"
+        "api://replace-with-dss-app-client-id/dss.access"
     )
     assert selections == {}
 

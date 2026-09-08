@@ -30,6 +30,7 @@ tmp
 docs/*
 !docs/assets/
 !docs/capabilities.md
+!docs/http-deployment.md
 
 # Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
 test-data/
