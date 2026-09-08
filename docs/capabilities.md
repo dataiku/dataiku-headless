@@ -22,7 +22,7 @@ instance the local client targets.
 
 ## Surface
 
-**123 tools** · 91 read · 19 direct Dataiku write · 6 Cobuild · 3 execute · 3 local
+**124 tools** · 91 read · 19 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
@@ -30,7 +30,7 @@ profile · 1 connection test
 | Read / inspect | 91 | Never mutates |
 | Direct Dataiku write | 19 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
-| Execute | 3 | `build_datasets`, `run_recipe`, `run_scenario` |
+| Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
 | Connection test | 1 | `test_connection` |
 
@@ -86,7 +86,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
-| Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario` | Execution — re-runs assets that already exist |
+| Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |

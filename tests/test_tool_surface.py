@@ -116,6 +116,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "jobs": frozenset(
         {
+            "abort_job",
             "build_datasets",
             "get_future_status",
             "get_job_log",

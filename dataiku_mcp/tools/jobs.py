@@ -549,3 +549,116 @@ async def wait_for_job(
     if status_summary["state"] in {"FAILED", "ABORTED"}:
         top_level_status = "job_completed_with_errors"
     return compact_json({"status": top_level_status, "job": status_summary})
+
+
+@mcp.tool()
+async def abort_job(
+    project_key: str,
+    job_id: str,
+    ctx: Context,
+    wait_for_abort: bool = True,
+    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+) -> str:
+    """Abort a running Dataiku job.
+
+    Use it when a build or run must stop: it is too slow, it was started by
+    mistake, or its recipe must be replaced before a rerun. Aborting does not
+    roll back what the job already wrote; a partially written output may remain.
+    A job already in a terminal state is reported as-is and is not re-aborted.
+
+    Args:
+        job_id: The job to abort, as returned by build_datasets, run_recipe, or list_jobs.
+        wait_for_abort: If true, wait up to timeout_seconds for the job to reach a terminal state after the abort request.
+        timeout_seconds: Max time for the inline wait when wait_for_abort=true. This is a soft timeout checked between status polls.
+    """
+    project_key = _require_non_empty_string(project_key, "project_key")
+    job_id = _require_non_empty_string(job_id, "job_id")
+    timeout_seconds = _validate_inline_timeout(timeout_seconds)
+    client = get_dss_client()
+    await ctx.info(
+        f"Aborting Dataiku job {job_id} in {project_key} "
+        f"(wait_for_abort={wait_for_abort})..."
+    )
+
+    def _run():
+        job = client.get_project(project_key).get_job(job_id)
+        before = _get_job_status_full(project_key, job_id, job.get_status())
+        if before["state"] in TERMINAL_JOB_STATES:
+            return job, before, False
+        job.abort()
+        return job, before, True
+
+    job, before, requested = await run_blocking(_run)
+    if not requested:
+        return compact_json(
+            {
+                "status": "job_already_finished",
+                "abort_requested": False,
+                "job": before,
+                "hint": (
+                    "The job was already in a terminal state; nothing was aborted. "
+                    "Inspect its outputs before deciding on a rerun."
+                ),
+            }
+        )
+    if not wait_for_abort:
+        return compact_json(
+            {
+                "status": "abort_requested",
+                "abort_requested": True,
+                "job": before,
+                "hint": (
+                    "The abort was accepted. Confirm the terminal state with "
+                    "get_job_status or wait_for_job before starting a replacement run."
+                ),
+            }
+        )
+
+    try:
+        timed_out, after = await _wait_for_job_result(
+            project_key, job, timeout_seconds, job_id
+        )
+    except Exception as exc:
+        return compact_json(
+            {
+                "status": "abort_poll_failed",
+                "abort_requested": True,
+                "job": before,
+                "error_type": type(exc).__name__,
+                "error": _safe_error_text(exc),
+                "hint": (
+                    "The abort request was accepted, but status polling failed. "
+                    "Use get_job_status or wait_for_job before starting a "
+                    "replacement run."
+                ),
+            }
+        )
+    if timed_out:
+        return compact_json(
+            {
+                "status": "abort_still_pending",
+                "abort_requested": True,
+                "job": after,
+                "hint": (
+                    "The abort was accepted but the job has not reached a terminal "
+                    "state yet. A running database statement may finish before "
+                    "Dataiku can stop the activity. Call wait_for_job or get_job_status; "
+                    "do not start a replacement run until the state is terminal."
+                ),
+            }
+        )
+    if after["state"] == "ABORTED":
+        return compact_json(
+            {"status": "job_aborted", "abort_requested": True, "job": after}
+        )
+    return compact_json(
+        {
+            "status": "job_finished_after_abort_request",
+            "abort_requested": True,
+            "job": after,
+            "hint": (
+                "The abort request was accepted, but the job reached a terminal "
+                "state other than ABORTED. Inspect its outputs before rerunning."
+            ),
+        }
+    )
