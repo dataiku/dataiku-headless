@@ -45,7 +45,7 @@ def test_run_stdio_server_uses_stdio(monkeypatch):
     monkeypatch.setattr(stdio, "set_settings_path", lambda path: paths.append(path))
     monkeypatch.setattr(
         stdio,
-        "initialize_current_instance",
+        "initialize_config",
         lambda: calls.append("initialize_stdio"),
     )
     monkeypatch.setattr(
@@ -66,8 +66,11 @@ def test_run_http_server_uses_streamable_http(monkeypatch):
     stdio_initializations = []
     monkeypatch.setattr(
         stdio,
-        "initialize_current_instance",
+        "initialize_config",
         lambda: stdio_initializations.append(True),
+    )
+    monkeypatch.setattr(
+        http, "initialize_config", lambda: calls.append("initialize_http")
     )
     monkeypatch.setattr(
         http,
@@ -82,12 +85,13 @@ def test_run_http_server_uses_streamable_http(monkeypatch):
     dataiku_mcp.run_http_server(Path("/tmp/http.json"))
 
     assert calls == [
+        "initialize_http",
         {
             "transport": "streamable-http",
             "host": "127.0.0.1",
             "port": 8000,
             "path": "/mcp",
-        }
+        },
     ]
     assert dataiku_mcp.mcp.auth is auth
     assert paths == [Path("/tmp/http.json")]

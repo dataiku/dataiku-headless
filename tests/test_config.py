@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -5,12 +6,15 @@ import pytest
 
 from dataiku_mcp.config import request, stdio
 from dataiku_mcp.config.models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
+from dataiku_mcp.tools import instances as instance_tools
 
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(stdio, "_settings_path", tmp_path / "stdio-config.json")
+    monkeypatch.setattr(stdio, "_config", None)
     monkeypatch.setattr(stdio, "_current_instance", None)
+    monkeypatch.setattr(stdio, "_environment_instance", None)
     for variable in (
         "DKU_DSS_URL",
         "DKU_API_KEY",
@@ -53,6 +57,22 @@ def test_stdio_config_prefers_existing_cwd_settings(tmp_path, monkeypatch):
     assert stdio.get_settings_path() == settings_path
 
 
+def test_stdio_getters_require_initialization():
+    with pytest.raises(RuntimeError, match="has not been initialized"):
+        stdio.get_instances()
+
+
+def test_setting_stdio_path_invalidates_cached_state():
+    add_instance("dev", set_default=True)
+    stdio.initialize_config()
+
+    stdio.set_settings_path(stdio.get_settings_path())
+
+    with pytest.raises(RuntimeError, match="has not been initialized"):
+        stdio.get_instances()
+    assert stdio.get_current_instance() is None
+
+
 def test_stdio_config_rejects_non_object():
     stdio.get_settings_path().write_text("[]", encoding="utf-8")
 
@@ -60,7 +80,7 @@ def test_stdio_config_rejects_non_object():
         ValueError,
         match="Stdio instance configuration must be a JSON object",
     ):
-        stdio.get_instances()
+        stdio.initialize_config()
 
 
 def test_stdio_config_returns_empty_model_when_file_is_missing():
@@ -208,18 +228,94 @@ def test_stdio_environment_requires_api_key(monkeypatch, api_key):
         monkeypatch.setenv("DKU_API_KEY", api_key)
 
     with pytest.raises(ValueError, match="Invalid stdio environment settings"):
-        stdio.get_instances()
+        stdio.initialize_config()
 
 
 def test_stdio_environment_uses_validated_instance(monkeypatch):
     monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
     monkeypatch.setenv("DKU_API_KEY", "api-key")
+    stdio.initialize_config()
 
     instance = stdio.get_instances()["dss-env"]
 
     assert instance.url == "https://dev.example.com"
     assert instance.api_key == "api-key"
     assert instance.source == "environment"
+
+
+def test_stdio_getters_use_the_startup_snapshot(monkeypatch):
+    add_instance("dev", set_default=True)
+    stdio.initialize_config()
+    monkeypatch.setenv("DKU_DSS_URL", "https://environment.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "environment-key")
+    stdio.get_settings_path().write_text(
+        json.dumps(
+            {
+                "default_instance": "changed",
+                "dss_instances": {
+                    "changed": {
+                        "url": "https://changed.example.com",
+                        "api_key": "changed-key",
+                    }
+                },
+            }
+        )
+    )
+
+    assert set(stdio.get_instances()) == {"dev"}
+    assert stdio.get_current_instance().name == "dev"
+
+    stdio.initialize_config()
+    assert set(stdio.get_instances()) == {"changed", "dss-env"}
+    assert stdio.get_current_instance().name == "dss-env"
+
+
+def test_stdio_mutation_failure_leaves_cached_state_unchanged(monkeypatch):
+    add_instance("dev", set_default=True)
+    stdio.initialize_config()
+
+    def fail_save(_config):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(stdio, "_save_config", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        stdio.add_instance_to_config(
+            "prod",
+            "https://prod.example.com",
+            "prod-key",
+        )
+
+    assert set(stdio.get_instances()) == {"dev"}
+    assert stdio.get_current_instance().name == "dev"
+
+
+def test_instance_tool_mutations_use_blocking_executor(monkeypatch):
+    calls = []
+
+    class Context:
+        async def info(self, _message):
+            pass
+
+    async def run_in_executor(func, *args):
+        calls.append((func, args))
+        return func(*args)
+
+    def select(name):
+        return {"name": name}
+
+    def delete(name):
+        return {"deleted": name}
+
+    monkeypatch.setattr(instance_tools, "run_blocking", run_in_executor)
+    monkeypatch.setattr(request, "set_current_instance", select)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+    monkeypatch.setattr(stdio, "delete_instance_from_config", delete)
+
+    asyncio.run(instance_tools.switch_instance("prod", Context()))
+    asyncio.run(instance_tools.delete_instance("dev", Context()))
+
+    assert calls == [(select, ("prod",)), (delete, ("dev",))]
 
 
 def test_stdio_config_save_excludes_runtime_fields():
@@ -288,7 +384,7 @@ def test_stdio_mutations_hold_settings_lock(monkeypatch):
 def test_deleting_active_default_switches_to_next_instance():
     add_instance("first", set_default=True)
     add_instance("second")
-    stdio.initialize_current_instance()
+    stdio.initialize_config()
 
     result = stdio.delete_instance_from_config("first")
 
@@ -298,7 +394,7 @@ def test_deleting_active_default_switches_to_next_instance():
 
 def test_deleting_only_active_instance_clears_current_instance():
     add_instance("only", set_default=True)
-    stdio.initialize_current_instance()
+    stdio.initialize_config()
 
     stdio.delete_instance_from_config("only")
 
@@ -313,7 +409,7 @@ def test_deleting_only_active_instance_clears_current_instance():
 def test_deleting_inactive_instance_preserves_current_instance():
     add_instance("active", set_default=True)
     add_instance("inactive")
-    stdio.initialize_current_instance()
+    stdio.initialize_config()
 
     stdio.delete_instance_from_config("inactive")
 

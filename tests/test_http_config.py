@@ -20,6 +20,12 @@ from dataiku_mcp.config.models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_http_state(monkeypatch):
+    monkeypatch.setattr(http, "_config", None)
+    monkeypatch.setattr(http, "_user_selections", None)
+
+
 @pytest.fixture
 def http_config(monkeypatch, tmp_path):
     path = tmp_path / "http-config.json"
@@ -90,6 +96,20 @@ def test_http_config_uses_canonical_default(monkeypatch):
     assert http.get_settings_path() == default_path
 
 
+def test_http_getters_require_initialization():
+    with pytest.raises(RuntimeError, match="has not been initialized"):
+        http.get_server_settings()
+
+
+def test_setting_http_path_invalidates_cached_state(http_config):
+    http.initialize_config()
+
+    http.set_settings_path(http_config)
+
+    with pytest.raises(RuntimeError, match="has not been initialized"):
+        http.get_server_settings()
+
+
 def test_http_config_requires_existing_settings_file(tmp_path, monkeypatch):
     path = tmp_path / "missing.json"
     monkeypatch.setattr(http, "_settings_path", path)
@@ -98,7 +118,7 @@ def test_http_config_requires_existing_settings_file(tmp_path, monkeypatch):
         ValueError,
         match="HTTP instance configuration was not found",
     ):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_non_object(tmp_path, monkeypatch):
@@ -110,7 +130,7 @@ def test_http_config_rejects_non_object(tmp_path, monkeypatch):
         ValueError,
         match="HTTP instance configuration must be a JSON object",
     ):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 @pytest.mark.parametrize(
@@ -126,7 +146,7 @@ def test_http_config_rejects_unknown_fields(http_config, location):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_api_keys(http_config):
@@ -135,7 +155,7 @@ def test_http_config_rejects_api_keys(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_instance_config_converts_to_runtime_instance():
@@ -165,7 +185,7 @@ def test_http_config_rejects_obsolete_user_defaults_key(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="user_defaults"):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_config_validates_the_complete_document(http_config):
@@ -174,7 +194,7 @@ def test_http_config_validates_the_complete_document(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="Field required"):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_previous_authentication_sections(http_config):
@@ -184,7 +204,7 @@ def test_http_config_rejects_previous_authentication_sections(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="auth"):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 @pytest.mark.parametrize(
@@ -196,6 +216,7 @@ def test_direct_bearer_config_preserves_public_url(http_config, public_url):
     document["server"]["public_url"] = public_url
     document["auth"].pop("interactive_login")
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     assert http.get_server_settings().public_url == public_url
 
@@ -205,6 +226,7 @@ def test_http_config_allows_direct_bearer_only(http_config):
     document["server"].pop("public_url")
     document["auth"].pop("interactive_login")
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     assert http.get_server_settings().public_url == ""
     assert http.get_auth_settings().interactive_login is None
@@ -216,7 +238,7 @@ def test_http_config_requires_public_url_for_interactive_login(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="server.public_url is required"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_entra_tenant_for_generic_oidc(http_config):
@@ -225,13 +247,14 @@ def test_http_config_rejects_entra_tenant_for_generic_oidc(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="tenant_id"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_validates_entra_specific_settings(http_config):
     document = json.loads(http_config.read_text())
     _convert_to_entra(document)
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     settings = http.get_auth_settings()
 
@@ -254,7 +277,7 @@ def test_http_config_requires_entra_tenant(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="tenant_id"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_entra_audience(http_config):
@@ -264,7 +287,7 @@ def test_http_config_rejects_entra_audience(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="required_audience"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_entra_dss_audience(http_config):
@@ -275,7 +298,7 @@ def test_http_config_rejects_entra_dss_audience(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="delegated_audience must be omitted"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_requires_oidc_audience(http_config):
@@ -284,7 +307,7 @@ def test_http_config_requires_oidc_audience(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="required_audience"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_requires_generic_oidc_dss_audience(http_config):
@@ -293,7 +316,7 @@ def test_http_config_requires_generic_oidc_dss_audience(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="delegated_audience is required"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_requires_boolean_entra_interactive_login(http_config):
@@ -303,7 +326,7 @@ def test_http_config_requires_boolean_entra_interactive_login(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="valid boolean"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_empty_generic_oidc_interactive_login(http_config):
@@ -312,7 +335,7 @@ def test_http_config_rejects_empty_generic_oidc_interactive_login(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="Field required"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_allows_entra_direct_bearer_mode(http_config):
@@ -320,6 +343,7 @@ def test_http_config_allows_entra_direct_bearer_mode(http_config):
     _convert_to_entra(document)
     document["auth"].pop("interactive_login")
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     settings = http.get_auth_settings()
 
@@ -333,7 +357,7 @@ def test_http_config_rejects_partial_oidc_interactive_client(http_config, missin
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError, match="Field required"):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 def test_http_config_rejects_invalid_provider(http_config):
@@ -342,7 +366,7 @@ def test_http_config_rejects_invalid_provider(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError):
-        http.get_auth_settings()
+        http.initialize_config()
 
 
 @pytest.mark.parametrize(
@@ -361,7 +385,7 @@ def test_http_config_does_not_coerce_types(http_config, path, value):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError):
-        http.get_server_settings()
+        http.initialize_config()
 
 
 def test_http_config_validation_errors_do_not_expose_secrets(http_config):
@@ -371,7 +395,7 @@ def test_http_config_validation_errors_do_not_expose_secrets(http_config):
     http_config.write_text(json.dumps(document))
 
     with pytest.raises(ValueError) as exc_info:
-        http.get_server_settings()
+        http.initialize_config()
 
     assert secret not in str(exc_info.value)
 
@@ -381,6 +405,7 @@ def test_generic_oidc_http_config_example_is_valid(monkeypatch):
         Path(__file__).parents[1] / ".dataiku" / "http-config.json.generic_oidc-example"
     )
     monkeypatch.setattr(http, "_settings_path", example_path)
+    http.initialize_config()
 
     assert http.get_server_settings() == HTTPServerConfig(
         host="127.0.0.1",
@@ -418,6 +443,7 @@ def test_entra_http_config_example_is_valid(monkeypatch):
         Path(__file__).parents[1] / ".dataiku" / "http-config.json.entra-example"
     )
     monkeypatch.setattr(http, "_settings_path", example_path)
+    http.initialize_config()
 
     settings = http.get_auth_settings()
     assert settings == EntraAuthConfig(
@@ -440,6 +466,7 @@ def test_entra_http_config_example_is_valid(monkeypatch):
 
 
 def test_http_user_can_select_any_catalog_instance(http_config):
+    http.initialize_config()
     identity = request.bind_http_identity("https://idp.example", "alice")
     try:
         assert set(request.get_instances()) == {"sandbox", "prod"}
@@ -479,6 +506,7 @@ def test_http_user_selection_rejects_invalid_identity_without_saving(
     field_name,
 ):
     original = http_config.read_text()
+    http.initialize_config()
 
     with pytest.raises(ValueError, match=f"non-empty {field_name}"):
         http.set_user_selection(issuer, subject, "prod")
@@ -491,6 +519,7 @@ def test_direct_bearer_config_remains_minimal_when_selection_is_saved(http_confi
     document["server"].pop("public_url")
     document["auth"].pop("interactive_login")
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     identity = request.bind_http_identity("https://idp.example", "alice")
     try:
@@ -507,6 +536,7 @@ def test_entra_config_remains_minimal_when_selection_is_saved(http_config):
     document = json.loads(http_config.read_text())
     _convert_to_entra(document)
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     identity = request.bind_http_identity("https://idp.example", "alice")
     try:
@@ -530,6 +560,7 @@ def test_stale_http_selection_can_be_replaced(http_config):
         "https://idp.example": {"alice": "prod", "bob": "sandbox"}
     }
     http_config.write_text(json.dumps(document))
+    http.initialize_config()
 
     identity = request.bind_http_identity("https://idp.example", "alice")
     try:
@@ -552,6 +583,7 @@ def test_stale_http_selection_can_be_replaced(http_config):
 
 
 def test_http_settings_are_read_from_the_settings_file(http_config):
+    http.initialize_config()
     assert http.get_server_settings() == HTTPServerConfig(
         host="127.0.0.1",
         port=8000,
@@ -559,6 +591,92 @@ def test_http_settings_are_read_from_the_settings_file(http_config):
         public_url="https://mcp.example",
     )
     assert http.get_auth_settings().issuer == "https://idp.example"
+
+
+def test_http_getters_use_the_startup_snapshot(http_config, monkeypatch):
+    http.initialize_config()
+    document = json.loads(http_config.read_text())
+    document["server"]["host"] = "changed.example"
+    document["auth"]["issuer"] = "https://changed-idp.example"
+    document["dss_instances"]["prod"]["url"] = "https://changed-prod.example"
+    http_config.write_text(json.dumps(document))
+
+    monkeypatch.setattr(
+        http,
+        "_load_config",
+        lambda: pytest.fail("cached getters must not reload the settings file"),
+    )
+
+    assert http.get_server_settings().host == "127.0.0.1"
+    assert http.get_auth_settings().issuer == "https://idp.example"
+    instances, selections = http.get_instances_and_selections()
+    assert instances["prod"].url == "https://prod.example"
+    assert selections == {}
+
+    identity = request.bind_http_identity("https://idp.example", "alice")
+    try:
+        pinned = request.pin_current_instance()
+        request.reset_pinned_instance(pinned)
+    finally:
+        request.reset_http_identity(identity)
+
+
+def test_http_selection_write_preserves_but_does_not_activate_operator_edits(
+    http_config,
+):
+    http.initialize_config()
+    document = json.loads(http_config.read_text())
+    document["server"]["host"] = "changed.example"
+    document["auth"]["issuer"] = "https://changed-idp.example"
+    document["dss_instances"]["prod"]["url"] = "https://changed-prod.example"
+    document["user_selections"] = {"https://idp.example": {"bob": "sandbox"}}
+    http_config.write_text(json.dumps(document))
+
+    http.set_user_selection("https://idp.example", "alice", "prod")
+
+    saved = json.loads(http_config.read_text())
+    assert saved["server"]["host"] == "changed.example"
+    assert saved["auth"]["issuer"] == "https://changed-idp.example"
+    assert saved["dss_instances"]["prod"]["url"] == "https://changed-prod.example"
+    assert saved["user_selections"] == {
+        "https://idp.example": {"alice": "prod", "bob": "sandbox"}
+    }
+
+    assert http.get_server_settings().host == "127.0.0.1"
+    assert http.get_auth_settings().issuer == "https://idp.example"
+    instances, selections = http.get_instances_and_selections()
+    assert instances["prod"].url == "https://prod.example"
+    assert selections == saved["user_selections"]
+
+
+def test_http_selection_write_failure_leaves_cached_state_unchanged(
+    http_config, monkeypatch
+):
+    http.initialize_config()
+
+    def fail_save(_config):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(http, "_save_config", fail_save)
+
+    with pytest.raises(OSError, match="write failed"):
+        http.set_user_selection("https://idp.example", "alice", "prod")
+
+    _, selections = http.get_instances_and_selections()
+    assert selections == {}
+
+
+def test_http_selection_rejects_instance_removed_after_startup(http_config):
+    http.initialize_config()
+    document = json.loads(http_config.read_text())
+    document["dss_instances"].pop("prod")
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="Restart the server"):
+        http.set_user_selection("https://idp.example", "alice", "prod")
+
+    _, selections = http.get_instances_and_selections()
+    assert selections == {}
 
 
 @pytest.mark.parametrize(

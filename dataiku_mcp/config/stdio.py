@@ -12,14 +12,16 @@ from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
 
-_current_instance: DSSInstance | None = None
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()
+_config: StdioConfig | None = None
+_environment_instance: DSSInstance | None = None
+_current_instance: DSSInstance | None = None
 
 
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
-    global _settings_path
+    global _config, _current_instance, _environment_instance, _settings_path
     if path is not None:
         _settings_path = path.expanduser()
     else:
@@ -27,6 +29,9 @@ def set_settings_path(path: Path | None) -> Path:
         _settings_path = (
             cwd_settings_path if cwd_settings_path.exists() else DEFAULT_SETTINGS_PATH
         )
+    _config = None
+    _environment_instance = None
+    _current_instance = None
     return _settings_path
 
 
@@ -75,30 +80,35 @@ def _save_config(config: StdioConfig) -> None:
     )
 
 
-def initialize_current_instance() -> None:
-    """Initialize the active stdio instance from environment variables or profiles."""
-    global _current_instance
-    environment_instance = _load_instance_from_env_vars()
-    config = _load_config()
-    if environment_instance:
-        _current_instance = environment_instance
-    elif config.default_instance:
-        _current_instance = config.dss_instances[config.default_instance].to_instance(
-            config.default_instance
+def _get_config() -> StdioConfig:
+    if _config is None:
+        raise RuntimeError("Stdio configuration has not been initialized.")
+    return _config
+
+
+def initialize_config() -> None:
+    """Load and cache stdio profiles and the active instance."""
+    global _config, _current_instance, _environment_instance
+    _environment_instance = _load_instance_from_env_vars()
+    _config = _load_config()
+    if _environment_instance:
+        _current_instance = _environment_instance
+    elif _config.default_instance:
+        _current_instance = _config.dss_instances[_config.default_instance].to_instance(
+            _config.default_instance
         )
     else:
         _current_instance = None
 
 
 def get_instances() -> dict[str, DSSInstance]:
-    """Return local instances, with an environment instance taking precedence."""
-    environment_instance = _load_instance_from_env_vars()
+    """Return cached instances, with the environment instance taking precedence."""
     instances = {
         name: instance.to_instance(name)
-        for name, instance in _load_config().dss_instances.items()
+        for name, instance in _get_config().dss_instances.items()
     }
-    if environment_instance:
-        return instances | {environment_instance.name: environment_instance}
+    if _environment_instance:
+        return instances | {_environment_instance.name: _environment_instance}
     return instances
 
 
@@ -121,6 +131,7 @@ def add_instance_to_config(
     set_default: bool = False,
 ) -> dict:
     """Add an instance to the resolved local profile file."""
+    global _config
     with _settings_lock:
         instance = StdioDSSInstanceConfig(
             url=url,
@@ -133,6 +144,7 @@ def add_instance_to_config(
         if set_default:
             config.default_instance = name
         _save_config(config)
+        _config = config
         return {
             "name": name,
             "url": url,
@@ -144,7 +156,7 @@ def add_instance_to_config(
 
 def delete_instance_from_config(name: str) -> dict:
     """Remove a profile-file instance and update the active/default selection."""
-    global _current_instance
+    global _config, _current_instance
     with _settings_lock:
         config = _load_config()
         instances = config.dss_instances
@@ -162,6 +174,7 @@ def delete_instance_from_config(name: str) -> dict:
         if config.default_instance == name:
             config.default_instance = next(iter(instances), None)
         _save_config(config)
+        _config = config
         if was_current:
             _current_instance = (
                 instances[config.default_instance].to_instance(config.default_instance)

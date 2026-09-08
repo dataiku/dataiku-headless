@@ -116,7 +116,7 @@ def run_stdio_server(settings_path: Path | None = None):
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Dataiku MCP server (stdio)")
     stdio.set_settings_path(settings_path)
-    stdio.initialize_current_instance()
+    stdio.initialize_config()
     mcp.run(transport="stdio")
 
 
@@ -125,6 +125,7 @@ def run_http_server(settings_path: Path | None = None):
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Dataiku MCP server (streamable HTTP)")
     http.set_settings_path(settings_path)
+    http.initialize_config()
     server_settings = http.get_server_settings()
     mcp.auth = _http_auth()
     mcp.run(

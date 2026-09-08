@@ -153,6 +153,9 @@ It reads `~/.dataiku/http-config.json` by default, alongside the local stdio pro
 in `~/.dataiku/stdio-config.json`. Use `--settings-path PATH` only when the deployment
 needs a different filesystem location. The HTTP file contains authentication,
 transport settings, the approved DSS catalog, and user instance preferences.
+The server loads authentication, transport, and catalog settings once at startup;
+restart it after editing those fields. Instance selections are updated in memory and
+persisted as users switch instances. This file-backed state assumes one server process.
 Copy the matching [generic OIDC](.dataiku/http-config.json.generic_oidc-example)
 or [Entra](.dataiku/http-config.json.entra-example) example as a starting point:
 
@@ -239,7 +242,9 @@ The resolved configuration file contains named profiles, their URLs, defaults, a
 1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
 2. `~/.dataiku/stdio-config.json` otherwise.
 
-All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
+The server loads environment and profile settings at startup. Profile additions and
+deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
+or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
 Environment variables are an explicit override:
 

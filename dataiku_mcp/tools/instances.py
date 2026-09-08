@@ -7,6 +7,7 @@ from dataclasses import asdict
 from fastmcp import Context
 
 from ..config import request, stdio
+from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -43,7 +44,7 @@ async def switch_instance(name: str, ctx: Context) -> str:
         name: Instance name (run list_instances() to retrieve all available instance names).
     """
     await ctx.info(f"Switching to instance '{name}'...")
-    info = request.set_current_instance(name)
+    info = await run_blocking(request.set_current_instance, name)
     return compact_json(info)
 
 
@@ -62,7 +63,7 @@ async def delete_instance(name: str, ctx: Context) -> str:
             "Instances are platform-managed in HTTP mode and cannot be deleted."
         )
     await ctx.info(f"Deleting instance '{name}'...")
-    info = stdio.delete_instance_from_config(name)
+    info = await run_blocking(stdio.delete_instance_from_config, name)
     return compact_json(info)
 
 

@@ -18,12 +18,16 @@ DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "http-config.json"
 
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()
+_config: HTTPConfig | None = None
+_user_selections: dict[str, dict[str, str]] | None = None
 
 
 def set_settings_path(path: Path | None) -> Path:
     """Select the HTTP settings file for this server process."""
-    global _settings_path
+    global _config, _settings_path, _user_selections
     _settings_path = path.expanduser() if path is not None else DEFAULT_SETTINGS_PATH
+    _config = None
+    _user_selections = None
     return _settings_path
 
 
@@ -53,37 +57,68 @@ def _save_config(config: HTTPConfig) -> None:
     )
 
 
+def _get_config() -> HTTPConfig:
+    if _config is None:
+        raise RuntimeError("HTTP configuration has not been initialized.")
+    return _config
+
+
+def initialize_config() -> None:
+    """Load and cache the HTTP configuration for this server process."""
+    global _config, _user_selections
+    _config = _load_config()
+    _user_selections = {
+        issuer: dict(selections)
+        for issuer, selections in _config.user_selections.items()
+    }
+
+
 def get_auth_settings() -> HTTPAuthConfig:
     """Return validated HTTP authentication settings."""
-    return _load_config().auth
+    return _get_config().auth
 
 
 def get_server_settings() -> HTTPServerConfig:
     """Return validated Streamable HTTP transport settings."""
-    return _load_config().server
+    return _get_config().server
 
 
 def get_instances_and_selections() -> tuple[
     dict[str, DSSInstance], dict[str, dict[str, str]]
 ]:
-    """Return the global HTTP catalog and persisted user selections."""
-    config = _load_config()
+    """Return the cached HTTP catalog and user selections."""
+    config = _get_config()
+    if _user_selections is None:
+        raise RuntimeError("HTTP configuration has not been initialized.")
     instances = {
         name: instance.to_instance(name)
         for name, instance in config.dss_instances.items()
     }
-    return instances, config.user_selections
+    selections = {
+        issuer: dict(subjects) for issuer, subjects in _user_selections.items()
+    }
+    return instances, selections
 
 
 def set_user_selection(issuer: str, subject: str, instance_name: str) -> None:
     """Persist an authenticated user's selected catalog instance."""
+    global _user_selections
     for field_name, value in (("issuer", issuer), ("subject", subject)):
         if not isinstance(value, str) or not value:
             raise ValueError(f"HTTP user selection requires a non-empty {field_name}.")
 
     with _settings_lock:
-        config = _load_config()
-        if instance_name not in config.dss_instances:
+        if instance_name not in _get_config().dss_instances:
             raise ValueError(f"Unknown HTTP instance '{instance_name}'.")
-        config.user_selections.setdefault(issuer, {})[subject] = instance_name
-        _save_config(config)
+        persisted_config = _load_config()
+        if instance_name not in persisted_config.dss_instances:
+            raise ValueError(
+                f"HTTP instance '{instance_name}' was removed from the settings file. "
+                "Restart the server to load the updated instance catalog."
+            )
+        persisted_config.user_selections.setdefault(issuer, {})[subject] = instance_name
+        _save_config(persisted_config)
+        _user_selections = {
+            selected_issuer: dict(subjects)
+            for selected_issuer, subjects in persisted_config.user_selections.items()
+        }
