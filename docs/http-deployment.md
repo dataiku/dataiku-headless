@@ -122,6 +122,10 @@ registration** represents the downstream resource for which Entra issues the
 delegated token. The current MCP server authenticates with a client secret;
 certificate credentials are not yet supported.
 
+Both registrations must request v2 access tokens. The MCP registration controls
+the token accepted by the MCP server; the DSS API registration controls the
+delegated token accepted by DSS.
+
 ### 1. Register the DSS API
 
 In **Microsoft Entra admin center → App registrations**:
@@ -130,8 +134,11 @@ In **Microsoft Entra admin center → App registrations**:
    registration needs no redirect URI or credential.
 2. Under **Expose an API**, accept the default Application ID URI
    `api://<dss-app-client-id>` and add an enabled delegated scope named `dss.access`.
-3. In the Microsoft Graph app manifest, set `api.requestedAccessTokenVersion` to
-   `2` so Entra issues v2 access tokens for DSS.
+3. In this DSS API registration's Microsoft Graph app manifest, set
+   `api.requestedAccessTokenVersion` to `2`. Access-token format is controlled by
+   the target resource registration, not by the token endpoint: leaving this
+   value unset or setting it to `1` makes Entra issue a v1 token even when the MCP
+   server uses the v2 OBO endpoint.
 4. Record the client ID and the full scope
    `api://<dss-app-client-id>/dss.access`.
 
@@ -144,7 +151,8 @@ audience.
 2. Under **Expose an API**, accept `api://<mcp-app-client-id>` and add an enabled
    delegated scope named `mcp.access`. Clients request this scope when calling the
    MCP server.
-3. Set `api.requestedAccessTokenVersion` to `2` in the Microsoft Graph app manifest.
+3. Set `api.requestedAccessTokenVersion` to `2` in this MCP registration's
+   Microsoft Graph app manifest so clients receive a v2 token for the MCP server.
 4. Under **Authentication**, add `<public-url>/auth/callback` as a **Web** redirect
    URI.
 5. Under **Certificates & secrets**, create a client secret and store its value
@@ -156,6 +164,7 @@ audience.
 
 See Microsoft's guidance for [exposing API scopes](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-expose-web-apis),
 [granting a client access to an API](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-access-web-apis),
+[access-token versions](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens),
 and the [OBO flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow).
 
 ### 3. Configure the MCP server
@@ -341,6 +350,18 @@ After starting the server:
 | MCP returns 401 | Incoming-token validation | Signature, expiry, issuer, MCP audience, and required scope |
 | Token exchange returns 400 | Identity-provider token endpoint | Exchange credentials, incoming audience, downstream scope, trust, and consent |
 | DSS rejects the token | DSS JWT validation or user lookup | Delegated issuer, JWKS, audience, scope claim/format, and `sub` mapping |
+
+For Entra, a token whose issuer is `https://sts.windows.net/<tenant-id>/` is a v1
+token. Calling a v2 token endpoint does not override the version selected by the
+target resource registration, so set `api.requestedAccessTokenVersion` to `2` on
+both app registrations:
+
+- If the MCP server rejects the incoming token, check the **MCP registration**.
+- If DSS rejects the exchanged token, check the **DSS API registration identified
+  by that instance's `delegated_scope`**.
+
+After correcting the DSS API registration, the next DSS-backed tool call performs
+a new exchange; the MCP server does not need to be restarted.
 
 Do not paste bearer tokens into tickets or logs. Use decoded claims without the
 encoded token when diagnosing issuer, audience, scope, or subject mismatches.
