@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Cobuild's small process-local conversation contract."""
 
 import asyncio
@@ -104,13 +118,15 @@ class Client:
 @pytest.fixture(autouse=True)
 def environment(monkeypatch):
     cobuild._conversations.clear()
-    active_instance = {"name": "instance-a"}
+    active_instance = {"name": "instance-a", "url": "https://a.example.com"}
     client = Client()
     monkeypatch.setattr(cobuild, "get_dss_client", lambda: client)
     monkeypatch.setattr(
         request,
         "get_pinned_instance",
-        lambda: SimpleNamespace(name=active_instance["name"]),
+        lambda: SimpleNamespace(
+            name=active_instance["name"], url=active_instance["url"]
+        ),
     )
     yield client, active_instance
     for entry in cobuild._conversations.values():
@@ -497,5 +513,87 @@ def test_ownership_and_sdk_contract(environment):
         active_instance["name"] = "instance-b"
         with pytest.raises(ValueError, match="belongs to instance"):
             await send()
+
+    run(scenario())
+
+
+PROJECT_URL = "https://a.example.com/projects/PROJECT/flow"
+
+
+def test_every_payload_carries_the_project_url(environment, monkeypatch):
+    client, _ = environment
+    client.conversation.next_send = Response(
+        "Which date column?", is_question_request=True
+    )
+
+    async def scenario():
+        assert (await start())["project_url"] == PROJECT_URL
+
+        question = await send()
+        assert question["is_question_request"]
+        assert question["project_url"] == PROJECT_URL
+
+        listing = json.loads(
+            await cobuild.list_cobuild_conversations("PROJECT", Context())
+        )
+        columns = listing["conversations"]["columns"]
+        row = dict(zip(columns, listing["conversations"]["rows"][0]))
+        assert row["project_url"] == PROJECT_URL
+
+        client.conversation.next_question_answer = Response("done")
+        assert (await answer_question(question["turn_id"], ["order_date"]))[
+            "project_url"
+        ] == PROJECT_URL
+
+        client.conversation.release = threading.Event()
+        monkeypatch.setattr(cobuild, "TURN_WAIT_TIMEOUT_SECONDS", 0)
+        pending = await send()
+        assert pending["status"] in {"queued", "in_progress"}
+        assert pending["project_url"] == PROJECT_URL
+        with pytest.raises(ValueError, match=PROJECT_URL):
+            await send()
+        client.conversation.release.set()
+        assert (await wait_for_terminal(pending["turn_id"]))[
+            "project_url"
+        ] == PROJECT_URL
+
+    run(scenario())
+
+
+def test_failed_turn_payload_carries_the_project_url(environment):
+    client, _ = environment
+    client.conversation.error = ConnectionError("connection failed")
+
+    async def scenario():
+        await start()
+        failed = await send()
+        assert failed["status"] == "failed"
+        assert failed["project_url"] == PROJECT_URL
+
+    run(scenario())
+
+
+def test_project_url_uses_the_conversation_pinned_instance(environment):
+    _client, active_instance = environment
+
+    async def scenario():
+        started = await start()
+        assert started["project_url"] == PROJECT_URL
+        entry = cobuild._conversations["conversation-1"]
+        # A later switch of the active instance must not retarget an existing
+        # conversation's URL.
+        active_instance["url"] = "https://b.example.com"
+        active_instance["name"] = "instance-b"
+        assert cobuild._project_url(entry) == PROJECT_URL
+
+    run(scenario())
+
+
+def test_project_url_tolerates_a_trailing_slash_in_the_instance_url(environment):
+    _client, active_instance = environment
+    active_instance["url"] = "https://a.example.com/"
+
+    async def scenario():
+        assert (await start())["project_url"] == PROJECT_URL
 
     run(scenario())

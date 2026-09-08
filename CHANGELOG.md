@@ -1,3 +1,24 @@
+## v0.5.0 (2026-09-02)
+
+### Feat
+
+- **instances**: report the active Dataiku instance version (#135)
+
+## v0.4.0 (2026-08-26)
+
+### Feat
+
+- **plugins**: add agent-assisted setup (#129)
+- add project settings tools (#123)
+- **code-envs**: filter environments by packages (#119)
+
+### Fix
+
+- redact encoded connection keys (#121)
+- preserve existing upload datasets (#107)
+
+## v0.3.0 (2026-08-19)
+
 ## v0.2.0 (2026-06-09)
 
 ### Feat

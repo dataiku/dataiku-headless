@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """The HTTP middleware exchanges a DSS token only for DSS-backed tools."""
 
 import asyncio
@@ -101,7 +115,6 @@ def test_dss_independent_tools_are_tagged():
         "list_instances",
         "switch_instance",
         "delete_instance",
-        "get_current_instance",
         "configure_instance",
         "get_cobuild_turn_status",
         "list_cobuild_conversations",
@@ -133,6 +146,13 @@ def test_http_dss_tool_exchanges_and_resets_its_dss_token(monkeypatch):
         ("reset_instance", "instance"),
         ("reset_identity", "identity"),
     ]
+
+
+def test_http_current_instance_exchanges_a_dss_token(monkeypatch):
+    events = _call_middleware(monkeypatch, "get_current_instance")
+
+    assert ("exchange", "mcp-token") in events
+    assert ("set_dss", "dss-token") in events
 
 
 @pytest.mark.parametrize(

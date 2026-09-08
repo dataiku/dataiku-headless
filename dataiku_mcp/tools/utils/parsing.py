@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Shared parsing/coercion helpers for tool modules."""
 
 from __future__ import annotations
@@ -58,14 +72,3 @@ def parse_non_empty_string_list(raw_json: str, field_name: str) -> list[str]:
         raise ValueError(f"'{field_name}' must be a non-empty JSON array")
 
     return require_non_empty_strings(parsed, field_name)
-
-
-def deep_merge_dict(base: dict, patch: dict) -> dict:
-    """Recursively merge dict objects. Non-dict values are replaced by patch values."""
-    merged = dict(base)
-    for key, value in patch.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = deep_merge_dict(merged[key], value)
-        else:
-            merged[key] = value
-    return merged

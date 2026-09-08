@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Instance management tools for switching between Dataiku instances."""
 
 import asyncio
@@ -6,6 +20,7 @@ from dataclasses import asdict
 
 from fastmcp import Context
 
+from ..auth import get_dataiku_version, get_dss_client
 from ..config import request, stdio
 from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
@@ -67,13 +82,23 @@ async def delete_instance(name: str, ctx: Context) -> str:
     return compact_json(info)
 
 
-@mcp.tool(tags={DSS_INDEPENDENT_TOOL_TAG})
+@mcp.tool()
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance configuration."""
+    """Get the active Dataiku instance configuration and its Dataiku version.
+
+    `dataiku_version` is the version running on the instance. It is omitted
+    when the configured credentials cannot read it.
+    """
 
     # Strip api_key from return value
     current_instance = asdict(request.get_pinned_instance())
     current_instance.pop("api_key", None)
+    try:
+        current_instance["dataiku_version"] = await run_blocking(
+            lambda: get_dataiku_version(get_dss_client())
+        )
+    except ValueError:
+        current_instance["dataiku_version"] = ""
 
     result = omit_empty(current_instance)
     return compact_json(result)

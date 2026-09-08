@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for the three direct-execution tools.
 
 These are the only sanctioned direct actions on existing assets (everything else
@@ -566,6 +580,47 @@ def test_run_recipe_start_failure_is_raised_as_outcome_unknown():
             _load(jobs.run_recipe("PK", "recipe", FakeCtx()))
 
     assert isinstance(raised.value.__cause__, ConnectionError)
+
+
+# --------------------------------------------------------------------------- #
+# abort_job
+# --------------------------------------------------------------------------- #
+
+
+def test_abort_job_reports_terminal_state_after_abort_request():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        _raw_status("J1", end_time=200, runtime_state="DONE"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "job_finished_after_abort_request"
+    assert res["job"]["state"] == "DONE"
+
+
+def test_abort_job_poll_failure_returns_confirmed_abort_outcome():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        ConnectionError("poll dropped"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "abort_poll_failed"
+    assert res["abort_requested"] is True
+    assert res["job"]["job_id"] == "J1"
+    assert res["error_type"] == "ConnectionError"
 
 
 # --------------------------------------------------------------------------- #
