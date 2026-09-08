@@ -23,6 +23,12 @@ from types import ModuleType
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
+SETUP_SKILL = (
+    Path(__file__).resolve().parent.parent
+    / "skills"
+    / "dataiku-headless-setup"
+    / "SKILL.md"
+)
 
 
 def _install_fake_launcher_modules(monkeypatch) -> list[tuple]:
@@ -110,3 +116,14 @@ def test_launcher_help_does_not_import_the_server():
     assert result.returncode == 0
     assert "--transport" in result.stdout
     assert "--settings-path" in result.stdout
+
+
+def test_setup_skill_warmup_commands_select_stdio_transport():
+    commands = [
+        line
+        for line in SETUP_SKILL.read_text(encoding="utf-8").splitlines()
+        if "uv run " in line and "run_mcp.py" in line
+    ]
+
+    assert len(commands) == 2
+    assert all("--transport stdio" in command for command in commands)
