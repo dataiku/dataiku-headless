@@ -14,12 +14,15 @@
 
 """Dataiku user administration tools."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client, require_admin
-from .utils.identity_sources import require_identity_source_type
+from .utils.identity_sources import IdentitySourceType
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -27,6 +30,14 @@ from .utils.validation import (
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
+
+Profile = Annotated[
+    str, Field(description="A profile from get_licensing_status; capacity is enforced.")
+]
+Password = Annotated[
+    str | None, Field(description="Required for LOCAL users, rejected for others.")
+]
+Offset = Annotated[int, Field(description="Zero-based offset into the matches.")]
 
 _BASIC_USER_FIELDS = {
     "login": "login",
@@ -94,25 +105,28 @@ async def _require_existing_groups(groups: list[str]) -> None:
     await run_blocking(_run)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Users",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_users(
     ctx: Context,
-    search: str = "",
-    groups: list[str] | None = None,
-    offset: int = 0,
-    limit: int = 20,
+    search: Annotated[
+        str,
+        Field(description="Substring matched against login, display name, and email."),
+    ] = "",
+    groups: Annotated[
+        list[str] | None,
+        Field(description="Keeps users in at least one of these groups."),
+    ] = None,
+    offset: Offset = 0,
+    limit: Annotated[int, Field(description="Capped at 100.")] = 20,
 ) -> str:
-    """List Dataiku users, with optional search and offset pagination.
-    All callers receive basic user information; global administrators also
-    receive email, profile, and source type.
-
-    Args:
-        search: Case-insensitive substring matched against login and display name,
-            plus email for global administrators.
-        groups: Group names. Returns users who belong to at least one supplied group.
-        offset: Zero-based offset within the matching users.
-        limit: Maximum users to return. Values above 100 are capped at 100.
-    """
+    """Find users and their exact logins; admins also see email, profile, and source."""
     search = search.strip()
     groups = _validate_group_names(groups)
     offset = _require_non_negative_int(offset, "offset")
@@ -178,33 +192,31 @@ async def list_users(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create User",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_user(
-    login: str,
-    source_type: str,
-    profile: str,
+    login: Annotated[
+        str, Field(description="Special characters beyond . _ - @ are rejected.")
+    ],
+    source_type: IdentitySourceType,
+    profile: Profile,
     display_name: str,
     ctx: Context,
-    password: str | None = None,
+    password: Password = None,
     email: str | None = None,
-    groups: list[str] | None = None,
+    groups: Annotated[
+        list[str] | None, Field(description="Complete group list; none when omitted.")
+    ] = None,
 ) -> str:
-    """Create an enabled Dataiku user and return its core settings.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Before assigning ``profile``, call ``get_licensing_status`` to confirm the
-    profile is available and review its licensing capacity.
-
-    Args:
-        login: Dataiku rejects special characters beyond '.', '_', '-', '@'.
-        source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
-            (SSO), CUSTOM, or PAM.
-        profile: User profile available under the Dataiku license.
-        password: Required for LOCAL users and invalid for external users.
-        groups: Complete initial list of group names. Defaults to no groups.
-    """
+    """Add an enabled user to the instance. Admin only."""
     login = _require_non_empty_string(login, "login")
-    source_type = require_identity_source_type(source_type)
     display_name = _require_non_empty_string(display_name, "display_name")
     profile = _require_non_empty_string(profile, "profile")
     groups = _validate_group_names(groups) or []
@@ -234,40 +246,35 @@ async def create_user(
     return compact_json({"user": await run_blocking(_run)})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Update User",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def update_user(
     login: str,
     ctx: Context,
-    source_type: str | None = None,
-    profile: str | None = None,
+    source_type: IdentitySourceType | None = None,
+    profile: Profile | None = None,
     display_name: str | None = None,
-    password: str | None = None,
+    password: Password = None,
     email: str | None = None,
-    groups: list[str] | None = None,
+    groups: Annotated[
+        list[str] | None,
+        Field(description="Complete group list, replacing the current one."),
+    ] = None,
     enabled: bool | None = None,
 ) -> str:
-    """Patch supplied core settings for one Dataiku user.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Omitted (null) fields are preserved. An empty groups list removes all memberships,
-    and an empty email clears the email address. Before changing ``profile``, call
-    ``get_licensing_status`` to confirm the profile is available and review its
-    licensing capacity.
-
-    Args:
-        source_type: Authentication source: LOCAL, LDAP, AZURE_AD, LOCAL_NO_AUTH
-            (SSO), CUSTOM, or PAM.
-        profile: User profile available under the Dataiku license.
-        password: Required for LOCAL users and invalid for external users.
-        groups: Complete list of group names. Defaults to no groups.
-    """
+    """Patch a user's settings; nulls are preserved, empty values clear. Admin only."""
     login = _require_non_empty_string(login, "login")
     if display_name is not None:
         display_name = _require_non_empty_string(display_name, "display_name")
     if profile is not None:
         profile = _require_non_empty_string(profile, "profile")
-    if source_type is not None:
-        source_type = require_identity_source_type(source_type)
     if password is not None:
         password = _require_non_empty_string(password, "password")
     if groups is not None:
@@ -321,11 +328,17 @@ async def update_user(
     return compact_json({"user": await run_blocking(_run)})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Delete User",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def delete_user(login: str, ctx: Context) -> str:
-    """Delete one Dataiku user. Self-deletion remains prohibited.
-    Requires global administrator rights on the target Dataiku instance.
-    """
+    """Remove a user from the instance. Admin only."""
     login = _require_non_empty_string(login, "login")
     await require_admin()
     await ctx.info(f"Deleting Dataiku user '{login}'...")

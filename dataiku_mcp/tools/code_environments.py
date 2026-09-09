@@ -15,37 +15,56 @@
 """Dataiku code environment administration tools."""
 
 import re
+from typing import Annotated, Literal
 
 from fastmcp import Context
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
     require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
 
-_LANGUAGES = {"PYTHON", "R"}
-_SEARCH_MODES = {"partial", "exact"}
+CodeEnvLanguage = Literal["PYTHON", "R"]
+PythonInterpreter = Annotated[
+    Literal["PYTHON39", "PYTHON310", "PYTHON311", "PYTHON312", "PYTHON313", "PYTHON314"]
+    | None,
+    Field(description="Dataiku's default when omitted."),
+]
+RequestedPackages = Annotated[
+    list[str] | None,
+    Field(description="Requirements-style lines; an empty list clears them."),
+]
+Owner = Annotated[str | None, Field(description="An exact Dataiku login.")]
+GroupPermissions = Annotated[
+    list["CodeEnvGroupPermission"] | None,
+    Field(description="Replaces the whole group permission list."),
+]
+AllContainerConfigurations = Annotated[
+    bool | None, Field(description="Takes precedence over container_configurations.")
+]
+ContainerConfigurations = Annotated[
+    list[str] | None,
+    Field(description="Exact config names from list_container_exec_configs."),
+]
+AllSparkConfigurations = Annotated[
+    bool | None,
+    Field(description="Takes precedence over spark_kubernetes_configurations."),
+]
+SparkConfigurations = Annotated[
+    list[str] | None, Field(description="Exact config names from list_spark_configs.")
+]
 _PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PACKAGE_SPEC_NAME_PATTERN = re.compile(
     r'^\s*(?:["\'](?P<quoted>[A-Za-z0-9][A-Za-z0-9._-]*)["\']|'
     r"(?P<plain>[A-Za-z0-9][A-Za-z0-9._-]*))"
 )
-_PYTHON_INTERPRETERS = {
-    "PYTHON39",
-    "PYTHON310",
-    "PYTHON311",
-    "PYTHON312",
-    "PYTHON313",
-    "PYTHON314",
-}
 _SUMMARY_COLUMNS = ["name", "language", "owner", "deployment_mode"]
 _DETAIL_COLUMNS = [
     *_SUMMARY_COLUMNS,
@@ -192,37 +211,41 @@ def _apply_changes(
         raw["sparkKubernetesConfs"] = spark_kubernetes_configurations
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Code Environments",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_code_envs(
     ctx: Context,
-    search: str = "",
-    search_mode: str = "partial",
-    language: str | None = None,
-    packages: list[str] | None = None,
-    include_details: bool = False,
-    offset: int = 0,
-    limit: int = 5,
+    search: Annotated[str, Field(description="Every environment when omitted.")] = "",
+    search_mode: Annotated[
+        Literal["partial", "exact"],
+        Field(description="Ignored when search is empty."),
+    ] = "partial",
+    language: CodeEnvLanguage | None = None,
+    packages: Annotated[
+        list[str] | None,
+        Field(
+            description="Package names only; keeps environments declaring every one."
+        ),
+    ] = None,
+    include_details: Annotated[
+        bool,
+        Field(
+            description="Adds owner, access, packages, and build targets. Needs code-env permission."
+        ),
+    ] = False,
+    offset: Annotated[
+        int, Field(description="Zero-based offset into the matches.")
+    ] = 0,
+    limit: Annotated[int, Field(description="Capped at 100.")] = 5,
 ) -> str:
-    """List Dataiku code environments with optional settings detail.
-
-    Args:
-        search: Environment name search. Defaults to every environment.
-        search_mode: ``partial`` for case-insensitive name matching, or ``exact``
-            to retrieve one named environment. Ignored when ``search`` is empty.
-        language: Exact language filter: ``PYTHON`` or ``R``.
-        packages: Return only environments that declare every listed package name.
-            Requires the same permission as ``include_details``.
-        include_details: Return owner, access, packages, and image-build targets
-            for each returned environment. Requires global Create code envs or
-            Manage all code envs permission.
-        offset: Zero-based offset within the matching environments.
-        limit: Maximum environments to return. Values above 100 are capped at 100.
-    """
+    """Find code environments by name or declared package, with their languages."""
     search = search.strip()
-    if search:
-        search_mode = _require_allowed_value(search_mode, "search_mode", _SEARCH_MODES)
-    if language is not None:
-        language = _require_allowed_value(language, "language", _LANGUAGES)
     packages = _validate_package_names(packages)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 100)
@@ -280,42 +303,33 @@ async def list_code_envs(
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Code Environment",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_code_env(
-    language: str,
+    language: CodeEnvLanguage,
     name: str,
     ctx: Context,
-    requested_packages: list[str] | None = None,
-    python_interpreter: str | None = None,
-    owner: str | None = None,
+    requested_packages: RequestedPackages = None,
+    python_interpreter: PythonInterpreter = None,
+    owner: Owner = None,
     usable_by_all: bool = True,
-    group_permissions: list[CodeEnvGroupPermission] | None = None,
-    all_container_configurations: bool | None = None,
-    container_configurations: list[str] | None = None,
-    all_spark_kubernetes_configurations: bool | None = None,
-    spark_kubernetes_configurations: list[str] | None = None,
+    group_permissions: GroupPermissions = None,
+    all_container_configurations: AllContainerConfigurations = None,
+    container_configurations: ContainerConfigurations = None,
+    all_spark_kubernetes_configurations: AllSparkConfigurations = None,
+    spark_kubernetes_configurations: SparkConfigurations = None,
 ) -> str:
-    """Create a managed Design-node Python or R code environment.
-
-    Requires global Create code envs or Manage all code envs permission. Core
-    packages and Jupyter support are always enabled. Container images are built
-    when container or Spark build targets are supplied.
-
-    Args:
-        language: Environment language: ``PYTHON`` or ``R``.
-        name: New environment name.
-
-    See the Code Environments skill reference for parameter details and operating
-    guidance.
-    """
-    language = _require_allowed_value(language, "language", _LANGUAGES)
+    """Create a managed Python or R environment for code-based work."""
     name = _require_non_empty_string(name, "name")
     if language == "R" and python_interpreter is not None:
         raise ValueError("python_interpreter is only supported for PYTHON environments")
-    if python_interpreter is not None:
-        python_interpreter = _require_allowed_value(
-            python_interpreter, "python_interpreter", _PYTHON_INTERPRETERS
-        )
     build_images = any(
         value is not None
         for value in (
@@ -367,39 +381,33 @@ async def create_code_env(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Update Code Environment",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def update_code_env(
-    language: str,
+    language: CodeEnvLanguage,
     name: str,
     ctx: Context,
-    requested_packages: list[str] | None = None,
-    owner: str | None = None,
+    requested_packages: RequestedPackages = None,
+    owner: Owner = None,
     usable_by_all: bool | None = None,
-    group_permissions: list[CodeEnvGroupPermission] | None = None,
-    all_container_configurations: bool | None = None,
-    container_configurations: list[str] | None = None,
-    all_spark_kubernetes_configurations: bool | None = None,
-    spark_kubernetes_configurations: list[str] | None = None,
-    force_rebuild: bool = False,
+    group_permissions: GroupPermissions = None,
+    all_container_configurations: AllContainerConfigurations = None,
+    container_configurations: ContainerConfigurations = None,
+    all_spark_kubernetes_configurations: AllSparkConfigurations = None,
+    spark_kubernetes_configurations: SparkConfigurations = None,
+    force_rebuild: Annotated[
+        bool,
+        Field(description="Rebuilds the local environment; does not rebuild images."),
+    ] = False,
 ) -> str:
-    """Patch a Design-node code environment and rebuild affected artifacts.
-
-    Requires global Create code envs or Manage all code envs permission. Supplied
-    group_permissions replace the complete group permission list. Package changes
-    are supported only for managed Design-node environments; they update the local
-    environment and rebuild images. Build-target changes rebuild images.
-    ``force_rebuild`` forces a rebuild of the local environment.
-
-    Omitted fields are preserved. Empty lists intentionally clear their setting.
-
-    Args:
-        language: Environment language: ``PYTHON`` or ``R``.
-        name: Existing environment name.
-
-    See the Code Environments skill reference for parameter details and operating
-    guidance.
-    """
-    language = _require_allowed_value(language, "language", _LANGUAGES)
+    """Patch a code environment's packages, access, or targets, rebuilding as needed."""
     name = _require_non_empty_string(name, "name")
     package_spec_changed = requested_packages is not None
     build_targets_changed = any(
@@ -460,15 +468,17 @@ async def update_code_env(
     )
 
 
-@mcp.tool()
-async def delete_code_env(language: str, name: str, ctx: Context) -> str:
-    """Delete one Dataiku code environment.
-
-    Requires global Manage all code envs permission. The tool refuses deletion when
-    Dataiku reports current usages and returns ``deleted: false``, the usages, and
-    remediation guidance instead of deleting the environment.
-    """
-    language = _require_allowed_value(language, "language", _LANGUAGES)
+@mcp.tool(
+    title="Delete Code Environment",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def delete_code_env(language: CodeEnvLanguage, name: str, ctx: Context) -> str:
+    """Remove a code environment, refusing while Dataiku reports usages."""
     name = _require_non_empty_string(name, "name")
     await ctx.info(f"Deleting Dataiku code environment '{name}'...")
     code_env = await run_blocking(lambda: get_dss_client().get_code_env(language, name))
