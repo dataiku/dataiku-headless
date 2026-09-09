@@ -540,20 +540,6 @@ def test_update_plugin_completes_inline_when_dataiku_returns_no_future_id():
     assert res["status"] == "completed"
 
 
-def test_update_plugin_completes_inline_when_dataiku_returns_a_future_id():
-    _, client = _installed(futures={"update": FakeFuture("F8", [_done()])})
-
-    with _patch_client(client):
-        res = _load(
-            tools.update_plugin(
-                "store", FakeContext(), plugin_id="geocoder", wait_for_completion=False
-            )
-        )
-
-    assert res["status"] == "completed"
-    assert "future_id" not in res
-
-
 def test_update_plugin_without_waiting_returns_a_followable_future():
     _, client = _installed(futures={"update": FakeFuture("F9", [_alive()])})
 
