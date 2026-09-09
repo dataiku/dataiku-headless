@@ -32,9 +32,16 @@ def _build_parent_map(taxonomy: list, parent_id: str | None = None) -> dict:
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Wiki Articles",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_wiki_articles(project_key: str, ctx: Context) -> str:
-    """List wiki articles with IDs, names, parents, and home flag."""
+    """Map a project wiki's articles, their IDs, and how they nest."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing wiki articles in {project_key}...")
 
@@ -62,9 +69,16 @@ async def list_wiki_articles(project_key: str, ctx: Context) -> str:
     return compact_json(payload)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Wiki Article",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_wiki_article(project_key: str, article_id: str, ctx: Context) -> str:
-    """Get a wiki article's name and markdown body."""
+    """Read a wiki article's markdown body, for project context written by humans."""
     project_key = _require_non_empty_string(project_key, "project_key")
     article_id = _require_non_empty_string(article_id, "article_id")
     await ctx.info(f"Fetching wiki article {article_id} in {project_key}...")

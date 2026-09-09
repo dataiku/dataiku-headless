@@ -52,9 +52,16 @@ def _serialize_webapp_list_item(item: dict) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Webapps",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_webapps(project_key: str, ctx: Context) -> str:
-    """List WebApps in the project with type and backend status."""
+    """Find a project's webapps, their types, and whether each backend is running."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing WebApps in {project_key}...")
 
@@ -82,13 +89,20 @@ async def list_webapps(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Webapp Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_webapp_settings(
     project_key: str,
     webapp_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full WebApp settings dict with sensitive top-level fields redacted."""
+    """Read one webapp's definition and code, with sensitive fields redacted."""
     project_key = _require_non_empty_string(project_key, "project_key")
     webapp_id = _require_non_empty_string(webapp_id, "webapp_id")
     await ctx.info(f"Loading settings for WebApp {webapp_id} in {project_key}...")
@@ -105,13 +119,20 @@ async def get_webapp_settings(
     return compact_json(_redact_webapp_settings(raw))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Webapp State",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_webapp_state(
     project_key: str,
     webapp_id: str,
     ctx: Context,
 ) -> str:
-    """Get the WebApp backend state."""
+    """Check a webapp backend's running state and recent log output."""
     project_key = _require_non_empty_string(project_key, "project_key")
     webapp_id = _require_non_empty_string(webapp_id, "webapp_id")
     await ctx.info(f"Loading backend state for WebApp {webapp_id} in {project_key}...")

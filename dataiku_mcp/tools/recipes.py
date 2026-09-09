@@ -111,9 +111,16 @@ def _settings_view(settings, include_engine_params: bool = False) -> dict:
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Recipes",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_recipes(project_key: str, ctx: Context) -> str:
-    """List the recipes in the project with their types, inputs, and outputs."""
+    """Map a project's recipes and what each one reads and writes."""
     raw_recipes = await run_blocking(
         lambda: get_dss_client().get_project(project_key).list_recipes()
     )
@@ -129,14 +136,21 @@ async def list_recipes(project_key: str, ctx: Context) -> str:
     return compact_json(columnar(result, ["name", "type", "inputs", "outputs"]))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Recipe Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_recipe_settings(
     project_key: str,
     recipe_name: str,
     ctx: Context,
     include_engine_params: bool = False,
 ) -> str:
-    """Get a recipe's settings (type, inputs/outputs by role, params, payload, code)."""
+    """Read one recipe's logic, code, and IO, to ground a Cobuild change to it."""
 
     def _run():
         recipe = get_dss_client().get_project(project_key).get_recipe(recipe_name)
