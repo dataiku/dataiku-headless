@@ -57,7 +57,7 @@ def _alive():
 
 
 def _done(success=True, **result):
-    """An install/update/delete future result, which has a top-level success flag."""
+    """An update/delete future result, which has a top-level success flag."""
     return {
         "alive": False,
         "aborted": False,
@@ -132,16 +132,9 @@ class FakeFuture:
 class FakePluginSettings:
     def __init__(self, raw):
         self.raw = raw
-        self.saves = 0
 
     def get_raw(self):
         return self.raw
-
-    def set_code_env(self, code_env_name):
-        self.raw["codeEnvName"] = code_env_name
-
-    def save(self):
-        self.saves += 1
 
 
 class FakeUsages:
@@ -162,7 +155,6 @@ class FakePlugin:
         self.futures = {}
         self.uploaded = None
         self.delete_calls = []
-        self.created_interpreter = None
         # Set by FakeClient so an update makes the new version visible in the listing.
         self.on_change = lambda: None
 
@@ -183,10 +175,6 @@ class FakePlugin:
         self.on_change()
         return self.futures["update"]
 
-    def create_code_env(self, python_interpreter=None):
-        self.created_interpreter = python_interpreter
-        return self.futures["create_code_env"]
-
     def update_code_env(self):
         return self.futures["update_code_env"]
 
@@ -198,16 +186,10 @@ class FakePlugin:
 
 
 class FakeClient:
-    def __init__(
-        self, listing=None, plugins=None, code_envs=None, listing_after_change=None
-    ):
+    def __init__(self, listing=None, plugins=None, listing_after_change=None):
         self.listing = listing or []
         self.plugins = plugins or {}
-        self.code_envs = code_envs or []
         self.listing_after_change = listing_after_change
-        self.futures = {}
-        self.uploaded = None
-        self.store_install_id = None
         for plugin in self.plugins.values():
             plugin.on_change = self._apply_change
 
@@ -221,19 +203,6 @@ class FakeClient:
 
     def get_plugin(self, plugin_id):
         return self.plugins[plugin_id]
-
-    def list_code_envs(self):
-        return list(self.code_envs)
-
-    def install_plugin_from_store(self, plugin_id):
-        self.store_install_id = plugin_id
-        self._apply_change()
-        return self.futures["install"]
-
-    def start_install_plugin_from_archive(self, fp):
-        self.uploaded = fp.read()
-        self._apply_change()
-        return self.futures["install"]
 
 
 def _installed(plugin_id="geocoder", version="1.0.0", **kwargs):
@@ -249,18 +218,6 @@ def _installed(plugin_id="geocoder", version="1.0.0", **kwargs):
         plugins={plugin_id: plugin},
         **kwargs,
     )
-    return plugin, client
-
-
-def _absent(plugin_id="geocoder", version="1.0.0", **futures):
-    """A client where ``plugin_id`` is absent until the action makes it appear."""
-    plugin = FakePlugin(plugin_id)
-    client = FakeClient(
-        listing=[],
-        plugins={plugin_id: plugin},
-        listing_after_change=[_listing_entry(plugin_id, version)],
-    )
-    client.futures.update(futures)
     return plugin, client
 
 
@@ -441,81 +398,85 @@ def test_list_plugins_reads_settings_only_for_the_returned_page():
 
 
 # --------------------------------------------------------------------------- #
-# install_plugin
+# update_plugin
 # --------------------------------------------------------------------------- #
 
 
-def test_install_plugin_from_store_reports_completion_and_restart_need():
-    _, client = _absent(
+def test_update_plugin_from_store_reports_completion_and_restart_need():
+    _, client = _installed(
         version="1.3.1",
-        install=FakeFuture(
-            "F1", [_alive(), _done(needsRestart=True, needsReload=True)]
-        ),
+        futures={
+            "update": FakeFuture(
+                "F1", [_alive(), _done(needsRestart=True, needsReload=True)]
+            )
+        },
     )
 
     with _patch_client(client):
-        res = _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+        res = _load(tools.update_plugin("store", FakeContext(), plugin_id="geocoder"))
 
     assert res["status"] == "completed"
-    assert res["operation"] == "install"
+    assert res["operation"] == "update"
     assert res["source"] == "store"
     assert res["needs_restart"] is True
     assert res["needs_reload"] is True
     assert res["plugin"]["version"] == "1.3.1"
-    assert client.store_install_id == "geocoder"
 
 
-def test_install_plugin_reports_failure_reported_as_a_successful_response():
-    """Dataiku answers a failed store install with HTTP 200 and success=false."""
-    _, client = _absent(
+def test_update_plugin_reports_failure_reported_as_a_successful_response():
+    """Dataiku answers a failed store update with HTTP 200 and success=false."""
+    _, client = _installed(
         plugin_id="nope",
-        install=FakeFuture(
-            None,
-            [
-                _done(
-                    success=False,
-                    installationError={
-                        "message": "Plugin has since been removed from the store.",
-                        "stackTraceStr": "com.dataiku.dip.exceptions.CodedException: …",
-                    },
-                )
-            ],
-        ),
+        futures={
+            "update": FakeFuture(
+                None,
+                [
+                    _done(
+                        success=False,
+                        installationError={
+                            "message": "Plugin has since been removed from the store.",
+                            "stackTraceStr": "com.dataiku.dip.exceptions.CodedException: …",
+                        },
+                    )
+                ],
+            )
+        },
     )
 
     with _patch_client(client), pytest.raises(RuntimeError) as excinfo:
-        asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="nope"))
+        asyncio.run(tools.update_plugin("store", FakeContext(), plugin_id="nope"))
 
     message = str(excinfo.value)
     assert "removed from the store" in message
-    assert "github.com/dataiku/dss-plugin-" in message
     assert "CodedException" not in message
 
 
-def test_install_plugin_from_local_path_omits_the_store_id_hint(tmp_path):
+def test_update_plugin_from_local_path_reports_archive_failure(tmp_path):
     directory = _plugin_directory(tmp_path)
-    _, client = _absent(
+    _, client = _installed(
         plugin_id="my-plugin",
-        install=FakeFuture(
-            None, [_done(success=False, installationError={"message": "bad archive"})]
-        ),
+        futures={
+            "update": FakeFuture(
+                None,
+                [_done(success=False, installationError={"message": "bad archive"})],
+            )
+        },
     )
 
     with _patch_client(client), pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(directory))
+            tools.update_plugin("local_path", FakeContext(), local_path=str(directory))
         )
 
     assert "bad archive" in str(excinfo.value)
-    assert "plugin store" not in str(excinfo.value)
 
 
-def test_install_plugin_completes_inline_when_dataiku_returns_no_future_id():
-    _, client = _absent(install=FakeFuture(None, [_done()]))
+def test_update_plugin_completes_inline_when_dataiku_returns_no_future_id():
+    _, client = _installed(futures={"update": FakeFuture(None, [_done()])})
 
     with _patch_client(client):
         res = _load(
-            tools.install_plugin(
+            tools.update_plugin(
                 "store", FakeContext(), plugin_id="geocoder", wait_for_completion=False
             )
         )
@@ -523,28 +484,28 @@ def test_install_plugin_completes_inline_when_dataiku_returns_no_future_id():
     assert res["status"] == "completed"
 
 
-def test_install_plugin_without_waiting_returns_a_followable_future():
-    _, client = _absent(install=FakeFuture("F9", [_alive()]))
+def test_update_plugin_without_waiting_returns_a_followable_future():
+    _, client = _installed(futures={"update": FakeFuture("F9", [_alive()])})
 
     with _patch_client(client):
         res = _load(
-            tools.install_plugin(
+            tools.update_plugin(
                 "store", FakeContext(), plugin_id="geocoder", wait_for_completion=False
             )
         )
 
     assert res["status"] == "started"
-    assert res["operation"] == "install"
+    assert res["operation"] == "update"
     assert res["future_id"] == "F9"
     assert "get_future_status" in res["hint"]
 
 
-def test_install_plugin_timeout_reports_still_running_without_the_raw_state():
-    _, client = _absent(install=FakeFuture("F5", [_alive(), _alive()]))
+def test_update_plugin_timeout_reports_still_running_without_the_raw_state():
+    _, client = _installed(futures={"update": FakeFuture("F5", [_alive(), _alive()])})
 
     with _patch_client(client), _exhausted_clock() as mock_time:
         mock_time.monotonic.side_effect = incrementing_monotonic()
-        res = _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+        res = _load(tools.update_plugin("store", FakeContext(), plugin_id="geocoder"))
 
     assert res["status"] == "still_running"
     assert res["future_id"] == "F5"
@@ -552,92 +513,93 @@ def test_install_plugin_timeout_reports_still_running_without_the_raw_state():
     assert "Do not start a duplicate operation" in res["hint"]
 
 
-def test_install_plugin_refuses_an_already_installed_plugin():
-    _, client = _installed(version="1.3.1")
-
-    with _patch_client(client), pytest.raises(ValueError) as excinfo:
-        asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
-
-    assert "update_plugin" in str(excinfo.value)
-
-
-def test_install_plugin_rejects_arguments_that_do_not_match_the_source():
+def test_update_plugin_rejects_arguments_that_do_not_match_the_source():
     with pytest.raises(ValueError, match="local_path"):
         asyncio.run(
-            tools.install_plugin(
+            tools.update_plugin(
                 "store", FakeContext(), plugin_id="x", local_path="/tmp/x"
             )
         )
     with pytest.raises(ValueError, match="plugin_id"):
-        asyncio.run(tools.install_plugin("store", FakeContext()))
+        asyncio.run(tools.update_plugin("store", FakeContext()))
     with pytest.raises(ValueError, match="local_path"):
-        asyncio.run(tools.install_plugin("local_path", FakeContext()))
+        asyncio.run(tools.update_plugin("local_path", FakeContext()))
     with pytest.raises(ValueError, match="source"):
-        asyncio.run(tools.install_plugin("git", FakeContext(), plugin_id="x"))
+        asyncio.run(tools.update_plugin("git", FakeContext(), plugin_id="x"))
 
 
-def test_install_plugin_zips_a_directory_and_omits_version_control_files(tmp_path):
+def test_update_plugin_zips_a_directory_and_omits_version_control_files(tmp_path):
     directory = _plugin_directory(tmp_path)
-    _, client = _absent(plugin_id="my-plugin", install=FakeFuture(None, [_done()]))
+    _, client = _installed(
+        plugin_id="my-plugin", futures={"update": FakeFuture(None, [_done()])}
+    )
 
     with _patch_client(client):
         res = _load(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(directory))
+            tools.update_plugin("local_path", FakeContext(), local_path=str(directory))
         )
 
     assert res["status"] == "completed"
     assert res["source"] == "local_path"
-    assert _members(client.uploaded) == [_MANIFEST, "python-lib/core.py"]
+    assert _members(client.plugins["my-plugin"].uploaded) == [
+        _MANIFEST,
+        "python-lib/core.py",
+    ]
 
 
-def test_install_plugin_flattens_a_zip_wrapped_in_one_directory(tmp_path):
+def test_update_plugin_flattens_a_zip_wrapped_in_one_directory(tmp_path):
     archive_path = tmp_path / "download.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr(
             "dss-plugin-my-plugin/plugin.json", json.dumps({"id": "my-plugin"})
         )
         archive.writestr("dss-plugin-my-plugin/python-lib/core.py", "VALUE = 1\n")
-    _, client = _absent(plugin_id="my-plugin", install=FakeFuture(None, [_done()]))
+    _, client = _installed(
+        plugin_id="my-plugin", futures={"update": FakeFuture(None, [_done()])}
+    )
 
     with _patch_client(client):
         res = _load(
-            tools.install_plugin(
+            tools.update_plugin(
                 "local_path", FakeContext(), local_path=str(archive_path)
             )
         )
 
     assert res["status"] == "completed"
-    assert _members(client.uploaded) == [_MANIFEST, "python-lib/core.py"]
+    assert _members(client.plugins["my-plugin"].uploaded) == [
+        _MANIFEST,
+        "python-lib/core.py",
+    ]
 
 
-def test_install_plugin_rejects_a_directory_without_a_manifest(tmp_path):
+def test_update_plugin_rejects_a_directory_without_a_manifest(tmp_path):
     (tmp_path / "empty").mkdir()
 
     with pytest.raises(ValueError, match="plugin.json"):
         asyncio.run(
-            tools.install_plugin(
+            tools.update_plugin(
                 "local_path", FakeContext(), local_path=str(tmp_path / "empty")
             )
         )
 
 
-def test_install_plugin_rejects_a_manifest_that_is_not_a_json_object(tmp_path):
+def test_update_plugin_rejects_a_manifest_that_is_not_a_json_object(tmp_path):
     directory = tmp_path / "broken"
     directory.mkdir()
     (directory / _MANIFEST).write_text('["not", "an", "object"]')
 
     with pytest.raises(ValueError, match="must be a JSON object"):
         asyncio.run(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(directory))
+            tools.update_plugin("local_path", FakeContext(), local_path=str(directory))
         )
 
 
-def test_install_plugin_rejects_a_plugin_id_that_contradicts_the_manifest(tmp_path):
+def test_update_plugin_rejects_a_plugin_id_that_contradicts_the_manifest(tmp_path):
     directory = _plugin_directory(tmp_path)
 
     with _patch_client(FakeClient()), pytest.raises(ValueError) as excinfo:
         asyncio.run(
-            tools.install_plugin(
+            tools.update_plugin(
                 "local_path",
                 FakeContext(),
                 plugin_id="other-plugin",
@@ -648,18 +610,13 @@ def test_install_plugin_rejects_a_plugin_id_that_contradicts_the_manifest(tmp_pa
     assert "my-plugin" in str(excinfo.value)
 
 
-def test_install_plugin_rejects_a_missing_local_path():
+def test_update_plugin_rejects_a_missing_local_path():
     with pytest.raises(ValueError, match="does not exist"):
         asyncio.run(
-            tools.install_plugin(
+            tools.update_plugin(
                 "local_path", FakeContext(), local_path="/nonexistent/plugin"
             )
         )
-
-
-# --------------------------------------------------------------------------- #
-# update_plugin
-# --------------------------------------------------------------------------- #
 
 
 def test_update_plugin_from_store_reports_the_resulting_version():
@@ -725,7 +682,8 @@ def test_update_plugin_reports_an_unbound_code_env_instead_of_failing():
 
     assert res["status"] == "completed"
     assert res["code_env_rebuild"]["status"] == "skipped"
-    assert "create_plugin_code_env" in res["code_env_rebuild"]["hint"]
+    assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
+    assert "does not establish" in res["code_env_rebuild"]["hint"]
 
 
 def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
@@ -786,235 +744,6 @@ def test_update_plugin_from_local_path_targets_the_manifest_id(tmp_path):
 
     assert res["status"] == "completed"
     assert _members(plugin.uploaded) == [_MANIFEST, "python-lib/core.py"]
-
-
-# --------------------------------------------------------------------------- #
-# create_plugin_code_env
-# --------------------------------------------------------------------------- #
-
-
-def test_create_plugin_code_env_creates_then_binds():
-    plugin, client = _installed(
-        futures={
-            "create_code_env": FakeFuture(
-                "F4", [_alive(), _code_env_done("plugin_geocoder_managed")]
-            )
-        }
-    )
-
-    with _patch_client(client):
-        res = _load(
-            tools.create_plugin_code_env(
-                "geocoder", FakeContext(), python_interpreter="PYTHON311"
-            )
-        )
-
-    assert res["status"] == "completed"
-    assert res["operation"] == "create_plugin_code_env"
-    assert res["created"] is True
-    assert res["code_env_name"] == "plugin_geocoder_managed"
-    assert res["build"]["status"] == "completed"
-    assert plugin.created_interpreter == "PYTHON311"
-    assert plugin.settings.saves == 1
-
-
-def test_create_plugin_code_env_reports_a_failed_build_and_still_binds():
-    """The nested messages report is the only failure signal a code env gives."""
-    plugin, client = _installed(
-        futures={
-            "create_code_env": FakeFuture(
-                "F4",
-                [
-                    _code_env_done(
-                        "plugin_geocoder_managed",
-                        error="Environment update failed: Failed to install pip packages",
-                    )
-                ],
-            )
-        }
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["status"] == "completed"
-    assert res["created"] is True
-    assert res["code_env_name"] == "plugin_geocoder_managed"
-    assert res["build"]["status"] == "failed"
-    assert "install pip packages" in res["build"]["error"]
-    assert "rebuild_code_env" in res["build"]["hint"]
-    assert plugin.settings.saves == 1
-
-
-def test_code_env_success_reported_with_messages_success_false_is_not_a_failure():
-    """A real successful creation returns messages.success=false with no error/fatal."""
-    _, client = _installed(
-        futures={
-            "create_code_env": FakeFuture(
-                None, [_code_env_done("plugin_geocoder_managed")]
-            )
-        }
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["build"] == {
-        "status": "completed",
-        "code_env_name": "plugin_geocoder_managed",
-    }
-
-
-def test_create_plugin_code_env_is_a_no_op_when_one_is_already_bound():
-    plugin, client = _installed(settings={"codeEnvName": "plugin_geocoder"})
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["status"] == "completed"
-    assert res["created"] is False
-    assert res["code_env_name"] == "plugin_geocoder"
-    assert plugin.settings.saves == 0
-
-
-def test_create_plugin_code_env_binds_an_orphan_instead_of_duplicating_it():
-    """A recovered environment is bound without claiming its earlier build succeeded."""
-    plugin, client = _installed(
-        code_envs=[
-            {"envName": "shared-python", "deploymentMode": "DESIGN_MANAGED"},
-            {"envName": "plugin_geocoder_managed", "deploymentMode": "PLUGIN_MANAGED"},
-        ]
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["status"] == "completed"
-    assert res["created"] is False
-    assert res["code_env_name"] == "plugin_geocoder_managed"
-    assert res["build"] == {
-        "status": "unknown",
-        "code_env_name": "plugin_geocoder_managed",
-        "hint": (
-            "The environment was recovered after an earlier creation did not return a "
-            "verified build result. Rebuild it with "
-            "update_plugin(rebuild_code_env=true) before treating the plugin as ready."
-        ),
-    }
-    assert "create_code_env" not in plugin.futures
-
-
-def test_create_plugin_code_env_reports_dataikus_reason_when_nothing_was_created():
-    """A creation that fails outright names no environment, only a reason."""
-    _, client = _installed(
-        futures={
-            "create_code_env": FakeFuture(
-                "F4",
-                [
-                    {
-                        "alive": False,
-                        "aborted": False,
-                        "hasResult": True,
-                        "result": {
-                            "messages": {
-                                "error": True,
-                                "fatal": True,
-                                "messages": [
-                                    {
-                                        "severity": "ERROR",
-                                        "message": "No python interpreter PYTHON399",
-                                    }
-                                ],
-                            }
-                        },
-                    }
-                ],
-            )
-        }
-    )
-
-    with _patch_client(client), pytest.raises(RuntimeError) as excinfo:
-        asyncio.run(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert "PYTHON399" in str(excinfo.value)
-
-
-def test_create_plugin_code_env_binds_the_newest_of_several_orphans():
-    """Repeated failures leave debris; the newest attempt is the one worth binding."""
-    plugin, client = _installed(
-        code_envs=[
-            {"envName": name, "deploymentMode": "PLUGIN_MANAGED"}
-            for name in (
-                "plugin_geocoder_managed_10",
-                "plugin_geocoder_managed",
-                "plugin_geocoder_managed_2",
-            )
-        ]
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["created"] is False
-    assert res["code_env_name"] == "plugin_geocoder_managed_10"
-    assert res["other_unbound_environments"] == [
-        "plugin_geocoder_managed",
-        "plugin_geocoder_managed_2",
-    ]
-    assert plugin.settings.raw["codeEnvName"] == "plugin_geocoder_managed_10"
-
-
-def test_create_plugin_code_env_omits_leftovers_when_there_is_one_orphan():
-    _, client = _installed(
-        code_envs=[
-            {"envName": "plugin_geocoder_managed", "deploymentMode": "PLUGIN_MANAGED"}
-        ]
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["code_env_name"] == "plugin_geocoder_managed"
-    assert "other_unbound_environments" not in res
-
-
-def test_create_plugin_code_env_ignores_another_plugins_environment():
-    _, client = _installed(
-        plugin_id="agent-hub",
-        futures={
-            "create_code_env": FakeFuture(
-                None, [_code_env_done("plugin_agent-hub_managed")]
-            )
-        },
-        code_envs=[
-            {
-                "envName": "plugin_agent-hub-extras_managed",
-                "deploymentMode": "PLUGIN_MANAGED",
-            }
-        ],
-    )
-
-    with _patch_client(client):
-        res = _load(tools.create_plugin_code_env("agent-hub", FakeContext()))
-
-    assert res["created"] is True
-    assert res["code_env_name"] == "plugin_agent-hub_managed"
-
-
-def test_create_plugin_code_env_timeout_explains_the_recovery_path():
-    plugin, client = _installed(
-        futures={"create_code_env": FakeFuture("F4", [_alive(), _alive()])}
-    )
-
-    with _patch_client(client), _exhausted_clock() as mock_time:
-        mock_time.monotonic.side_effect = incrementing_monotonic()
-        res = _load(tools.create_plugin_code_env("geocoder", FakeContext()))
-
-    assert res["status"] == "still_running"
-    assert res["operation"] == "create_plugin_code_env"
-    assert res["future_id"] == "F4"
-    assert "re-run create_plugin_code_env" in res["hint"]
-    assert plugin.settings.saves == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -1197,13 +926,12 @@ def test_delete_plugin_timeout_does_not_claim_deletion():
 @pytest.mark.parametrize(
     "call",
     [
-        lambda: tools.install_plugin(
+        lambda: tools.update_plugin(
             "store", FakeContext(), plugin_id="x", timeout_seconds=0
         ),
         lambda: tools.update_plugin(
             "store", FakeContext(), plugin_id="x", timeout_seconds=7200
         ),
-        lambda: tools.create_plugin_code_env("x", FakeContext(), timeout_seconds=7200),
         lambda: tools.delete_plugin("x", FakeContext(), timeout_seconds=0),
     ],
 )
@@ -1213,48 +941,56 @@ def test_timeout_bounds_are_validated(call):
 
 
 def test_start_response_without_a_liveness_flag_is_polled_not_trusted():
-    """A bare {"jobId": ...} start response must not read as a completed install."""
-    _, client = _absent(
-        install=FakeFuture("F10", [{"jobId": "F10"}, _done(needsRestart=True)])
+    """A bare {"jobId": ...} start response must not read as a completed update."""
+    _, client = _installed(
+        futures={
+            "update": FakeFuture("F10", [{"jobId": "F10"}, _done(needsRestart=True)])
+        }
     )
 
     with _patch_client(client):
-        res = _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+        res = _load(tools.update_plugin("store", FakeContext(), plugin_id="geocoder"))
 
     assert res["status"] == "completed"
     assert res["needs_restart"] is True
 
 
 def test_future_that_stops_without_a_result_is_not_reported_as_success():
-    _, client = _absent(
-        install=FakeFuture(
-            "F11",
-            [{"alive": True, "hasResult": False}, {"alive": False, "hasResult": False}],
-        )
+    _, client = _installed(
+        futures={
+            "update": FakeFuture(
+                "F11",
+                [
+                    {"alive": True, "hasResult": False},
+                    {"alive": False, "hasResult": False},
+                ],
+            )
+        }
     )
 
     with _patch_client(client), pytest.raises(RuntimeError, match="without reporting"):
-        asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+        asyncio.run(tools.update_plugin("store", FakeContext(), plugin_id="geocoder"))
 
 
 def test_aborted_future_is_not_reported_as_success():
-    _, client = _absent(
-        install=FakeFuture(
-            "F8", [{"alive": False, "aborted": True, "hasResult": False}]
-        )
+    _, client = _installed(
+        futures={
+            "update": FakeFuture(
+                "F8", [{"alive": False, "aborted": True, "hasResult": False}]
+            )
+        }
     )
 
     with _patch_client(client), pytest.raises(RuntimeError, match="aborted"):
-        asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+        asyncio.run(tools.update_plugin("store", FakeContext(), plugin_id="geocoder"))
 
 
 @pytest.mark.parametrize(
     ("operation", "expected"),
     [
-        ("install", "aborted the installation of plugin"),
         ("update", "aborted the update of plugin"),
         ("delete", "aborted the deletion of plugin"),
-        ("create_plugin_code_env", "aborted the code environment build of plugin"),
+        ("rebuild_code_env", "aborted the code environment rebuild of plugin"),
     ],
 )
 def test_error_prose_reads_grammatically_for_every_operation(operation, expected):

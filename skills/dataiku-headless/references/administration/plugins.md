@@ -1,12 +1,12 @@
 ---
 name: plugins
-description: Discover installed Dataiku plugins, install or update one from the plugin store or a local path, give it a code environment, and remove it.
+description: Discover installed Dataiku plugins, update one from the plugin store or a local path, and remove it.
 ---
 
 # Plugins
 
-Use this guide when the user asks what plugins an instance has, wants one installed or
-updated, or wants one removed. Plugin management is a direct-write exception: it is
+Use this guide when the user asks what plugins an instance has, wants one updated or
+removed. Plugin management is a direct-write exception: it is
 instance-wide, not an in-project asset, and Cobuild cannot perform it.
 
 Plugin operations need administrator permission, permission to develop plugins, or
@@ -15,9 +15,8 @@ administrator rights on the specific plugin. Dataiku enforces this.
 ## Plugin Concepts
 
 A plugin installs components — recipes, connectors, agent tools, webapps, macros,
-scenario steps — for the whole instance. Its Python components run in a code environment
-that the plugin declares and Dataiku builds, named `plugin_<plugin id>_managed`, whose
-packages come from the plugin rather than from you.
+scenario steps — for the whole instance. Some plugins declare a managed code environment
+whose packages come from the plugin rather than from you.
 
 A plugin's `dev` flag marks a development plugin, edited in place on the instance rather
 than installed from a released archive. Do not update or delete one unless the user asks
@@ -29,69 +28,57 @@ for that plugin by name; someone is working in it.
    "the SharePoint plugin" or "Answers" resolve without knowing the id.
 2. Use `search_mode="exact"` with `include_details=true` to inspect one plugin before
    changing it. Details cost one settings read per row, so pair them with `search`.
-3. Install with `install_plugin`, update with `update_plugin`; neither substitutes for
-   the other.
-4. If `code_env_name` is null and the plugin declares an environment, see
-   *Code environments* below.
+3. Update an installed plugin with `update_plugin`, or remove it with `delete_plugin`.
+4. `code_env_name: null` means no environment is bound; it does not tell you whether
+   one is required. Check requirements and perform initial setup in the Dataiku UI.
 5. After any change, re-read the plugin and report `needs_restart` when it is true.
 
-## Finding a store plugin id
+## Update sources
 
-Dataiku exposes **no API for browsing the plugin store**, so no tool lists what is
-available and `install_plugin` cannot resolve a name for you. Get the exact id first:
-
-- Store plugins are published as `github.com/dataiku/dss-plugin-<plugin id>`, so the
-  repository slug after `dss-plugin-` is the id.
-- If another instance already has it, `list_plugins` there returns the exact id.
-- Otherwise ask the user. Do not guess an id and install on the chance it resolves.
-
-An unknown id fails with Dataiku's own wording, "Plugin has since been removed from the
-store," which does not distinguish a wrong id from a withdrawn plugin. Assume a wrong id.
+Use the installed id returned by `list_plugins`. A `source="store"` update requires
+that the plugin came from the store. These tools do not browse the store catalog or
+install new plugins; use the Dataiku UI for installation.
 
 For `source="local_path"`, a ZIP may hold `plugin.json` at its root or inside one wrapper
 directory — what a GitHub "Download ZIP" produces — and the wrapper is dropped before
 upload. The archive's own manifest names the target, so you cannot update the wrong
 plugin by mistake.
 
-There is no Git install or update tool: that needs Git authentication configured on the
+There is no Git update tool: that needs Git authentication configured on the
 Dataiku instance, which cannot be arranged from here. Clone the repository locally and
 use `source="local_path"`, or do it in the Dataiku UI.
 
 ## Long-running operations
 
-Every response carries `status` — `started`, `still_running`, `completed`, or `refused` —
+Each update or deletion response carries `status` — `started`, `still_running`, `completed`, or `refused` —
 plus the `operation` it describes.
 
 - `started` and `still_running` mean the work is in flight. Follow the returned
-  `future_id` per `../jobs.md`, and **do not start a duplicate operation**; a second
-  code-environment creation is what produces `plugin_<id>_managed_1` duplicates.
-- `create_plugin_code_env` is safe to re-run after a timeout: it binds an existing
-  unbound environment for that plugin instead of creating another one. Because the
-  earlier build result is unavailable, the recovered environment reports
-  `build.status: "unknown"`; rebuild it before treating the plugin as ready. Where
-  repeated failures already left several unbound environments, the newest is bound and
-  the rest come back as `other_unbound_environments` for you to remove.
+  `future_id` per `../jobs.md`, and **do not start a duplicate operation**.
 - An update that does not complete inline never starts its rebuild, and reports
   `code_env_rebuild.status: "not_started"`. Follow the update, then ask for the rebuild
   again.
 - Dataiku reports a failed action as an ordinary successful response, so the absence of
-  an error is not evidence of success. Install, update, and delete check the reported
+  an error is not evidence of success. Update and delete check the reported
   outcome before returning `completed`; for code environments, read the nested build
   status.
 
 ## Code environments
 
-- **A created or rebuilt environment can exist and still have failed to build.** Read
-  `build` on `create_plugin_code_env` and `code_env_rebuild` on `update_plugin`: either
-  can report `status: "failed"` with the dependency error while the environment is bound.
-  That is reported rather than raised, because the environment exists and creating
-  another is not the fix. Do not call a plugin ready without checking that field.
-- Rebuild after a dependency change with `update_plugin(rebuild_code_env=true)`.
-- A plugin whose `code-env/python/desc.json` sets `installCorePackages: true` inherits
-  Dataiku's core pins, which can fail to build on a recent interpreter. That flag is
-  fixed on the environment at creation, so a rebuild cannot clear it: delete the
-  environment with `delete_code_env`, fix the plugin, then create it again.
-- Inspect the environment with `list_code_envs` per `./code-environments.md`. Its
+- Initial plugin code-environment creation and binding are out of scope. The tools
+  report a bound environment name but do not establish whether an unbound plugin
+  requires one. Use the Dataiku UI to inspect requirements and complete setup; do not
+  substitute `create_code_env` for plugin-managed environment creation.
+- `update_plugin(rebuild_code_env=true)` updates the plugin, then rebuilds its
+  **already-bound** environment from the plugin's specification. It does not create or
+  bind an environment. If none is bound, `code_env_rebuild.status` is `skipped` and the
+  response directs you to the Dataiku UI. This is not evidence that no environment is
+  needed.
+- A rebuilt environment can still have failed to build. Read `code_env_rebuild` before
+  treating the plugin as ready: `status: "failed"` includes the dependency error even
+  though the plugin update itself completed. Fix the plugin's specification before
+  retrying; setup changes that require recreating an environment belong in the Dataiku UI.
+- Inspect a bound environment with `list_code_envs` per `./code-environments.md`. Its
   packages come from the plugin's specification and are not editable through
   `update_code_env`.
 
@@ -121,7 +108,5 @@ plus the `operation` it describes.
 ## Preferred Tools
 
 - `list_plugins`
-- `install_plugin`
 - `update_plugin`
-- `create_plugin_code_env`
 - `delete_plugin`

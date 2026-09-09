@@ -116,6 +116,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "jobs": frozenset(
         {
+            "abort_job",
             "build_datasets",
             "get_future_status",
             "get_job_log",
@@ -164,9 +165,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "plugins": frozenset(
         {
-            "create_plugin_code_env",
             "delete_plugin",
-            "install_plugin",
             "list_plugins",
             "update_plugin",
         }
