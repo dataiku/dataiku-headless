@@ -14,6 +14,8 @@
 
 """Inspection tools for Dataiku Evaluation Stores."""
 
+from typing import Literal
+
 from dataikuapi.utils import DataikuException
 from fastmcp import Context
 
@@ -21,19 +23,23 @@ from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.serialization import columnar, compact_json
-from .utils.validation import (
-    require_allowed_value,
-    require_non_empty_string,
+from .utils.validation import require_non_empty_string
+
+
+@mcp.tool(
+    title="Get Evaluation Store Details",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
 )
-
-
-@mcp.tool()
 async def get_evaluation_store_details(
     project_key: str,
     evaluation_store_id: str,
     ctx: Context,
 ) -> str:
-    """Get metadata and evaluation history for a Model Evaluation Store."""
+    """Read one evaluation store's metadata and the history of its evaluations."""
     project_key = require_non_empty_string(project_key, "project_key")
     evaluation_store_id = require_non_empty_string(
         evaluation_store_id, "evaluation_store_id"
@@ -85,15 +91,21 @@ async def get_evaluation_store_details(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Evaluation Stores",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_evaluation_stores(
     project_key: str,
-    flavor: str,
+    flavor: Literal["TABULAR", "AGENT", "LLM"],
     ctx: Context,
 ) -> str:
-    """List the Evaluation Stores in the project with IDs, names, flavors, and evaluation counts."""
+    """Find a project's evaluation stores of one flavor, with their IDs and evaluation counts."""
     project_key = require_non_empty_string(project_key, "project_key")
-    flavor = require_allowed_value(flavor, "flavor", {"TABULAR", "AGENT", "LLM"})
     await ctx.info(f"Listing {flavor} evaluation stores in {project_key}...")
 
     def _run():
