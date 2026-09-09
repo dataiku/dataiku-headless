@@ -16,8 +16,10 @@
 
 import asyncio
 import time
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -88,9 +90,16 @@ async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
         await asyncio.sleep(min(SCENARIO_POLL_INTERVAL_SECONDS, remaining))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Scenarios",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_scenarios(project_key: str, ctx: Context) -> str:
-    """List the scenarios in the project with their active and running status."""
+    """Find a project's scenarios, their IDs, and what is running now."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing scenarios in {project_key}...")
 
@@ -119,13 +128,20 @@ async def list_scenarios(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Scenario Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_scenario_settings(
     project_key: str,
     scenario_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full scenario settings (steps, triggers, reporters)."""
+    """Read what a scenario does, on what trigger, and who it reports to."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     await ctx.info(f"Fetching settings for scenario {scenario_id} in {project_key}...")
@@ -142,20 +158,27 @@ async def get_scenario_settings(
     return compact_json(raw)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Run Scenario",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def run_scenario(
     project_key: str,
     scenario_id: str,
     ctx: Context,
-    wait_for_completion: bool = False,
-    timeout_seconds: int = 600,
+    wait_for_completion: Annotated[
+        bool, Field(description="False returns as soon as the run is triggered.")
+    ] = False,
+    timeout_seconds: Annotated[
+        int, Field(description="Soft bound on the inline wait, checked between polls.")
+    ] = 600,
 ) -> str:
-    """Run one existing scenario.
-
-    Args:
-        wait_for_completion: If true, wait up to timeout_seconds for the run to finish; if false, trigger the scenario and return immediately.
-        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
-    """
+    """Trigger an existing scenario, which may build, modify, or delete assets."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     timeout_seconds = _require_int_in_range(
@@ -279,14 +302,21 @@ async def run_scenario(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Scenario Run History",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_scenario_run_history(
     project_key: str,
     scenario_id: str,
     ctx: Context,
-    limit: int = 10,
+    limit: Annotated[int, Field(description="Most recent runs returned.")] = 10,
 ) -> str:
-    """Get the last runs of a scenario."""
+    """Check whether a scenario's recent runs succeeded, and why they failed."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     limit = min(_require_positive_int(limit, "limit"), 50)
@@ -345,9 +375,16 @@ async def get_scenario_run_history(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Messaging Channels",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_messaging_channels(ctx: Context) -> str:
-    """List the messaging channels configured on this Dataiku instance."""
+    """Find the channels a scenario reporter can send to."""
     await ctx.info("Listing messaging channels...")
 
     channels = await run_blocking(lambda: get_dss_client().list_messaging_channels())

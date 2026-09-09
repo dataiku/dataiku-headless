@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import dataiku_mcp
 from dataiku_mcp.tools import jobs, scenarios
 from tests.utils.fakes import incrementing_monotonic as _incrementing_monotonic
 
@@ -291,9 +292,22 @@ def test_build_datasets_start_failure_raises_with_safe_retry_guidance():
     assert "nope" in str(raised.value.__cause__)
 
 
-def test_build_datasets_invalid_job_type_rejected():
-    with pytest.raises(ValueError, match="job_type"):
-        _load(jobs.build_datasets("PK", FakeCtx(), ["a"], job_type="BOGUS"))
+def test_build_datasets_advertises_only_valid_job_types():
+    """The allowed job types ride in the schema, so Pydantic rejects the rest.
+
+    Calling the handler directly bypasses that boundary, so assert on the
+    advertised enum instead of on a runtime check the handler no longer makes.
+    """
+    tool = next(
+        item
+        for item in asyncio.run(dataiku_mcp.mcp.list_tools())
+        if item.name == "build_datasets"
+    )
+    assert tool.parameters["properties"]["job_type"]["enum"] == [
+        "NON_RECURSIVE_FORCED_BUILD",
+        "RECURSIVE_BUILD",
+        "RECURSIVE_FORCED_BUILD",
+    ]
 
 
 def test_build_datasets_rejects_duplicates_and_unbounded_inputs():
