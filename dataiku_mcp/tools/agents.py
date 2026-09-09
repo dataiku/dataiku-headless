@@ -14,7 +14,10 @@
 
 """Inspection tools for Dataiku Agents."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -45,9 +48,16 @@ def _get_sa(version):
     return version.setdefault("structuredAgentSettings", {})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agents",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agents(project_key: str, ctx: Context) -> str:
-    """List the agents in the project."""
+    """Find a project's agents and their IDs and types."""
     project_key = require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing agents in {project_key}...")
 
@@ -68,14 +78,23 @@ async def list_agents(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Agent Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_agent_settings(
     project_key: str,
     agent_id: str,
     ctx: Context,
-    version_id: str = "",
+    version_id: Annotated[
+        str, Field(description="The active version when omitted.")
+    ] = "",
 ) -> str:
-    """Get an agent's full settings; version details vary by agent type."""
+    """Read an agent's instructions, model, and wired tools."""
     project_key = require_non_empty_string(project_key, "project_key")
     agent_id = require_non_empty_string(agent_id, "agent_id")
     await ctx.info(f"Getting settings for agent '{agent_id}' in {project_key}...")
@@ -135,13 +154,20 @@ async def get_agent_settings(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agent Versions",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agent_versions(
     project_key: str,
     agent_id: str,
     ctx: Context,
 ) -> str:
-    """List all versions of an agent, indicating which is active."""
+    """Find an agent's versions and which one is active."""
     project_key = require_non_empty_string(project_key, "project_key")
     agent_id = require_non_empty_string(agent_id, "agent_id")
     await ctx.info(f"Listing versions for agent '{agent_id}' in {project_key}...")
@@ -160,9 +186,16 @@ async def list_agent_versions(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agent Tools",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agent_tools(project_key: str, ctx: Context) -> str:
-    """List the agent tools available in the project."""
+    """Find the tools a project's agents can be wired to."""
     project_key = require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing agent tools in {project_key}...")
 
@@ -184,13 +217,20 @@ async def list_agent_tools(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Agent Tool Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_agent_tool_settings(
     project_key: str,
     tool_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full settings of an agent tool."""
+    """Read what one agent tool does and how it is configured."""
     project_key = require_non_empty_string(project_key, "project_key")
     tool_id = require_non_empty_string(tool_id, "tool_id")
     await ctx.info(f"Getting settings for agent tool '{tool_id}' in {project_key}...")
