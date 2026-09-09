@@ -419,7 +419,11 @@ async def _run_plugin_action(
     flight and ``payload`` describes how to follow it; otherwise ``payload`` carries
     the reload flags of a verified success.
     """
-    if not wait_for_completion and future.job_id:
+    if (
+        not wait_for_completion
+        and future.job_id
+        and not _is_terminal(future.state or {})
+    ):
         return None, _in_flight(operation, plugin_id, future, started=True)
     timed_out, state = await _wait_for_future(future, timeout_seconds)
     if timed_out:
