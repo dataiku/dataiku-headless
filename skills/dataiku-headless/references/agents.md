@@ -31,7 +31,8 @@ Read [Agent Tools](./agents/agent-tools.md) when inspecting existing tools or ch
 2. Use `get_agent_settings` to inspect the selected agent's configuration and `agent_type`.
 3. Use `list_agent_versions` when version context matters.
 4. Use `list_agent_tools` and `get_agent_tool_settings` when existing tools are relevant.
-5. If the task requires creating, updating, deleting, or running agents or agent tools, route that work through `./cobuild.md` using the gathered context.
+5. If the request only changes where an agent tool's code runs, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
+6. If the task requires any other creation, update, deletion, or run of agents or agent tools, route that work through `./cobuild.md` using the gathered context.
 
 ## Preferred Tools
 

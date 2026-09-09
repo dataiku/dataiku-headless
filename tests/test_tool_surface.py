@@ -62,6 +62,7 @@ EXPECTED_TOOLS_BY_MODULE = {
     "connections": frozenset(
         {"get_connection_info", "list_connections", "test_connection"}
     ),
+    "container_exec": frozenset({"set_container_exec_config"}),
     "cross_project_sharing": frozenset({"list_shared_objects"}),
     "dashboards": frozenset({"get_dashboard_settings", "list_dashboards"}),
     "data_collections": frozenset(
@@ -201,13 +202,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_project_settings",
         }
     ),
-    "recipes": frozenset(
-        {
-            "get_recipe_settings",
-            "list_recipes",
-            "set_recipe_container_exec_config",
-        }
-    ),
+    "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
     "scenarios": frozenset(
         {
             "get_scenario_run_history",

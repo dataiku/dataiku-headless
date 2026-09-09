@@ -31,8 +31,9 @@ Data suitability and evaluation context matter before model selection. Inspect t
 3. Use `list_ml_analysis_models` and `get_ml_model_details` to inspect candidate trained models, their evaluation results, and feature behavior.
 4. Use `list_saved_models`, `list_saved_model_versions`, and `get_saved_model_version_details` to inspect deployed models and versions.
 5. When training, deployment, or retraining is already in progress, use `./jobs.md` to supervise the existing job.
-6. Route ML analysis creation, tuning, training, deployment, and saved-model changes through `./cobuild.md`.
-7. Route scoring and retraining Flow assets through `./recipes.md` and Cobuild.
+6. If the request only changes where an ML task trains or a saved model retrains, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
+7. Route all other ML analysis creation, tuning, training, deployment, and saved-model changes through `./cobuild.md`.
+8. Route scoring and retraining Flow assets through `./recipes.md` and Cobuild.
 
 ## Preferred Tools
 
