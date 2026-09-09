@@ -17,8 +17,10 @@
 import asyncio
 import secrets
 from dataclasses import asdict
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
@@ -29,10 +31,21 @@ from .utils.auth import (
 )
 from .utils.serialization import columnar, compact_json, omit_empty
 
+InstanceName = Annotated[
+    str, Field(description="A configured instance name, from list_instances.")
+]
 
-@mcp.tool()
+
+@mcp.tool(
+    title="List Dataiku Instances",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_instances(ctx: Context) -> str:
-    """List the configured Dataiku instances (name, URL, description, active flag)."""
+    """See which Dataiku instances are configured and which one is active."""
     instances = config.get_instances()
     try:
         current_instance_name = get_current_instance_for_tool().name
@@ -53,41 +66,48 @@ async def list_instances(ctx: Context) -> str:
     return compact_json(columnar(result, ["name", "url", "description", "active"]))
 
 
-@mcp.tool()
-async def switch_instance(name: str, ctx: Context) -> str:
-    """Switch the active Dataiku instance. All subsequent tool calls will use this instance.
-
-    Args:
-        name: Instance name (run list_instances() to retrieve all available instance names).
-    """
+@mcp.tool(
+    title="Switch Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def switch_instance(name: InstanceName, ctx: Context) -> str:
+    """Retarget every later tool call at a different configured instance."""
     await ctx.info(f"Switching to instance '{name}'...")
     info = config.set_current_instance(name)
     return compact_json(info)
 
 
-@mcp.tool()
-async def delete_instance(name: str, ctx: Context) -> str:
-    """Delete a Dataiku instance from the resolved configuration file.
-
-    Only instances stored in the config file can be deleted. An instance defined
-    through environment variables must be removed by unsetting DKU_DSS_URL.
-
-    Args:
-        name: Instance name (run list_instances() to see available names).
-    """
+@mcp.tool(
+    title="Delete Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def delete_instance(name: InstanceName, ctx: Context) -> str:
+    """Forget a stored instance's local config; one set via DKU_DSS_URL cannot be deleted."""
     await ctx.info(f"Deleting instance '{name}'...")
     info = config.delete_instance_from_config(name)
     return compact_json(info)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Current Instance",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active instance configuration, connection status, and Dataiku version.
-
-    `connection_status` is `connected` only when the saved URL and API key can
-    reach Dataiku. `dataiku_version` is omitted when the connection cannot be
-    verified.
-    """
+    """Confirm which instance is active, whether it can be reached, and its version."""
 
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
@@ -108,13 +128,17 @@ async def get_current_instance(ctx: Context) -> str:
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Configure Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def configure_instance(ctx: Context) -> str:
-    """Connect a Dataiku instance. Use when no instance is configured, or to add another.
-
-    Opens a local browser page for the user to enter the instance URL and API key,
-    saved to the resolved configuration file (0600).
-    """
+    """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
     client_params = ctx.session.client_params
     elicitation_capability = (
         client_params.capabilities.elicitation if client_params else None

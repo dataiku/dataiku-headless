@@ -16,9 +16,11 @@
 
 import asyncio
 import time
+from typing import Annotated, Literal
 
 from dataikuapi.dss.future import DSSFuture
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -31,18 +33,26 @@ from .utils.job_summaries import (
 )
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
     require_int_in_range as _require_int_in_range,
     require_positive_int as _require_positive_int,
 )
 
-VALID_JOB_TYPES = {
+JobType = Literal[
     "NON_RECURSIVE_FORCED_BUILD",
     "RECURSIVE_BUILD",
     "RECURSIVE_FORCED_BUILD",
-}
+]
+WaitForCompletion = Annotated[
+    bool, Field(description="False returns as soon as the job is started.")
+]
+AutoUpdateSchema = Annotated[
+    bool, Field(description="Updates output schemas before each recipe run.")
+]
+WaitTimeoutSeconds = Annotated[
+    int, Field(description="Soft bound on the inline wait, checked between polls.")
+]
 
 DEFAULT_WAIT_TIMEOUT_SECONDS = 50
 MAX_INLINE_WAIT_SECONDS = 3600
@@ -106,32 +116,33 @@ def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> lis
     ]
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Build Datasets",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def build_datasets(
     project_key: str,
     ctx: Context,
-    dataset_names: list[str],
-    wait_for_completion: bool = False,
-    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
-    auto_update_schema: bool = True,
-    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    dataset_names: Annotated[
+        list[str], Field(description="Built together in a single job.")
+    ],
+    wait_for_completion: WaitForCompletion = False,
+    job_type: JobType = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: AutoUpdateSchema = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Build one or more existing datasets as a single Dataiku job.
-
-    Args:
-        dataset_names: Existing dataset names to build (at least one). All requested datasets are started in one job.
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
-        auto_update_schema: Whether to auto-update output schemas before each recipe run.
-        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
-    """
+    """Build existing datasets as one job, overwriting their outputs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     names = _require_non_empty_list(dataset_names, "dataset_names")
     names = [
         _require_non_empty_string(name, f"dataset_names[{i}]")
         for i, name in enumerate(names)
     ]
-    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
     if len(names) > MAX_DATASETS_PER_BUILD:
         raise ValueError(
             f"'dataset_names' must contain at most {MAX_DATASETS_PER_BUILD} items"
@@ -246,27 +257,27 @@ async def build_datasets(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Run Recipe",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def run_recipe(
     project_key: str,
     recipe_name: str,
     ctx: Context,
-    wait_for_completion: bool = False,
-    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
-    auto_update_schema: bool = True,
-    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    wait_for_completion: WaitForCompletion = False,
+    job_type: JobType = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: AutoUpdateSchema = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Run an existing recipe by building its first output as the trigger target.
-
-    Args:
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
-        auto_update_schema: Whether to auto-update output schemas before each recipe run.
-        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
-    """
+    """Run an existing recipe by building its output, overwriting it."""
     project_key = _require_non_empty_string(project_key, "project_key")
     recipe_name = _require_non_empty_string(recipe_name, "recipe_name")
-    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
     )
@@ -393,13 +404,22 @@ async def run_recipe(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Future Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_future_status(
     future_id: str,
     ctx: Context,
-    fetch_result: bool = False,
+    fetch_result: Annotated[
+        bool, Field(description="Adds the operation's result once it has completed.")
+    ] = False,
 ) -> str:
-    """Get the status of a DSSFuture returned by a long-running Dataiku operation."""
+    """Check whether a long-running Dataiku operation has finished."""
     future_id = _require_non_empty_string(future_id, "future_id")
     await ctx.info(
         f"Retrieving Dataiku future status for {future_id} (fetch_result={fetch_result})..."
@@ -413,14 +433,23 @@ async def get_future_status(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Job Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_job_status(
     project_key: str,
     job_id: str,
     ctx: Context,
-    full: bool = False,
+    full: Annotated[
+        bool, Field(description="Adds per-activity detail and the job definition.")
+    ] = False,
 ) -> str:
-    """Get the current status of a Dataiku job."""
+    """Check whether a job is still running, and which activity it is on."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     await ctx.info(f"Retrieving status for job {job_id} (full={full})...")
@@ -436,15 +465,27 @@ async def get_job_status(
     return compact_json(payload)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Job Log",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_job_log(
     project_key: str,
     job_id: str,
     ctx: Context,
-    activity: str | None = None,
-    tail_lines: int | None = 200,
+    activity: Annotated[
+        str | None,
+        Field(description="One activity's log; the whole job's when omitted."),
+    ] = None,
+    tail_lines: Annotated[
+        int | None, Field(description="Null returns the entire log.")
+    ] = 200,
 ) -> str:
-    """Get Dataiku job logs."""
+    """Read a job's logs to find out why it failed."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     if activity is not None:
@@ -480,9 +521,19 @@ async def get_job_log(
     return compact_json(result)
 
 
-@mcp.tool()
-async def list_jobs(project_key: str, limit: int = 10) -> str:
-    """List recent Dataiku jobs in the project."""
+@mcp.tool(
+    title="List Jobs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_jobs(
+    project_key: str,
+    limit: Annotated[int, Field(description="Most recent jobs returned.")] = 10,
+) -> str:
+    """Find a project's recent jobs and their IDs and outcomes."""
     project_key = _require_non_empty_string(project_key, "project_key")
     limit = min(_require_positive_int(limit, "limit"), 100)
 
@@ -510,14 +561,21 @@ async def list_jobs(project_key: str, limit: int = 10) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Wait for Job",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def wait_for_job(
     project_key: str,
     job_id: str,
     ctx: Context,
-    timeout_seconds: int = 600,
+    timeout_seconds: WaitTimeoutSeconds = 600,
 ) -> str:
-    """Wait for a Dataiku job to finish, with a timeout."""
+    """Block until a running job reaches a terminal state."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
@@ -549,26 +607,25 @@ async def wait_for_job(
     return compact_json({"status": top_level_status, "job": status_summary})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Abort Job",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def abort_job(
     project_key: str,
     job_id: str,
     ctx: Context,
-    wait_for_abort: bool = True,
-    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    wait_for_abort: Annotated[
+        bool, Field(description="Waits for the job to reach a terminal state.")
+    ] = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Abort a running Dataiku job.
-
-    Use it when a build or run must stop: it is too slow, it was started by
-    mistake, or its recipe must be replaced before a rerun. Aborting does not
-    roll back what the job already wrote; a partially written output may remain.
-    A job already in a terminal state is reported as-is and is not re-aborted.
-
-    Args:
-        job_id: The job to abort, as returned by build_datasets, run_recipe, or list_jobs.
-        wait_for_abort: If true, wait up to timeout_seconds for the job to reach a terminal state after the abort request.
-        timeout_seconds: Max time for the inline wait when wait_for_abort=true. This is a soft timeout checked between status polls.
-    """
+    """Stop a running job; whatever it already wrote is left in place."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     timeout_seconds = _require_int_in_range(
