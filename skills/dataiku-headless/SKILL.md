@@ -37,11 +37,12 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | User intent | Guide to read next |
 | --- | --- |
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
-| Inspect or update project settings, including Flow display, pipelines, default code envs, or container execution | `./references/projects/settings.md` |
+| Inspect or update project settings, including Flow display, pipelines, default code envs, or project-level container execution defaults | `./references/projects/settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
 | Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
+| Select which container one existing recipe, ML task, saved-model retrain, WebApp backend, Knowledge Bank, or agent tool runs in | `./references/container-execution.md` |
 | Run an existing dataset or recipe, or track jobs, waits, and logs | `./references/jobs.md` |
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
