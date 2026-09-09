@@ -60,7 +60,7 @@ _conversations: dict[str, _Conversation] = {}
 
 def _project_url(entry: _Conversation) -> str:
     # Cobuild opens from the project Flow, not a conversation-specific URL.
-    return f"{entry.instance_url.rstrip('/')}/projects/{entry.project_key}/flow"
+    return f"{entry.instance_url.rstrip('/')}/projects/{entry.project_key}/flow/"
 
 
 def _open_in_dss(entry: _Conversation) -> str:
