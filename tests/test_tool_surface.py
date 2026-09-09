@@ -167,6 +167,7 @@ EXPECTED_TOOLS_BY_MODULE = {
         {
             "delete_plugin",
             "list_plugins",
+            "list_plugin_usages",
             "update_plugin",
         }
     ),

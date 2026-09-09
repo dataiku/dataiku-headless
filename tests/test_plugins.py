@@ -398,6 +398,62 @@ def test_list_plugins_reads_settings_only_for_the_returned_page():
 
 
 # --------------------------------------------------------------------------- #
+# list_plugin_usages
+# --------------------------------------------------------------------------- #
+
+
+def test_list_plugin_usages_pages_all_deletion_blockers():
+    _, client = _installed(
+        usages={
+            "usages": [
+                {
+                    "projectKey": "PROJ",
+                    "objectType": "RECIPE",
+                    "objectId": "geocode",
+                    "extraField": "preserved",
+                }
+            ],
+            "missingTypes": [
+                {"pluginId": "other", "missingType": "OtherType"},
+                {"pluginId": "geocoder", "missingType": "GeocodeType"},
+            ],
+        }
+    )
+
+    with _patch_client(client):
+        first_page = _load(tools.list_plugin_usages("geocoder", FakeContext(), limit=1))
+        second_page = _load(
+            tools.list_plugin_usages("geocoder", FakeContext(), offset=1, limit=1)
+        )
+
+    assert first_page["blocker_count"] == 2
+    assert first_page["returned_blockers"] == 1
+    assert first_page["next_offset"] == 1
+    first_blocker = dict(
+        zip(first_page["blockers"]["columns"], first_page["blockers"]["rows"][0])
+    )
+    assert first_blocker["kind"] == "usage"
+    assert first_blocker["extraField"] == "preserved"
+
+    assert second_page["next_offset"] is None
+    second_blocker = dict(
+        zip(second_page["blockers"]["columns"], second_page["blockers"]["rows"][0])
+    )
+    assert second_blocker["kind"] == "unresolvable_component"
+    assert second_blocker["missingType"] == "GeocodeType"
+
+
+@pytest.mark.parametrize(("offset", "limit"), [(-1, 1), (0, 0)])
+def test_list_plugin_usages_validates_pagination_bounds(offset, limit):
+    with pytest.raises(ValueError, match="offset|limit"):
+        asyncio.run(
+            tools.list_plugin_usages(
+                "geocoder", FakeContext(), offset=offset, limit=limit
+            )
+        )
+
+
+# --------------------------------------------------------------------------- #
 # update_plugin
 # --------------------------------------------------------------------------- #
 
@@ -820,7 +876,9 @@ def test_delete_plugin_caps_the_reported_usages_but_not_the_count():
         res = _load(tools.delete_plugin("geocoder", FakeContext()))
 
     assert res["usage_count"] == 120
+    assert res["blocker_count"] == 120
     assert len(res["usages"]["rows"]) == tools._MAX_REPORTED_USAGES
+    assert "list_plugin_usages" in res["hint"]
 
 
 def test_delete_plugin_ignores_instance_wide_unresolvable_component_noise():

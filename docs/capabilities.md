@@ -22,12 +22,12 @@ instance the local client targets.
 
 ## Surface
 
-**127 tools** · 92 read · 21 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**128 tools** · 93 read · 21 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 92 | Never mutates |
+| Read / inspect | 93 | Never mutates |
 | Direct Dataiku write | 21 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
@@ -84,7 +84,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — needs your filesystem |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
-| Plugins | `list_plugins` | `update_plugin`, `delete_plugin` | Instance-level |
+| Plugins | `list_plugins`, `list_plugin_usages` | `update_plugin`, `delete_plugin` | Instance-level |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |

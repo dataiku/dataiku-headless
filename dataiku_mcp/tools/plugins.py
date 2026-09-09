@@ -45,8 +45,8 @@ _MAX_TIMEOUT_SECONDS = 3600
 _DEFAULT_TIMEOUT_SECONDS = 120
 _MIN_POLL_INTERVAL_SECONDS = 2
 _MAX_POLL_INTERVAL_SECONDS = 30
-# A refusal needs to show that the plugin is in use and roughly where, not an
-# exhaustive manifest; the full list stays available from Dataiku.
+# A deletion refusal provides a compact sample; list_plugin_usages paginates the
+# complete impact before an agent asks the user to force deletion.
 _MAX_REPORTED_USAGES = 50
 # Excluded to keep the uploaded archive small, not as a security boundary.
 _SKIPPED_DIRECTORY_NAMES = {".git", "__pycache__"}
@@ -68,6 +68,7 @@ _USAGE_COLUMNS = [
     "elementKind",
     "elementType",
 ]
+_BLOCKER_FIXED_COLUMNS = ["kind", *_USAGE_COLUMNS, "pluginId", "missingType"]
 
 _SUMMARY_COLUMNS = ["id", "version", "dev", "label", "deprecated"]
 _DETAIL_COLUMNS = [
@@ -387,6 +388,24 @@ def _reload_flags(result: dict) -> dict:
     }
 
 
+def _deletion_blockers(raw: dict, plugin_id: str) -> list[dict]:
+    """Return every plugin-specific record that blocks a normal deletion."""
+    usages = [{**item, "kind": "usage"} for item in raw.get("usages") or []]
+    unresolvable = [
+        {**item, "kind": "unresolvable_component"}
+        for item in raw.get("missingTypes") or []
+        if item.get("pluginId") == plugin_id
+    ]
+    return [*usages, *unresolvable]
+
+
+def _blocker_columns(blockers: list[dict]) -> list[str]:
+    """Keep stable core columns while retaining every SDK-provided blocker field."""
+    fixed = set(_BLOCKER_FIXED_COLUMNS)
+    extras = sorted({key for blocker in blockers for key in blocker} - fixed)
+    return [*_BLOCKER_FIXED_COLUMNS, *extras]
+
+
 async def _run_plugin_action(
     operation: str,
     plugin_id: str,
@@ -496,6 +515,58 @@ async def list_plugins(
             "plugins": columnar(
                 rows, _DETAIL_COLUMNS if include_details else _SUMMARY_COLUMNS
             ),
+        }
+    )
+
+
+@mcp.tool(
+    title="List Plugin Deletion Blockers",
+    description="Inspect every object or unresolved component that blocks deletion of an installed plugin.",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_plugin_usages(
+    plugin_id: str,
+    ctx: Context,
+    offset: int = 0,
+    limit: int = 50,
+) -> str:
+    """List every project object or unresolved component blocking plugin deletion.
+
+    Use this to inspect every page before requesting force deletion. Requires
+    administrator or plugin-developer permission.
+
+    Args:
+        plugin_id: Installed plugin id.
+        offset: Zero-based offset within deletion blockers.
+        limit: Maximum blockers to return. Values above 100 are capped at 100.
+    """
+    plugin_id = _require_non_empty_string(plugin_id, "plugin_id")
+    offset = _require_non_negative_int(offset, "offset")
+    limit = min(_require_positive_int(limit, "limit"), 100)
+    await ctx.info(f"Listing deletion blockers for Dataiku plugin '{plugin_id}'...")
+
+    def _run():
+        client = get_dss_client()
+        _installed_plugin(client, plugin_id)
+        raw = client.get_plugin(plugin_id).list_usages().get_raw()
+        blockers = _deletion_blockers(raw, plugin_id)
+        return len(blockers), blockers[offset : offset + limit]
+
+    blocker_count, blockers = await run_blocking(_run)
+    returned = len(blockers)
+    return compact_json(
+        {
+            "plugin_id": plugin_id,
+            "blocker_count": blocker_count,
+            "returned_blockers": returned,
+            "next_offset": (
+                offset + returned if offset + returned < blocker_count else None
+            ),
+            "blockers": columnar(blockers, _blocker_columns(blockers)),
         }
     )
 
@@ -719,11 +790,14 @@ async def delete_plugin(
                     "deleted": False,
                     "error": "Plugin cannot be deleted because it is still in use.",
                     "usage_count": len(usages),
+                    "blocker_count": len(usages) + len(unresolvable),
                     "usages": columnar(usages[:_MAX_REPORTED_USAGES], _USAGE_COLUMNS),
-                    "unresolvable_components": unresolvable,
+                    "unresolvable_components": unresolvable[:_MAX_REPORTED_USAGES],
                     "hint": (
-                        "Remove or replace every listed object, then retry. Pass "
-                        "force=true only to delete anyway and break them."
+                        "Inspect every blocker with list_plugin_usages before removing "
+                        "or replacing them. Pass force=true only after the user has "
+                        "reviewed the complete impact and explicitly asked to delete "
+                        "any remaining blockers."
                     ),
                 }
             )

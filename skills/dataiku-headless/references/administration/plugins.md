@@ -87,17 +87,19 @@ plus the `operation` it describes.
 ## Deletion
 
 - `delete_plugin` checks usages first and refuses with `deleted: false` when any exist.
-  Do not conclude a plugin was removed until `deleted` is true. `usages` is capped;
-  `usage_count` is the true total.
+  Do not conclude a plugin was removed until `deleted` is true. Its response is a
+  compact sample: use `list_plugin_usages` until `next_offset` is null before deciding
+  whether to remove the blockers or force deletion.
 - Dataiku also refuses when it cannot currently resolve the plugin's components, the
   usual state for a plugin installed or updated since the last backend reload. That
   returns `status: "refused"` with Dataiku's own `reason`; reloading the backend and
   retrying is the clean fix. Its analysis reports unresolvable component types for the
   whole instance, so only entries attributable to this plugin come back, as
   `unresolvable_components`.
-- `force=true` deletes despite usages and **breaks every listed object**. Use it only on
-  explicit instruction after showing the user the usage list. Deleting a plugin does not
-  delete its code environment.
+- `force=true` deletes despite usages and **breaks every blocker**, including blockers
+  omitted from the initial refusal. Use it only on explicit instruction after showing the
+  user every page from `list_plugin_usages`. Deleting a plugin does not delete its code
+  environment.
 
 ## Out of scope
 
@@ -110,5 +112,6 @@ plus the `operation` it describes.
 ## Preferred Tools
 
 - `list_plugins`
+- `list_plugin_usages`
 - `update_plugin`
 - `delete_plugin`
