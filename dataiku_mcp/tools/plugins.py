@@ -353,8 +353,8 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
         "error": detail,
         "hint": (
             "The environment exists but its dependencies did not install. Fix the "
-            "plugin's code-env specification, then run "
-            "update_plugin(rebuild_code_env=true)."
+            "plugin's code-env specification, then ask the user to rebuild the "
+            "existing environment in the Dataiku UI."
         ),
     }
 
@@ -567,8 +567,10 @@ async def update_plugin(
                 "status": "not_started",
                 "reason": "The update has not completed, and a rebuild needs it to.",
                 "hint": (
-                    "Follow the update to completion, then call "
-                    "update_plugin(rebuild_code_env=true) again."
+                    "Follow the update to successful completion with "
+                    "get_future_status(future_id, fetch_result=true), then ask the "
+                    "user to rebuild the plugin's existing code environment in the "
+                    "Dataiku UI. The rebuild will not start automatically."
                 ),
             }
         return compact_json(in_flight)

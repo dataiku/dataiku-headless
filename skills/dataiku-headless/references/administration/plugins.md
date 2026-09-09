@@ -55,9 +55,14 @@ plus the `operation` it describes.
 
 - `started` and `still_running` mean the work is in flight. Follow the returned
   `future_id` per `../jobs.md`, and **do not start a duplicate operation**.
-- An update that does not complete inline never starts its rebuild, and reports
-  `code_env_rebuild.status: "not_started"`. Follow the update, then ask for the rebuild
-  again.
+- When a requested rebuild cannot start because the update exceeds the inline wait,
+  `code_env_rebuild.status` is `not_started`. Follow the update's `future_id` to
+  successful completion, then ask the user to rebuild the plugin's existing code
+  environment in the Dataiku UI. The rebuild will not start automatically after the
+  tool returns. Do not call `update_plugin` again solely to start the rebuild: that
+  would repeat the plugin update.
+- If the rebuild itself is already running, follow its own `future_id` to completion
+  instead of starting another rebuild in the UI.
 - Dataiku reports a failed action as an ordinary successful response, so the absence of
   an error is not evidence of success. Update and delete check the reported
   outcome before returning `completed`; for code environments, read the nested build
@@ -76,8 +81,10 @@ plus the `operation` it describes.
   needed.
 - A rebuilt environment can still have failed to build. Read `code_env_rebuild` before
   treating the plugin as ready: `status: "failed"` includes the dependency error even
-  though the plugin update itself completed. Fix the plugin's specification before
-  retrying; setup changes that require recreating an environment belong in the Dataiku UI.
+  though the plugin update itself completed. Fix the plugin's specification, then ask
+  the user to retry the environment rebuild in the Dataiku UI. Do not repeat the
+  plugin update solely to retry a failed rebuild. Setup changes that require recreating
+  an environment also belong in the Dataiku UI.
 - Inspect a bound environment with `list_code_envs` per `./code-environments.md`. Its
   packages come from the plugin's specification and are not editable through
   `update_code_env`.
