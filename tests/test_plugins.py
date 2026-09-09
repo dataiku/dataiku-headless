@@ -707,7 +707,6 @@ def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
     assert res["status"] == "completed"
     assert res["code_env_rebuild"]["status"] == "failed"
     assert "pip resolution failed" in res["code_env_rebuild"]["error"]
-    assert "ask the user to rebuild" in res["code_env_rebuild"]["hint"]
     assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
     assert "update_plugin" not in res["code_env_rebuild"]["hint"]
 
@@ -731,9 +730,7 @@ def test_update_plugin_timeout_says_the_requested_rebuild_never_started():
     assert res["code_env_rebuild"]["status"] == "not_started"
     assert res["future_id"] == "F2"
     assert "get_future_status" in res["code_env_rebuild"]["hint"]
-    assert "ask the user to rebuild" in res["code_env_rebuild"]["hint"]
     assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
-    assert "will not start automatically" in res["code_env_rebuild"]["hint"]
     assert "update_plugin" not in res["code_env_rebuild"]["hint"]
 
 

@@ -569,8 +569,7 @@ async def update_plugin(
                 "hint": (
                     "Follow the update to successful completion with "
                     "get_future_status(future_id, fetch_result=true), then ask the "
-                    "user to rebuild the plugin's existing code environment in the "
-                    "Dataiku UI. The rebuild will not start automatically."
+                    "user to rebuild the existing environment in the Dataiku UI."
                 ),
             }
         return compact_json(in_flight)
