@@ -169,6 +169,8 @@ def _read_manifest_id(manifest_bytes: bytes) -> str:
 
 def _archive_from_directory(directory: Path) -> tuple[io.BytesIO, str]:
     manifest = directory / _MANIFEST_NAME
+    if manifest.is_symlink():
+        raise ValueError(f"Plugin manifest '{manifest}' must not be a symlink")
     if not manifest.is_file():
         raise ValueError(
             f"Plugin directory '{directory}' does not contain {_MANIFEST_NAME} at its root"
@@ -180,6 +182,10 @@ def _archive_from_directory(directory: Path) -> tuple[io.BytesIO, str]:
             relative = path.relative_to(directory)
             if _SKIPPED_DIRECTORY_NAMES.intersection(relative.parts):
                 continue
+            if path.is_symlink():
+                raise ValueError(
+                    f"Plugin directory '{directory}' contains symlink '{relative}'"
+                )
             if path.is_file():
                 target.write(path, relative)
     buffer.seek(0)

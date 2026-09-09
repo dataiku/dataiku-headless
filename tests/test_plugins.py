@@ -547,6 +547,32 @@ def test_update_plugin_zips_a_directory_and_omits_version_control_files(tmp_path
     ]
 
 
+def test_update_plugin_rejects_a_symlinked_manifest(tmp_path):
+    directory = _plugin_directory(tmp_path)
+    manifest = directory / _MANIFEST
+    target = tmp_path / "manifest.json"
+    target.write_text(manifest.read_text())
+    manifest.unlink()
+    manifest.symlink_to(target)
+
+    with pytest.raises(ValueError, match="manifest.*symlink"):
+        asyncio.run(
+            tools.update_plugin("local_path", FakeContext(), local_path=str(directory))
+        )
+
+
+def test_update_plugin_rejects_a_symlinked_file_in_a_directory(tmp_path):
+    directory = _plugin_directory(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do not upload")
+    (directory / "python-lib" / "secret.txt").symlink_to(secret)
+
+    with pytest.raises(ValueError, match="contains symlink"):
+        asyncio.run(
+            tools.update_plugin("local_path", FakeContext(), local_path=str(directory))
+        )
+
+
 def test_update_plugin_flattens_a_zip_wrapped_in_one_directory(tmp_path):
     archive_path = tmp_path / "download.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
