@@ -8,10 +8,10 @@ its object-specific references as directed.
 ## The rule
 
 **Flow and analytic logic is always built by Cobuild.** Headless has no tool to create
-or change recipe logic, code, inputs, or outputs, or to create or modify an ML analysis,
-dashboard, insight, agent, agent tool, scenario, webapp, wiki article, data quality rule,
-knowledge bank, semantic model, or evaluation store. The recipe container execution
-override below changes only where an existing recipe runs.
+or change recipe logic, code, inputs, or outputs, or to create or modify the definition
+of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki article,
+data quality rule, knowledge bank, semantic model, or evaluation store. The container
+execution override below changes only which container an existing object runs in.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
@@ -43,24 +43,24 @@ bucket here.
 ## Built by Cobuild — limited direct exceptions
 
 Three partial exceptions: Headless can create a dataset from a local file, create an
-empty managed folder, and select container execution for an existing recipe (see
+empty managed folder, and select container execution for an existing object (see
 *Handled directly by Headless*). It cannot build or change analytic logic here.
 
 | Area | Inspect | Direct action |
 |---|---|---|
 | Datasets | `list_datasets`, `get_dataset_info`, `get_dataset_sample`, `get_dataset_profile`, `get_dataset_metrics`, `get_dataset_column_descriptions`, `export_dataset` | `build_datasets` |
-| Recipes | `list_recipes`, `get_recipe_settings` | `set_recipe_container_exec_config`, `run_recipe` |
+| Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `run_recipe` |
 | Flow & zones | `get_flow_graph`, `list_flow_zones`, `get_flow_object_metadata` | — |
-| ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | — |
-| Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
-| Agents | `list_agents`, `get_agent_settings`, `list_agent_versions`, `list_agent_tools`, `get_agent_tool_settings` | — |
+| ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | `set_container_exec_config` (single-ML-task analyses) |
+| Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | `set_container_exec_config` (retrain placement) |
+| Agents | `list_agents`, `get_agent_settings`, `list_agent_versions`, `list_agent_tools`, `get_agent_tool_settings` | `set_container_exec_config` (agent tools) |
 | Agent reviews | `list_agent_reviews`, `get_agent_review`, `list_agent_review_tests`, `list_agent_review_runs`, `get_agent_review_run_results` | — |
 | Scenarios | `list_scenarios`, `get_scenario_settings`, `get_scenario_run_history`, `list_messaging_channels` | `run_scenario` |
 | Dashboards & insights | `list_dashboards`, `get_dashboard_settings`, `list_insights`, `get_insight_settings` | — |
-| Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | — |
+| Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config` |
 | Wikis | `list_wiki_articles`, `get_wiki_article` | — |
 | Data quality | `list_data_quality_rules`, `get_data_quality_status`, `get_data_quality_rule`, `get_data_quality_rule_results`, `get_data_quality_rule_history` | — |
-| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_retrieval_augmented_llms`, `get_retrieval_augmented_llm_settings` | — |
+| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_retrieval_augmented_llms`, `get_retrieval_augmented_llm_settings` | `set_container_exec_config` (knowledge banks) |
 | Semantic models | `list_semantic_models`, `get_semantic_model_version_settings` | — |
 | Evaluation stores | `list_evaluation_stores`, `get_evaluation_store_details` | — |
 
@@ -82,7 +82,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
-| Recipe execution placement | `list_recipes`, `get_recipe_settings` | `set_recipe_container_exec_config` | Project configuration, **in-project** — does not change recipe logic |
+| Container execution placement | `list_saved_models`, `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, saved-model retrain, WebApp backend, Knowledge Bank, or agent tool runs in |
 | Datasets from local files | — | `create_upload_dataset` | Bootstrap, **in-project** — needs your filesystem |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — needs your filesystem |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — needs your filesystem |

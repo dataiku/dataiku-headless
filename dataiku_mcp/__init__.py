@@ -57,6 +57,7 @@ from .tools import (  # noqa: F401,E402
     cobuild,
     code_environments,
     connections,
+    container_exec,
     cross_project_sharing,
     dashboards,
     data_collections,

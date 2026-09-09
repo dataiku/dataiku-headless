@@ -31,31 +31,10 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 3. Inspect input and output datasets when schema, data shape, storage, or sample values affect the transformation.
 4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
 5. Read supporting guides when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
-6. If the request only changes where an existing recipe runs, follow **Container Execution Override** below. This is a narrow direct-write exception and does not require Cobuild.
+6. If the request only changes where an existing recipe runs, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
 7. Route all other recipe creation, editing, and wiring through `./cobuild.md`.
 8. Cobuild will run recipes and build datasets as part of broader project work. For one-off execution of an existing recipe or dataset build, use `./jobs.md`: `build_datasets` for dataset outputs and `run_recipe` for direct recipe execution.
 9. After a build or run starts, use `./jobs.md` to follow an active or uncertain job. Validate outputs through the relevant guide.
-
-## Container Execution Override
-
-`set_recipe_container_exec_config` changes only the container execution selection of
-an existing recipe. It preserves the recipe's logic, code, inputs, outputs, and other
-engine settings.
-
-1. Use `list_recipes` to confirm the recipe name.
-2. Use `get_recipe_settings(include_engine_params=true)` to inspect the current selection.
-3. Choose one mode:
-   - `INHERIT`: use the project default; omit `container_config`.
-   - `NONE`: run without a container; omit `container_config`.
-   - `EXPLICIT_CONTAINER`: select one configuration and provide `container_config`.
-4. Before using `EXPLICIT_CONTAINER`, call `list_container_exec_configs` and copy the
-   returned name exactly. This discovery tool requires global administrator rights; if
-   it is unavailable, ask the user for the exact configuration name instead of guessing.
-5. Call `set_recipe_container_exec_config`, then re-read the recipe settings with
-   `include_engine_params=true` and verify the resulting selection.
-
-The tool supports code and visual recipes that already expose a container selection.
-It fails without saving when the recipe type does not support a container override.
 
 ## Recipe Families
 
@@ -82,14 +61,13 @@ It fails without saving when the recipe type does not support a container overri
 - Explicitly requested code environments: `./administration/code-environments.md`
 - Project-library code dependencies: `./project-libraries.md`
 - Active or uncertain execution: `./jobs.md`
+- Container execution placement for one object: `./container-execution.md`
 
 ## Preferred Tools
 
 - `get_flow_graph`
 - `list_recipes`
 - `get_recipe_settings`
-- `set_recipe_container_exec_config`
-- `list_container_exec_configs`
 - `list_datasets`
 - `get_dataset_info`
 - `get_dataset_profile`
@@ -98,13 +76,12 @@ It fails without saving when the recipe type does not support a container overri
 ## Safety Rules
 
 - Inspect an existing recipe before any modification.
-- Treat container execution selection as the only direct recipe-setting write. Route
-  changes to recipe logic, code, inputs, outputs, or other engine settings through Cobuild.
-- Do not invent a container configuration name. Use discovery or an exact name supplied
-  by the user.
+- Treat container execution selection, documented in `./container-execution.md`, as the
+  only direct recipe-setting write. Route changes to recipe logic, code, inputs, outputs,
+  or other engine settings through Cobuild.
 - Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
 - Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
 - `get_flow_graph` is the primary flow-orientation tool. It returns flow sources, nodes, and dependency edges. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
 - Use `./jobs.md` for direct execution of an existing recipe or its dataset outputs; this guide stays focused on inspection and grounded recipe planning.
-- Keep this skill focused on inspection, the documented container execution exception,
-  concepts, and Cobuild grounding. Do not add other direct recipe mutation workflows.
+- Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not add
+  direct recipe mutation workflows beyond the container execution exception.
