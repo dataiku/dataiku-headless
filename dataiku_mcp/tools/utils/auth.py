@@ -67,11 +67,6 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
-def get_dataiku_version(client: dataikuapi.DSSClient) -> str:
-    """Return the Dataiku version from the instance metadata endpoint."""
-    return client.get_instance_info().raw.get("dssVersion") or ""
-
-
 async def require_admin() -> None:
     """Raise a concise error unless the configured credentials are an admin."""
 
