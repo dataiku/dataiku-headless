@@ -18,8 +18,10 @@ import csv
 import hashlib
 import os
 import tempfile
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -32,6 +34,10 @@ from .utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
 _CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+ColumnSubset = Annotated[
+    list[str] | None, Field(description="Every column when omitted.")
+]
 
 
 def _create_uploaded_dataset_from_file(
@@ -158,17 +164,31 @@ def _resolve_export_columns(
     return selected_columns, selected_indices, selected_types
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Uploaded Files Dataset",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_upload_dataset(
     project_key: str,
     dataset_name: str,
-    filepath: str,
+    filepath: Annotated[
+        str, Field(description="Path on the machine running this server.")
+    ],
     ctx: Context,
-    connection: str,
-    filename: str = "",
+    connection: Annotated[
+        str, Field(description="Dataiku connection that accepts uploaded files.")
+    ],
+    filename: Annotated[
+        str, Field(description="Name recorded in Dataiku; defaults to the file's own.")
+    ] = "",
     include_schema: bool = True,
 ) -> str:
-    """Create a new UploadedFiles dataset from a local file."""
+    """Create a dataset from a local file, to get user-supplied data into a project."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     filepath = _require_non_empty_string(filepath, "filepath")
@@ -190,9 +210,16 @@ async def create_upload_dataset(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Datasets",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_datasets(project_key: str, ctx: Context) -> str:
-    """List the datasets in the project with their types and connections."""
+    """Find a project's datasets and their exact names, types, and connections."""
     await ctx.info(f"Listing datasets in {project_key}...")
 
     def _run():
@@ -218,16 +245,25 @@ async def list_datasets(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Dataset Sample",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dataset_sample(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    limit: int = 5,
-    max_value_length: int | None = 200,
-    columns: list[str] | None = None,
+    limit: Annotated[int, Field(description="Capped at 100.")] = 5,
+    max_value_length: Annotated[
+        int | None, Field(description="Null returns values untruncated.")
+    ] = 200,
+    columns: ColumnSubset = None,
 ) -> str:
-    """Sample rows from a dataset to inspect raw value formats."""
+    """Read a few rows of a dataset to see raw values, formats, and encodings."""
     limit = min(_require_positive_int(limit, "limit"), 100)
     if max_value_length is not None:
         max_value_length = _require_positive_int(max_value_length, "max_value_length")
@@ -286,23 +322,39 @@ async def get_dataset_sample(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Export Dataset to CSV",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def export_dataset(
     project_key: str,
     dataset_name: str,
-    output_path: str,
+    output_path: Annotated[
+        str,
+        Field(
+            description="CSV path on the machine running this server; "
+            "its parent directory must exist."
+        ),
+    ],
     ctx: Context,
-    limit: int = _MAX_EXPORT_ROWS,
-    columns: list[str] | None = None,
-    overwrite: bool = False,
-    spreadsheet_safe: bool = False,
+    limit: Annotated[
+        int, Field(description=f"Rows to export. Capped at {_MAX_EXPORT_ROWS}.")
+    ] = _MAX_EXPORT_ROWS,
+    columns: ColumnSubset = None,
+    overwrite: Annotated[
+        bool, Field(description="Replaces any existing file at output_path.")
+    ] = False,
+    spreadsheet_safe: Annotated[
+        bool,
+        Field(description="Escapes text a spreadsheet would evaluate as a formula."),
+    ] = False,
 ) -> str:
-    """Export dataset rows to a local UTF-8 CSV file.
-
-    Args:
-        spreadsheet_safe: Escape text that spreadsheet software could evaluate
-            as a formula. Defaults to false so exports preserve their raw data.
-    """
+    """Write a dataset's rows to a local CSV file, when every row is needed offline."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")
@@ -409,9 +461,16 @@ async def export_dataset(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Dataset Info",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) -> str:
-    """Get the dataset's type, connection, and column schema."""
+    """Inspect where a dataset's data lives and what its columns mean."""
     await ctx.info(f"Loading dataset info for {dataset_name} in {project_key}...")
 
     def _run():
@@ -448,14 +507,21 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Dataset Column Descriptions",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dataset_column_descriptions(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    columns: list[str] | None = None,
+    columns: ColumnSubset = None,
 ) -> str:
-    """Get per-column descriptions from the dataset schema."""
+    """Read the documented business intent recorded against a dataset's columns."""
     await ctx.info(
         f"Loading column descriptions for {dataset_name} in {project_key}..."
     )
@@ -492,16 +558,27 @@ async def get_dataset_column_descriptions(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Profile Dataset Columns",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dataset_profile(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    max_rows: int = 10000,
-    max_distinct_values: int = 5,
-    columns: list[str] | None = None,
+    max_rows: Annotated[
+        int, Field(description="Rows scanned; the result flags a truncated scan.")
+    ] = 10000,
+    max_distinct_values: Annotated[
+        int, Field(description="Most frequent values kept per column.")
+    ] = 5,
+    columns: ColumnSubset = None,
 ) -> str:
-    """Profile per-column nulls, value frequencies, and numeric stats."""
+    """Judge a dataset's quality from null rates, value frequencies, and numeric ranges."""
     max_rows = _require_positive_int(max_rows, "max_rows")
     max_distinct_values = _require_positive_int(
         max_distinct_values, "max_distinct_values"
@@ -648,14 +725,26 @@ async def get_dataset_profile(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Dataset Metrics",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dataset_metrics(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    metric_ids: str | None = None,
+    metric_ids: Annotated[
+        str | None,
+        Field(
+            description="JSON array of ids, e.g. '[\"records:COUNT_RECORDS\"]'. Every metric when omitted."
+        ),
+    ] = None,
 ) -> str:
-    """Get the last computed metric values for a dataset."""
+    """Read the metric values Dataiku last computed for a dataset."""
     await ctx.info(f"Loading dataset metrics for {dataset_name} in {project_key}...")
     metric_ids_list = _parse_metric_ids(metric_ids)
 
