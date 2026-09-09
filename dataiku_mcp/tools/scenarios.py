@@ -26,6 +26,7 @@ from .utils.errors import safe_error_text as _safe_error_text
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
+    require_int_in_range as _require_int_in_range,
     require_positive_int as _require_positive_int,
 )
 
@@ -157,9 +158,9 @@ async def run_scenario(
     """
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
-    timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
-    if timeout_seconds > MAX_SCENARIO_WAIT_SECONDS:
-        raise ValueError(f"'timeout_seconds' must be <= {MAX_SCENARIO_WAIT_SECONDS}")
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_SCENARIO_WAIT_SECONDS
+    )
     client = get_dss_client()
 
     await ctx.info(

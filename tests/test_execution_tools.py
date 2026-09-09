@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dataiku_mcp.tools import jobs, scenarios
+from tests.utils.fakes import incrementing_monotonic as _incrementing_monotonic
 
 
 # --------------------------------------------------------------------------- #
@@ -48,23 +49,6 @@ class FakeCtx:
 def _load(coro):
     """Run a tool coroutine and parse its compact-JSON string result."""
     return json.loads(asyncio.run(coro))
-
-
-def _incrementing_monotonic(step=1000.0):
-    """A monotonic() stand-in that jumps ``step`` seconds on every call.
-
-    Every "remaining" check therefore lands well past the deadline computed on the
-    preceding call, so any bounded wait loop times out on its first iteration —
-    deterministic and with no real sleeping, regardless of call count.
-    """
-    state = {"t": 0.0}
-
-    def _next():
-        value = state["t"]
-        state["t"] += step
-        return value
-
-    return _next
 
 
 def _job(job_id, raw_status=None):

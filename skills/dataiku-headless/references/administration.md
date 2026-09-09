@@ -1,6 +1,6 @@
 ---
 name: administration
-description: Route instance-level Dataiku administration tasks, including user, group, code-environment, and licensing operations.
+description: Route instance-level Dataiku administration tasks, including user, group, code-environment, plugin, and licensing operations.
 ---
 
 # Administration
@@ -16,4 +16,5 @@ direct MCP tools. Permissions vary by operation; follow the matching guide.
 | List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, or profile capacity | `./administration/licensing.md` |
 | Inspect, create, update, or delete code environments | `./administration/code-environments.md` |
+| List installed plugins, update one from the store or a local path, or delete one | `./administration/plugins.md` |
 | Inspect container execution or Spark configurations | `./administration/general-settings.md` |
