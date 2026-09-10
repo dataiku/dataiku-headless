@@ -74,11 +74,11 @@ jobs:
       - name: Verify PEP 723 script lockfile is current
         run: |
           set -euo pipefail
-          uv lock --script bin/run_mcp.py --check
-          uv lock --script bin/run_mcp.py --upgrade
-          if ! git diff --quiet -- bin/run_mcp.py.lock; then
-            echo "::error::bin/run_mcp.py.lock is stale. Regenerate, test, and commit it before releasing."
-            git --no-pager diff -- bin/run_mcp.py.lock
+          uv lock --script runtime/run_mcp.py --check
+          uv lock --script runtime/run_mcp.py --upgrade
+          if ! git diff --quiet -- runtime/run_mcp.py.lock; then
+            echo "::error::runtime/run_mcp.py.lock is stale. Regenerate, test, and commit it before releasing."
+            git --no-pager diff -- runtime/run_mcp.py.lock
             exit 1
           fi
       - id: before

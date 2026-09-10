@@ -98,14 +98,14 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-uv run --quiet --locked --script ./bin/run_mcp.py   # exactly what every manifest runs
+uv run --quiet --locked --script ./runtime/run_mcp.py   # exactly what every manifest runs
 ```
 
-`uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`bin/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.
+`uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`runtime/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.
 
-**`bin/launcher.sh`** is inactive legacy code retained for possible future fallback use. No manifest invokes it; do not re-enable it without explicitly reviewing the platform behavior and updating all manifests.
+**`runtime/launcher.sh`** is inactive legacy code retained for possible future fallback use. No manifest invokes it; do not re-enable it without explicitly reviewing the platform behavior and updating all manifests.
 
-The inline metadata and its adjacent `bin/run_mcp.py.lock` resolve independently of the project `uv.lock`. The `==` pins are the direct dependency constraints for plugin launches; the script lock records the complete direct and transitive resolution. Bump direct pins deliberately, then regenerate and commit the script lock with `uv lock --script bin/run_mcp.py`. Every launcher uses `--locked`, so a stale or absent script lock fails before server startup rather than resolving on a user's machine.
+The inline metadata and its adjacent `runtime/run_mcp.py.lock` resolve independently of the project `uv.lock`. The `==` pins are the direct dependency constraints for plugin launches; the script lock records the complete direct and transitive resolution. Bump direct pins deliberately, then regenerate and commit the script lock with `uv lock --script runtime/run_mcp.py`. Every launcher uses `--locked`, so a stale or absent script lock fails before server startup rather than resolving on a user's machine.
 
 The inline dependency list duplicates `[project].dependencies`; `tests/test_pep723_launcher.py` fails if the two drift apart.
 

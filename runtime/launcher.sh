@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # LEGACY / INACTIVE: Plugin manifests now invoke ``uv run --quiet
-# bin/run_mcp.py`` directly so that native Windows hosts are supported. This
+# runtime/run_mcp.py`` directly so that native Windows hosts are supported. This
 # launcher is retained for possible future fallback use, but no supported
 # installation path invokes it. Do not treat it as the active server entry
 # point without explicitly restoring manifest support and reviewing its

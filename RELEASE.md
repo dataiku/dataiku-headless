@@ -51,9 +51,9 @@ PR and is the gate before anything merges to `main`.
 Before Commitizen can create a version, `bump.yml` also verifies the PEP 723
 script lockfile is valid and refreshes it in the disposable runner. If the
 latest allowed transitive dependency resolution differs from
-`bin/run_mcp.py.lock`, the workflow fails before changing the version or
+`runtime/run_mcp.py.lock`, the workflow fails before changing the version or
 creating tags. Regenerate the lock, run the normal checks, and commit it in a
-PR; direct dependencies remain deliberately pinned in `bin/run_mcp.py`.
+PR; direct dependencies remain deliberately pinned in `runtime/run_mcp.py`.
 
 ### Workflow files
 
