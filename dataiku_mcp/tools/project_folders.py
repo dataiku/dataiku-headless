@@ -14,7 +14,10 @@
 
 """Project folder inspection and management tools."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client
@@ -57,9 +60,16 @@ def _walk_project_folders(client, folder_id: str) -> list[dict]:
     return rows
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Project Folders",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_project_folders(ctx: Context) -> str:
-    """List all project folders with their paths and immediate child folders."""
+    """Map how the instance's projects are organized into folders."""
     await ctx.info("Listing Dataiku project folders...")
 
     def _run():
@@ -84,9 +94,16 @@ async def list_project_folders(ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Project Folder",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_project_folder(folder_id: str, ctx: Context) -> str:
-    """Get one project folder with its immediate child folders and projects."""
+    """See what one project folder directly contains."""
     folder_id = _require_non_empty_string(folder_id, "folder_id")
     await ctx.info(f"Loading project folder {folder_id}...")
 
@@ -122,13 +139,26 @@ async def get_project_folder(folder_id: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Project Folder",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_project_folder(
-    parent_folder_id: str,
+    parent_folder_id: Annotated[
+        str,
+        Field(
+            description="ROOT for the top level, else a folder id from list_project_folders."
+        ),
+    ],
     name: str,
     ctx: Context,
 ) -> str:
-    """Create a project folder under a parent project folder."""
+    """Add a folder to organize projects under an existing parent folder."""
     parent_folder_id = _require_non_empty_string(parent_folder_id, "parent_folder_id")
     name = _require_non_empty_string(name, "name")
     await ctx.info(f"Creating project folder '{name}' under {parent_folder_id}...")
@@ -148,13 +178,21 @@ async def create_project_folder(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Move Project to Folder",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def move_project_to_folder(
     project_key: str,
     destination_folder_id: str,
     ctx: Context,
 ) -> str:
-    """Move a project into a project folder."""
+    """Reorganize where a project sits in the folder hierarchy."""
     project_key = _require_non_empty_string(project_key, "project_key")
     destination_folder_id = _require_non_empty_string(
         destination_folder_id, "destination_folder_id"
@@ -175,9 +213,17 @@ async def move_project_to_folder(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Delete Project Folder",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def delete_project_folder(folder_id: str, ctx: Context) -> str:
-    """Delete an empty project folder."""
+    """Remove a project folder, which must already be empty."""
     folder_id = _require_non_empty_string(folder_id, "folder_id")
     await ctx.info(f"Deleting project folder {folder_id}...")
 

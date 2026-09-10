@@ -16,14 +16,16 @@
 
 from typing import Any
 
+from typing import Annotated, Literal
+
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from ..auth import get_dss_client
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
 )
 
@@ -132,7 +134,17 @@ _KNOWN_CONNECTION_TYPES = [
     for connection_types in _CONNECTION_TYPES_BY_CATEGORY.values()
     for connection_type in connection_types
 ]
-_KNOWN_CONNECTION_CATEGORIES = set(_CONNECTION_TYPES_BY_CATEGORY)
+ConnectionCategory = Literal[
+    "all",
+    "object_storage",
+    "local_server",
+    "sql_dbs",
+    "nosql_search",
+    "vector_stores",
+    "llm_providers",
+    "external_ml_model_providers",
+    "other",
+]
 _KNOWN_CONNECTION_TYPES_SET = set(_KNOWN_CONNECTION_TYPES)
 
 
@@ -143,28 +155,26 @@ def _get_connection_category(connection_type: str) -> str | None:
     return None
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Connections",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_connections(
     ctx: Context,
-    connection_type: str = "all",
-    connection_category: str = "all",
+    connection_type: Annotated[
+        str,
+        Field(
+            description='One Dataiku connection type, e.g. "S3". Mutually exclusive with connection_category.'
+        ),
+    ] = "all",
+    connection_category: ConnectionCategory = "all",
 ) -> str:
-    """List the Dataiku connections available on the instance, each with its type. Uses the non-admin API, so no admin rights are required. Provide either connection_type or connection_category, but not both.
-
-    Args:
-        connection_type: Returns only connections with this type. Use "all" for every known type.
-        connection_category: Returns only connections in this category. Use "all" for every known category.
-    """
+    """Discover which connections exist before choosing where a new asset should live."""
     connection_type = _require_non_empty_string(connection_type, "connection_type")
-    connection_category = _require_non_empty_string(
-        connection_category, "connection_category"
-    )
-    if connection_category != "all":
-        connection_category = _require_allowed_value(
-            connection_category,
-            "connection_category",
-            _KNOWN_CONNECTION_CATEGORIES,
-        )
     if connection_type != "all" and connection_category != "all":
         raise ValueError(
             "Provide only one of 'connection_type' or 'connection_category', not both"
@@ -219,17 +229,23 @@ async def list_connections(
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Connection Info",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_connection_info(
     connection_name: str,
     ctx: Context,
-    contextual_project_key: str | None = None,
+    contextual_project_key: Annotated[
+        str | None,
+        Field(description="Resolves project variables in the connection's settings."),
+    ] = None,
 ) -> str:
-    """Get information about a Dataiku connection. Requires permissions to read connection details.
-
-    Args:
-        contextual_project_key: Optional project key used to resolve project variables
-    """
+    """Read one connection's type and non-secret settings."""
     connection_name = _require_non_empty_string(connection_name, "connection_name")
     if contextual_project_key is not None:
         contextual_project_key = _require_non_empty_string(
@@ -258,9 +274,16 @@ async def get_connection_info(
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Test Connection",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def test_connection(connection_name: str, ctx: Context) -> str:
-    """Test if a Dataiku connection is available. Returns an error if testing is not supported for the connection type, or if the caller lacks required permissions."""
+    """Check whether a connection can actually be reached right now."""
     connection_name = _require_non_empty_string(connection_name, "connection_name")
     await ctx.info(f"Testing Dataiku connection '{connection_name}'...")
 

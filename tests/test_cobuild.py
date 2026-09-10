@@ -517,7 +517,7 @@ def test_ownership_and_sdk_contract(environment):
     run(scenario())
 
 
-PROJECT_URL = "https://a.example.com/projects/PROJECT/flow"
+PROJECT_URL = "https://a.example.com/projects/PROJECT/flow/"
 
 
 def test_every_payload_carries_the_project_url(environment, monkeypatch):

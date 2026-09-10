@@ -23,9 +23,16 @@ from ..auth import get_dss_client
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Data Collections",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_data_collections(ctx: Context) -> str:
-    """List the Data Collections accessible on the instance."""
+    """Discover the instance's curated data catalogs and their IDs."""
     await ctx.info("Listing data collections...")
 
     def _run():
@@ -48,9 +55,16 @@ async def list_data_collections(ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Data Collection Objects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_data_collection_objects(collection_id: str, ctx: Context) -> str:
-    """List the objects in a Data Collection."""
+    """See which datasets a Data Collection catalogs, and the projects they live in."""
     collection_id = _require_non_empty_string(collection_id, "collection_id")
     await ctx.info(f"Listing objects in collection {collection_id}...")
 

@@ -26,14 +26,20 @@ import ast
 import fnmatch
 import os
 import re
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from ..auth import get_dss_client
 from .utils.validation import require_non_empty_string as _require_non_empty_string
+
+LibraryPath = Annotated[
+    str, Field(description="Folder inside the project library; / is its root.")
+]
 
 
 def _normalize_library_path(path: str) -> str:
@@ -252,15 +258,24 @@ def _ast_validate_python(content: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Project Library",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_project_library(
     project_key: str,
     ctx: Context,
-    path: str = "/",
-    source: str = "all",
-    include_external_metadata: bool = False,
+    path: LibraryPath = "/",
+    source: Annotated[str, Field(description="all, internal, or external.")] = "all",
+    include_external_metadata: Annotated[
+        bool, Field(description="Adds each external item's origin.")
+    ] = False,
 ) -> str:
-    """List project library contents, optionally filtering to internal or external items."""
+    """Map a project's library files and folders."""
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path or "/")
     source = source.strip().lower() or "all"
@@ -327,13 +342,20 @@ async def list_project_library(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Read Project Library File",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def read_project_library_file(
     project_key: str,
     path: str,
     ctx: Context,
 ) -> str:
-    """Read a text file from the project library."""
+    """Read the source of a file in a project's library."""
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     await ctx.info(f"Reading project library file {path} in {project_key}...")
@@ -353,18 +375,33 @@ async def read_project_library_file(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Search Project Library",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def search_project_library(
     project_key: str,
     query: str,
     ctx: Context,
-    path: str = "/",
-    is_regex: bool = False,
+    path: LibraryPath = "/",
+    is_regex: Annotated[
+        bool,
+        Field(description="Treats query as a Python regex instead of a substring."),
+    ] = False,
     case_insensitive: bool = False,
-    file_glob: str = "",
-    max_matches: int = 200,
+    file_glob: Annotated[
+        str,
+        Field(description="Restricts the search, e.g. *.py. Every file when omitted."),
+    ] = "",
+    max_matches: Annotated[
+        int, Field(description="The response flags a result truncated by this bound.")
+    ] = 200,
 ) -> str:
-    """Search project library files using substring or regex matching."""
+    """Find where a symbol or string appears across a project's library."""
     project_key = _require_non_empty_string(project_key, "project_key")
     query = _require_non_empty_string(query, "query")
     path = _normalize_library_path(path or "/")
@@ -465,14 +502,24 @@ async def search_project_library(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Validate Project Library File",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def validate_project_library_file(
     project_key: str,
     path: str,
     ctx: Context,
-    content: str | None = None,
+    content: Annotated[
+        str | None,
+        Field(description="Validates this text instead of the file's current content."),
+    ] = None,
 ) -> str:
-    """Validate a project library file, with Python AST parsing for ``.py`` files."""
+    """Check a library file parses, before or after writing it."""
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     await ctx.info(f"Validating project library file {path} in {project_key}...")
@@ -506,15 +553,27 @@ async def validate_project_library_file(
     return compact_json({**base, **_ast_validate_python(content)})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Write Project Library File",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def write_project_library_file(
     project_key: str,
-    path: str,
-    filepath: str,
+    path: Annotated[str, Field(description="Destination path in the project library.")],
+    filepath: Annotated[
+        str, Field(description="Source path on the machine running this server.")
+    ],
     ctx: Context,
-    overwrite: bool = False,
+    overwrite: Annotated[
+        bool, Field(description="Replaces any existing file at path.")
+    ] = False,
 ) -> str:
-    """Create or update a project library file from a local file upload."""
+    """Upload a local file into a project's library, optionally replacing it."""
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     filepath = _require_non_empty_string(filepath, "filepath")

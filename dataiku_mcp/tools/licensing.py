@@ -15,8 +15,10 @@
 """Dataiku licensing status inspection."""
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
@@ -52,18 +54,22 @@ def _profile_rows(status: dict, include_capabilities: bool) -> list[dict]:
     return rows
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Licensing Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_licensing_status(
     ctx: Context,
-    include_profile_capabilities: bool = False,
+    include_profile_capabilities: Annotated[
+        bool,
+        Field(description="Adds per-profile permission flags; bloats the response."),
+    ] = False,
 ) -> str:
-    """Get Dataiku license validity, expiration, and profile capacity.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        include_profile_capabilities: Include detailed per-profile permission flags;
-            this quickly bloats the context, so use only if strictly required.
-    """
+    """Check license validity and profile capacity before assigning a profile. Admin only."""
     await require_admin()
     await ctx.info("Retrieving Dataiku licensing status...")
 

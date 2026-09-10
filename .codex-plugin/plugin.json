@@ -1,6 +1,6 @@
 {
   "name": "dataiku-headless",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "author": {
     "name": "Dataiku",

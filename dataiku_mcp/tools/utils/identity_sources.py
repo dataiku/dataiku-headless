@@ -12,20 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Validation for Dataiku identity source types."""
+"""The Dataiku identity source types shared by user and group tools."""
 
-from .validation import require_allowed_value
+from typing import Literal
 
-IDENTITY_SOURCE_TYPES = {
+IdentitySourceType = Literal[
     "LOCAL",
     "LDAP",
     "AZURE_AD",
     "LOCAL_NO_AUTH",
     "CUSTOM",
     "PAM",
-}
-
-
-def require_identity_source_type(value: str, field_name: str = "source_type") -> str:
-    """Require a supported raw Dataiku identity source type."""
-    return require_allowed_value(value, field_name, IDENTITY_SOURCE_TYPES)
+]

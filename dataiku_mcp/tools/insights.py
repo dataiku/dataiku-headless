@@ -34,9 +34,16 @@ def _serialize_insight_list_item(item) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Insights",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_insights(project_key: str, ctx: Context) -> str:
-    """List the insights in the project."""
+    """Find a project's insights and their exact IDs, types, and owners."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing insights in {project_key}...")
 
@@ -54,13 +61,20 @@ async def list_insights(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Insight Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_insight_settings(
     project_key: str,
     insight_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full insight settings dict for round-trip inspection."""
+    """Read one insight's full definition, to ground a Cobuild change to it."""
     project_key = _require_non_empty_string(project_key, "project_key")
     insight_id = _require_non_empty_string(insight_id, "insight_id")
     await ctx.info(f"Loading insight {insight_id} in {project_key}...")

@@ -35,9 +35,16 @@ def _serialize_dashboard_list_item(item) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Dashboards",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_dashboards(project_key: str, ctx: Context) -> str:
-    """List the dashboards in the project."""
+    """Find a project's dashboards and their exact IDs, owners, and sizes."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing dashboards in {project_key}...")
 
@@ -55,13 +62,20 @@ async def list_dashboards(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Dashboard Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_dashboard_settings(
     project_key: str,
     dashboard_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full dashboard settings dict for round-trip inspection."""
+    """Read one dashboard's full definition, including its pages and tiles."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dashboard_id = _require_non_empty_string(dashboard_id, "dashboard_id")
     await ctx.info(f"Loading dashboard {dashboard_id} in {project_key}...")

@@ -33,9 +33,16 @@ def _raise_if_forbidden(project_key: str, exc: DataikuException) -> None:
         ) from exc
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Shared Objects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_shared_objects(project_key: str, ctx: Context) -> str:
-    """List the objects this project shares with other projects."""
+    """Find which of a project's objects are exposed to which other projects."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing shared objects in {project_key}...")
 

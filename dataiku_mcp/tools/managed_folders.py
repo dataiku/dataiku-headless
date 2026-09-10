@@ -14,7 +14,10 @@
 
 """Managed folder creation, inspection, and file upload."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client
@@ -26,15 +29,30 @@ from .utils.validation import (
 )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Managed Folder",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_managed_folder(
     project_key: str,
     name: str,
-    connection: str,
+    connection: Annotated[
+        str, Field(description="Dataiku connection that will store the folder's files.")
+    ],
     ctx: Context,
-    folder_type: str | None = None,
+    folder_type: Annotated[
+        str | None,
+        Field(
+            description="Storage type, e.g. Filesystem or S3. Inferred from the connection when omitted."
+        ),
+    ] = None,
 ) -> str:
-    """Create a managed folder in a project on an explicitly selected connection."""
+    """Create an empty managed folder, to hold files a project needs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     name = _require_non_empty_string(name, "name")
     connection = _require_non_empty_string(connection, "connection")
@@ -63,9 +81,16 @@ async def create_managed_folder(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Managed Folders",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_managed_folders(project_key: str, ctx: Context) -> str:
-    """List the managed folders in the project."""
+    """Find a project's managed folders and their IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing managed folders in {project_key}...")
 
@@ -88,14 +113,23 @@ async def list_managed_folders(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Managed Folder Contents",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_managed_folder_contents(
     project_key: str,
     folder_id: str,
     ctx: Context,
-    max_items: int = 200,
+    max_items: Annotated[
+        int, Field(description="Files listed before truncating.")
+    ] = 200,
 ) -> str:
-    """List files inside a managed folder."""
+    """See which files a managed folder holds, with their sizes and paths."""
     project_key = _require_non_empty_string(project_key, "project_key")
     folder_id = _require_non_empty_string(folder_id, "folder_ref")
     max_items = min(_require_positive_int(max_items, "max_items"), 1000)
@@ -133,13 +167,20 @@ async def get_managed_folder_contents(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Managed Folder Info",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_managed_folder_info(
     project_key: str,
     folder_id: str,
     ctx: Context,
 ) -> str:
-    """Get a managed folder's id, name, type, connection, and path."""
+    """Read where a managed folder stores its files."""
     project_key = _require_non_empty_string(project_key, "project_key")
     folder_id = _require_non_empty_string(folder_id, "folder_ref")
     await ctx.info(f"Loading managed folder info for '{folder_id}' in {project_key}...")
@@ -165,15 +206,27 @@ async def get_managed_folder_info(
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Upload File to Managed Folder",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def upload_file_to_managed_folder(
     project_key: str,
     folder_id: str,
-    target_path: str,
+    target_path: Annotated[
+        str, Field(description="Destination path inside the managed folder.")
+    ],
     ctx: Context,
-    local_path: str,
+    local_path: Annotated[
+        str, Field(description="Source path on the machine running this server.")
+    ],
 ) -> str:
-    """Upload a local file to a path inside a managed folder, replacing any existing file."""
+    """Put a local file into a managed folder, replacing whatever is at that path."""
     project_key = _require_non_empty_string(project_key, "project_key")
     folder_id = _require_non_empty_string(folder_id, "folder_id")
     target_path = _require_non_empty_string(target_path, "target_path")

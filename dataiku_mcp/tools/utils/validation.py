@@ -65,6 +65,16 @@ def require_int_at_least(value: int, field_name: str, minimum: int) -> int:
     return cleaned
 
 
+def require_int_in_range(
+    value: int, field_name: str, minimum: int, maximum: int
+) -> int:
+    """Require an int within an inclusive range, for bounded inline waits and caps."""
+    cleaned = require_int_at_least(value, field_name, minimum)
+    if cleaned > maximum:
+        raise ValueError(f"'{field_name}' must be <= {maximum}")
+    return cleaned
+
+
 def require_non_empty_list(values: list, field_name: str) -> list:
     if len(values) < 1:
         raise ValueError(f"'{field_name}' must be a non-empty list")

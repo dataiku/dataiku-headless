@@ -14,12 +14,15 @@
 
 """Dataiku group administration tools."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
-from .utils.identity_sources import require_identity_source_type
+from .utils.identity_sources import IdentitySourceType
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -27,6 +30,22 @@ from .utils.validation import (
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
 )
+
+LdapGroupNames = Annotated[
+    list[str] | None, Field(description="External groups mapped in; LDAP source only.")
+]
+AzureAdGroupNames = Annotated[
+    list[str] | None,
+    Field(description="External groups mapped in; AZURE_AD source only."),
+]
+SsoGroupNames = Annotated[
+    list[str] | None,
+    Field(description="External groups mapped in; LOCAL_NO_AUTH source only."),
+]
+CustomGroupNames = Annotated[
+    list[str] | None,
+    Field(description="External groups mapped in; CUSTOM source only."),
+]
 
 _BASIC_GROUP_FIELDS = {
     "name": "name",
@@ -99,34 +118,33 @@ def _apply_changes(definition: dict, changes: dict) -> None:
             definition[raw_field] = changes[field]
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Groups",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_groups(
     ctx: Context,
-    search: str = "",
-    source_type: str | None = None,
-    is_admin: bool | None = None,
-    include_permissions: bool = False,
-    offset: int = 0,
-    limit: int = 5,
+    search: Annotated[
+        str, Field(description="Substring matched against group names.")
+    ] = "",
+    source_type: IdentitySourceType | None = None,
+    is_admin: Annotated[
+        bool | None, Field(description="Keeps only admin, or only non-admin, groups.")
+    ] = None,
+    include_permissions: Annotated[
+        bool, Field(description="Adds each group's global permissions. Admin only.")
+    ] = False,
+    offset: Annotated[
+        int, Field(description="Zero-based offset into the matches.")
+    ] = 0,
+    limit: Annotated[int, Field(description="Capped at 10.")] = 5,
 ) -> str:
-    """List Dataiku groups, with optional search and offset pagination.
-    All callers receive group names; global administrators also receive group
-    details, and optionally, group permissions.
-
-    Args:
-        search: Case-insensitive substring matched against group names.
-        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
-            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM. Requires global administrator rights.
-        is_admin: Whether to return only administrator or non-administrator groups.
-            Requires global administrator rights.
-        include_permissions: Retrieve all exposed permissions for returned groups.
-            Requires global administrator rights.
-        offset: Zero-based offset within the matching groups.
-        limit: Maximum groups to return. Values above 10 are capped at 10.
-    """
+    """Find group names to assign; admins also see permissions and mappings."""
     search = search.strip()
-    if source_type is not None:
-        source_type = require_identity_source_type(source_type)
     offset = _require_non_negative_int(offset, "offset")
     limit = min(_require_positive_int(limit, "limit"), 10)
 
@@ -186,17 +204,29 @@ async def list_groups(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Group",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_group(
-    name: str,
+    name: Annotated[
+        str, Field(description="Special characters beyond . _ - @ are rejected.")
+    ],
     ctx: Context,
-    source_type: str = "LOCAL",
+    source_type: IdentitySourceType = "LOCAL",
     description: str = "",
-    is_admin: bool = False,
-    ldap_group_names: list[str] | None = None,
-    azure_ad_group_names: list[str] | None = None,
-    sso_group_names: list[str] | None = None,
-    custom_group_names: list[str] | None = None,
+    is_admin: Annotated[
+        bool, Field(description="Grants instance-wide administrative privileges.")
+    ] = False,
+    ldap_group_names: LdapGroupNames = None,
+    azure_ad_group_names: AzureAdGroupNames = None,
+    sso_group_names: SsoGroupNames = None,
+    custom_group_names: CustomGroupNames = None,
     may_manage_udm: bool = False,
     may_create_projects: bool = False,
     may_create_projects_from_macros: bool = False,
@@ -226,25 +256,8 @@ async def create_group(
     may_manage_enterprise_asset_library: bool = False,
     may_create_enterprise_asset_collections: bool = False,
 ) -> str:
-    """Create a Dataiku group with external mappings and global permissions.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        name: Dataiku rejects special characters beyond '.', '_', '-', '@'.
-        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
-            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
-        is_admin: Whether the group has administrative privileges.
-        ldap_group_names: LDAP groups that map to Dataiku group; only relevant
-            when `source_type` is LDAP.
-        azure_ad_group_names: AZURE_AD groups that map to Dataiku group; only relevant
-            when `source_type` is AZURE_AD.
-        sso_group_names: LOCAL_NO_AUTH groups that map to Dataiku group; only relevant
-            when `source_type` is LOCAL_NO_AUTH.
-        custom_group_names: CUSTOM groups that map to Dataiku group; only relevant
-            when `source_type` is CUSTOM.
-    """
+    """Add a group with its global permissions and external mappings. Admin only."""
     name = _require_non_empty_string(name, "name")
-    source_type = require_identity_source_type(source_type)
     mappings = {
         "ldap_group_names": _validate_group_names(ldap_group_names, "ldap_group_names")
         or [],
@@ -312,17 +325,28 @@ async def create_group(
     return compact_json({"group": await run_blocking(_run)})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Update Group",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def update_group(
     name: str,
     ctx: Context,
     description: str | None = None,
-    source_type: str | None = None,
-    is_admin: bool | None = None,
-    ldap_group_names: list[str] | None = None,
-    azure_ad_group_names: list[str] | None = None,
-    sso_group_names: list[str] | None = None,
-    custom_group_names: list[str] | None = None,
+    source_type: IdentitySourceType | None = None,
+    is_admin: Annotated[
+        bool | None,
+        Field(description="Grants instance-wide administrative privileges."),
+    ] = None,
+    ldap_group_names: LdapGroupNames = None,
+    azure_ad_group_names: AzureAdGroupNames = None,
+    sso_group_names: SsoGroupNames = None,
+    custom_group_names: CustomGroupNames = None,
     may_manage_udm: bool | None = None,
     may_create_projects: bool | None = None,
     may_create_projects_from_macros: bool | None = None,
@@ -352,25 +376,8 @@ async def update_group(
     may_manage_enterprise_asset_library: bool | None = None,
     may_create_enterprise_asset_collections: bool | None = None,
 ) -> str:
-    """Patch a Dataiku group's mappings and global permissions.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        source_type: Exact Dataiku source type: LOCAL, LDAP, AZURE_AD,
-            LOCAL_NO_AUTH (SSO), CUSTOM, or PAM.
-        is_admin: Whether the group has administrative privileges.
-        ldap_group_names: LDAP groups that map to Dataiku group; only relevant
-            when `source_type` is LDAP.
-        azure_ad_group_names: AZURE_AD groups that map to Dataiku group; only relevant
-            when `source_type` is AZURE_AD.
-        sso_group_names: LOCAL_NO_AUTH groups that map to Dataiku group; only relevant
-            when `source_type` is LOCAL_NO_AUTH.
-        custom_group_names: CUSTOM groups that map to Dataiku group; only relevant
-            when `source_type` is CUSTOM.
-    """
+    """Patch a group's permissions and mappings; supplied lists replace. Admin only."""
     name = _require_non_empty_string(name, "name")
-    if source_type is not None:
-        source_type = require_identity_source_type(source_type)
     mappings = {
         "ldap_group_names": _validate_group_names(ldap_group_names, "ldap_group_names"),
         "azure_ad_group_names": _validate_group_names(
@@ -434,10 +441,17 @@ async def update_group(
     return compact_json({"group": await run_blocking(_run)})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Delete Group",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def delete_group(name: str, ctx: Context) -> str:
-    """Delete one Dataiku group.
-    Requires global administrator rights on the target Dataiku instance."""
+    """Remove a group from the instance. Admin only."""
     name = _require_non_empty_string(name, "name")
     await require_admin()
     await ctx.info(f"Deleting Dataiku group '{name}'...")

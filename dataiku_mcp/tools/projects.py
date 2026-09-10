@@ -14,7 +14,10 @@
 
 """Project exploration, listing, and limited creation tools."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client
@@ -130,17 +133,39 @@ def _normalize_code_env_settings(settings: dict, patch: dict) -> None:
             code_env.pop("envName", None)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Count Projects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def count_projects(ctx: Context) -> str:
-    """Count projects on the Dataiku instance without listing project metadata."""
+    """Check how many projects the instance has, without listing them."""
     await ctx.info("Counting Dataiku projects...")
     project_keys = await run_blocking(lambda: get_dss_client().list_project_keys())
     return compact_json({"project_count": len(project_keys)})
 
 
-@mcp.tool()
-async def list_projects(ctx: Context, search: str = "") -> str:
-    """List projects with ownership, description, and last-modified context."""
+@mcp.tool(
+    title="List Projects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_projects(
+    ctx: Context,
+    search: Annotated[
+        str,
+        Field(
+            description="Case-insensitive substring matched against key, name, and owner."
+        ),
+    ] = "",
+) -> str:
+    """Find projects and their exact keys, owners, and last activity."""
     await ctx.info("Listing Dataiku projects...")
     raw_projects = await run_blocking(lambda: get_dss_client().list_projects())
     projects = [
@@ -186,15 +211,25 @@ async def list_projects(ctx: Context, search: str = "") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Create Project",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def create_project(
     project_key: str,
     name: str,
     ctx: Context,
     short_desc: str = "",
-    folder_id: str = "",
+    folder_id: Annotated[
+        str, Field(description="Project folder to create it in; the root when omitted.")
+    ] = "",
 ) -> str:
-    """Create a new project on the Dataiku instance."""
+    """Create an empty project to build in."""
     project_key = _require_non_empty_string(project_key, "project_key")
     name = _require_non_empty_string(name, "name")
     await ctx.info(f"Creating project '{project_key}'...")
@@ -232,9 +267,16 @@ async def create_project(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Project Metadata",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_project_metadata(project_key: str, ctx: Context) -> str:
-    """Get project metadata: label, descriptions, tags, and checklists."""
+    """Read a project's description, tags, and checklists."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Fetching metadata for project {project_key}...")
     metadata = await run_blocking(
@@ -243,9 +285,16 @@ async def get_project_metadata(project_key: str, ctx: Context) -> str:
     return compact_json(metadata)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Project Variables",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_project_variables(project_key: str, ctx: Context) -> str:
-    """Get the project variables as {'standard': {...}, 'local': {...}}."""
+    """Read a project's variables before changing them."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Fetching variables for project {project_key}...")
     variables = await run_blocking(
@@ -254,9 +303,16 @@ async def get_project_variables(project_key: str, ctx: Context) -> str:
     return compact_json(variables)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Project Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_project_settings(project_key: str, ctx: Context) -> str:
-    """Get the project's editable settings."""
+    """Read a project's editable settings before patching them."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Fetching settings for project {project_key}...")
 
@@ -267,18 +323,26 @@ async def get_project_settings(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Update Project Settings",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def update_project_settings(
     project_key: str,
-    settings_patch: dict | str,
+    settings_patch: Annotated[
+        dict | str,
+        Field(
+            description="Nested objects merge, scalars replace, nulls remove. Unknown fields are rejected."
+        ),
+    ],
     ctx: Context,
 ) -> str:
-    """Merge supported fields into the project's editable settings.
-
-    Nested objects are merged, scalar values are replaced, and null values remove
-    fields. Undocumented fields are rejected. Use get_project_settings first to
-    inspect the current values.
-    """
+    """Patch a project's settings; nulls remove fields, so inspect them first."""
     project_key = _require_non_empty_string(project_key, "project_key")
     patch = _coerce_json_object(settings_patch, "settings_patch")
     if not patch:
@@ -298,17 +362,24 @@ async def update_project_settings(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Set Project Variables",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
 async def set_project_variables(
     project_key: str,
-    variables: dict | str,
+    variables: Annotated[
+        dict | str,
+        Field(description="The full object from get_project_variables, modified."),
+    ],
     ctx: Context,
 ) -> str:
-    """Set the project variables.
-
-    Args:
-        variables: A modified version of the object returned by get_project_variables
-    """
+    """Replace a project's variables wholesale, dropping any omitted."""
     project_key = _require_non_empty_string(project_key, "project_key")
     variables_obj = _coerce_json_object(variables, "variables")
     await ctx.info(f"Updating variables for project {project_key}...")

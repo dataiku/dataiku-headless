@@ -14,9 +14,10 @@
 
 """Data Quality inspection tools for Dataiku datasets."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import Field
 
 from ..server import mcp
 from ..auth import get_dss_client
@@ -99,13 +100,20 @@ def _safe_status_by_partition(
         return None, str(exc)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Data Quality Rules",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_data_quality_rules(
     project_key: str,
     dataset_name: str,
     ctx: Context,
 ) -> str:
-    """List Data Quality rules configured on a dataset with compact summaries."""
+    """See which data quality rules a dataset is checked against."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     await ctx.info(f"Listing Data Quality rules for {dataset_name} in {project_key}...")
@@ -122,15 +130,24 @@ async def list_data_quality_rules(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Data Quality Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_data_quality_status(
     project_key: str,
     dataset_name: str,
     ctx: Context,
     include_partitions: bool = True,
-    include_all_partitions: bool = False,
+    include_all_partitions: Annotated[
+        bool, Field(description="Adds partitions with no computed status.")
+    ] = False,
 ) -> str:
-    """Get dataset-level Data Quality status, optionally with partition statuses."""
+    """Check whether a dataset currently passes its data quality rules."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     await ctx.info(
@@ -166,14 +183,21 @@ async def get_data_quality_status(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Data Quality Rule",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_data_quality_rule(
     project_key: str,
     dataset_name: str,
     rule_id: str,
     ctx: Context,
 ) -> str:
-    """Get one raw Data Quality rule configuration by ID."""
+    """Read one data quality rule's raw configuration and thresholds."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     rule_id = _require_non_empty_string(rule_id, "rule_id")
@@ -189,15 +213,26 @@ async def get_data_quality_rule(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Data Quality Rule Results",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_data_quality_rule_results(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    partition: str = "NP",
-    rule_id: str | None = None,
+    partition: Annotated[
+        str, Field(description='"NP" for a non-partitioned dataset.')
+    ] = "NP",
+    rule_id: Annotated[
+        str | None, Field(description="Every rule when omitted.")
+    ] = None,
 ) -> str:
-    """Get the latest computed Data Quality rule result(s) for a dataset partition."""
+    """Read the latest computed outcome for a dataset's rules."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     partition = _require_non_empty_string(partition or "NP", "partition")
@@ -228,18 +263,34 @@ async def get_data_quality_rule_results(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Data Quality Rule History",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_data_quality_rule_history(
     project_key: str,
     dataset_name: str,
     ctx: Context,
-    min_timestamp: int | None = None,
-    max_timestamp: int | None = None,
-    results_per_page: int = 100,
-    page: int = 0,
-    rule_ids=None,
+    min_timestamp: Annotated[
+        int | None, Field(description="Epoch milliseconds.")
+    ] = None,
+    max_timestamp: Annotated[
+        int | None, Field(description="Epoch milliseconds.")
+    ] = None,
+    results_per_page: Annotated[int, Field(description="Capped at 1000.")] = 100,
+    page: Annotated[int, Field(description="Zero-based page index.")] = 0,
+    rule_ids: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Rule ids, as a list or a JSON array. Every rule when omitted."
+        ),
+    ] = None,
 ) -> str:
-    """Get recent Data Quality rule result history for a dataset."""
+    """Trace how a dataset's rule outcomes changed over time."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     if min_timestamp is not None:
