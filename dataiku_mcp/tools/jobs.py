@@ -1,10 +1,26 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Inspection tools for Dataiku jobs and futures."""
 
 import asyncio
 import time
+from typing import Annotated, Literal
 
 from dataikuapi.dss.future import DSSFuture
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -17,17 +33,26 @@ from .utils.job_summaries import (
 )
 from .utils.serialization import columnar, compact_json
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
+    require_int_in_range as _require_int_in_range,
     require_positive_int as _require_positive_int,
 )
 
-VALID_JOB_TYPES = {
+JobType = Literal[
     "NON_RECURSIVE_FORCED_BUILD",
     "RECURSIVE_BUILD",
     "RECURSIVE_FORCED_BUILD",
-}
+]
+WaitForCompletion = Annotated[
+    bool, Field(description="False returns as soon as the job is started.")
+]
+AutoUpdateSchema = Annotated[
+    bool, Field(description="Updates output schemas before each recipe run.")
+]
+WaitTimeoutSeconds = Annotated[
+    int, Field(description="Soft bound on the inline wait, checked between polls.")
+]
 
 DEFAULT_WAIT_TIMEOUT_SECONDS = 50
 MAX_INLINE_WAIT_SECONDS = 3600
@@ -47,13 +72,6 @@ COMPUTABLE_TO_JOB_OUTPUT_TYPE = {
 
 class _RecipeExecutionPrecondition(ValueError):
     """The recipe cannot be mapped to a supported Dataiku job output."""
-
-
-def _validate_inline_timeout(timeout_seconds: int) -> int:
-    timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
-    if timeout_seconds > MAX_INLINE_WAIT_SECONDS:
-        raise ValueError(f"'timeout_seconds' must be <= {MAX_INLINE_WAIT_SECONDS}")
-    return timeout_seconds
 
 
 async def _wait_for_job_result(
@@ -98,39 +116,42 @@ def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> lis
     ]
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Build Datasets",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def build_datasets(
     project_key: str,
     ctx: Context,
-    dataset_names: list[str],
-    wait_for_completion: bool = False,
-    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
-    auto_update_schema: bool = True,
-    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    dataset_names: Annotated[
+        list[str], Field(description="Built together in a single job.")
+    ],
+    wait_for_completion: WaitForCompletion = False,
+    job_type: JobType = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: AutoUpdateSchema = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Build one or more existing datasets as a single Dataiku job.
-
-    Args:
-        dataset_names: Existing dataset names to build (at least one). All requested datasets are started in one job.
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
-        auto_update_schema: Whether to auto-update output schemas before each recipe run.
-        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
-    """
+    """Build existing datasets as one job, overwriting their outputs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     names = _require_non_empty_list(dataset_names, "dataset_names")
     names = [
         _require_non_empty_string(name, f"dataset_names[{i}]")
         for i, name in enumerate(names)
     ]
-    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
     if len(names) > MAX_DATASETS_PER_BUILD:
         raise ValueError(
             f"'dataset_names' must contain at most {MAX_DATASETS_PER_BUILD} items"
         )
     if len(set(names)) != len(names):
         raise ValueError("'dataset_names' must not contain duplicates")
-    timeout_seconds = _validate_inline_timeout(timeout_seconds)
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
+    )
     client = get_dss_client()
 
     await ctx.info(
@@ -236,28 +257,30 @@ async def build_datasets(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Run Recipe",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def run_recipe(
     project_key: str,
     recipe_name: str,
     ctx: Context,
-    wait_for_completion: bool = False,
-    job_type: str = "NON_RECURSIVE_FORCED_BUILD",
-    auto_update_schema: bool = True,
-    timeout_seconds: int = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    wait_for_completion: WaitForCompletion = False,
+    job_type: JobType = "NON_RECURSIVE_FORCED_BUILD",
+    auto_update_schema: AutoUpdateSchema = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> str:
-    """Run an existing recipe by building its first output as the trigger target.
-
-    Args:
-        wait_for_completion: If true, wait up to timeout_seconds for the job to finish; if false, start it and return the job_id.
-        job_type: One of NON_RECURSIVE_FORCED_BUILD, RECURSIVE_BUILD, RECURSIVE_FORCED_BUILD.
-        auto_update_schema: Whether to auto-update output schemas before each recipe run.
-        timeout_seconds: Max time for the inline wait when wait_for_completion=true. This is a soft timeout checked between status polls.
-    """
+    """Run an existing recipe by building its output, overwriting it."""
     project_key = _require_non_empty_string(project_key, "project_key")
     recipe_name = _require_non_empty_string(recipe_name, "recipe_name")
-    job_type = _require_allowed_value(job_type, "job_type", VALID_JOB_TYPES)
-    timeout_seconds = _validate_inline_timeout(timeout_seconds)
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
+    )
     client = get_dss_client()
 
     await ctx.info(
@@ -381,13 +404,22 @@ async def run_recipe(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Future Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_future_status(
     future_id: str,
     ctx: Context,
-    fetch_result: bool = False,
+    fetch_result: Annotated[
+        bool, Field(description="Adds the operation's result once it has completed.")
+    ] = False,
 ) -> str:
-    """Get the status of a DSSFuture returned by a long-running Dataiku operation."""
+    """Check whether a long-running Dataiku operation has finished."""
     future_id = _require_non_empty_string(future_id, "future_id")
     await ctx.info(
         f"Retrieving Dataiku future status for {future_id} (fetch_result={fetch_result})..."
@@ -401,14 +433,23 @@ async def get_future_status(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Job Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_job_status(
     project_key: str,
     job_id: str,
     ctx: Context,
-    full: bool = False,
+    full: Annotated[
+        bool, Field(description="Adds per-activity detail and the job definition.")
+    ] = False,
 ) -> str:
-    """Get the current status of a Dataiku job."""
+    """Check whether a job is still running, and which activity it is on."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     await ctx.info(f"Retrieving status for job {job_id} (full={full})...")
@@ -424,15 +465,27 @@ async def get_job_status(
     return compact_json(payload)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Job Log",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_job_log(
     project_key: str,
     job_id: str,
     ctx: Context,
-    activity: str | None = None,
-    tail_lines: int | None = 200,
+    activity: Annotated[
+        str | None,
+        Field(description="One activity's log; the whole job's when omitted."),
+    ] = None,
+    tail_lines: Annotated[
+        int | None, Field(description="Null returns the entire log.")
+    ] = 200,
 ) -> str:
-    """Get Dataiku job logs."""
+    """Read a job's logs to find out why it failed."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     if activity is not None:
@@ -468,9 +521,19 @@ async def get_job_log(
     return compact_json(result)
 
 
-@mcp.tool()
-async def list_jobs(project_key: str, limit: int = 10) -> str:
-    """List recent Dataiku jobs in the project."""
+@mcp.tool(
+    title="List Jobs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_jobs(
+    project_key: str,
+    limit: Annotated[int, Field(description="Most recent jobs returned.")] = 10,
+) -> str:
+    """Find a project's recent jobs and their IDs and outcomes."""
     project_key = _require_non_empty_string(project_key, "project_key")
     limit = min(_require_positive_int(limit, "limit"), 100)
 
@@ -498,14 +561,21 @@ async def list_jobs(project_key: str, limit: int = 10) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Wait for Job",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def wait_for_job(
     project_key: str,
     job_id: str,
     ctx: Context,
-    timeout_seconds: int = 600,
+    timeout_seconds: WaitTimeoutSeconds = 600,
 ) -> str:
-    """Wait for a Dataiku job to finish, with a timeout."""
+    """Block until a running job reaches a terminal state."""
     project_key = _require_non_empty_string(project_key, "project_key")
     job_id = _require_non_empty_string(job_id, "job_id")
     timeout_seconds = _require_positive_int(timeout_seconds, "timeout_seconds")
@@ -535,3 +605,117 @@ async def wait_for_job(
     if status_summary["state"] in {"FAILED", "ABORTED"}:
         top_level_status = "job_completed_with_errors"
     return compact_json({"status": top_level_status, "job": status_summary})
+
+
+@mcp.tool(
+    title="Abort Job",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def abort_job(
+    project_key: str,
+    job_id: str,
+    ctx: Context,
+    wait_for_abort: Annotated[
+        bool, Field(description="Waits for the job to reach a terminal state.")
+    ] = True,
+    timeout_seconds: WaitTimeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
+) -> str:
+    """Stop a running job; whatever it already wrote is left in place."""
+    project_key = _require_non_empty_string(project_key, "project_key")
+    job_id = _require_non_empty_string(job_id, "job_id")
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, MAX_INLINE_WAIT_SECONDS
+    )
+    client = get_dss_client()
+    await ctx.info(
+        f"Aborting Dataiku job {job_id} in {project_key} "
+        f"(wait_for_abort={wait_for_abort})..."
+    )
+
+    def _run():
+        job = client.get_project(project_key).get_job(job_id)
+        before = _get_job_status_full(project_key, job_id, job.get_status())
+        if before["state"] in TERMINAL_JOB_STATES:
+            return job, before, False
+        job.abort()
+        return job, before, True
+
+    job, before, requested = await run_blocking(_run)
+    if not requested:
+        return compact_json(
+            {
+                "status": "job_already_finished",
+                "abort_requested": False,
+                "job": before,
+                "hint": (
+                    "The job was already in a terminal state; nothing was aborted. "
+                    "Inspect its outputs before deciding on a rerun."
+                ),
+            }
+        )
+    if not wait_for_abort:
+        return compact_json(
+            {
+                "status": "abort_requested",
+                "abort_requested": True,
+                "job": before,
+                "hint": (
+                    "The abort was accepted. Confirm the terminal state with "
+                    "get_job_status or wait_for_job before starting a replacement run."
+                ),
+            }
+        )
+
+    try:
+        timed_out, after = await _wait_for_job_result(
+            project_key, job, timeout_seconds, job_id
+        )
+    except Exception as exc:
+        return compact_json(
+            {
+                "status": "abort_poll_failed",
+                "abort_requested": True,
+                "job": before,
+                "error_type": type(exc).__name__,
+                "error": _safe_error_text(exc),
+                "hint": (
+                    "The abort request was accepted, but status polling failed. "
+                    "Use get_job_status or wait_for_job before starting a "
+                    "replacement run."
+                ),
+            }
+        )
+    if timed_out:
+        return compact_json(
+            {
+                "status": "abort_still_pending",
+                "abort_requested": True,
+                "job": after,
+                "hint": (
+                    "The abort was accepted but the job has not reached a terminal "
+                    "state yet. A running database statement may finish before "
+                    "Dataiku can stop the activity. Call wait_for_job or get_job_status; "
+                    "do not start a replacement run until the state is terminal."
+                ),
+            }
+        )
+    if after["state"] == "ABORTED":
+        return compact_json(
+            {"status": "job_aborted", "abort_requested": True, "job": after}
+        )
+    return compact_json(
+        {
+            "status": "job_finished_after_abort_request",
+            "abort_requested": True,
+            "job": after,
+            "hint": (
+                "The abort request was accepted, but the job reached a terminal "
+                "state other than ABORTED. Inspect its outputs before rerunning."
+            ),
+        }
+    )

@@ -1,10 +1,25 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Inspection tools for generic ML analyses and trained models."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import Field
 
 from ... import mcp
 from ..utils.async_executor import run_blocking
@@ -50,13 +65,22 @@ def slim_mltask_settings(raw_settings: dict) -> dict:
     return slimmed
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List ML Analyses",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_ml_analyses(
     project_key: str,
     ctx: Context,
-    input_dataset: str | None = None,
+    input_dataset: Annotated[
+        str | None, Field(description="Keeps only analyses trained on this dataset.")
+    ] = None,
 ) -> str:
-    """List the ML analyses in the project with their single-task summaries."""
+    """Find a project's ML analyses, what they predict, and from which dataset."""
     project_key = _require_non_empty_string(project_key, "project_key")
     if input_dataset is not None:
         input_dataset = _require_non_empty_string(input_dataset, "input_dataset")
@@ -119,13 +143,20 @@ async def list_ml_analyses(
     return compact_json(await run_blocking(_list))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get ML Analysis Summary",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_ml_analysis_summary(
     project_key: str,
     analysis_id: str,
     ctx: Context,
 ) -> str:
-    """Get the normalized single-task summary for an ML analysis."""
+    """Read an ML analysis's target, task type, and training setup at a glance."""
     project_key = _require_non_empty_string(project_key, "project_key")
     analysis_id = _require_non_empty_string(analysis_id, "analysis_id")
     await ctx.info(f"Loading ML analysis summary for {analysis_id}...")
@@ -151,13 +182,20 @@ async def get_ml_analysis_summary(
     return compact_json(await run_blocking(_get))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get ML Analysis Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_ml_analysis_settings(
     project_key: str,
     analysis_id: str,
     ctx: Context,
 ) -> str:
-    """Get the raw analysis and ML task settings for an ML analysis."""
+    """Read an ML analysis's raw feature handling, algorithms, and split settings."""
     project_key = _require_non_empty_string(project_key, "project_key")
     analysis_id = _require_non_empty_string(analysis_id, "analysis_id")
     await ctx.info(f"Loading ML analysis settings for {analysis_id}...")
@@ -179,13 +217,20 @@ async def get_ml_analysis_settings(
     return compact_json(await run_blocking(_get))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List ML Analysis Models",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_ml_analysis_models(
     project_key: str,
     analysis_id: str,
     ctx: Context,
 ) -> str:
-    """List the trained models for the single ML task in an analysis."""
+    """Compare the models trained in an analysis and their performance."""
     project_key = _require_non_empty_string(project_key, "project_key")
     analysis_id = _require_non_empty_string(analysis_id, "analysis_id")
     await ctx.info(f"Listing trained models for ML analysis {analysis_id}...")
@@ -215,14 +260,21 @@ async def list_ml_analysis_models(
     return compact_json(await run_blocking(_list))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get ML Model Details",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_ml_model_details(
     project_key: str,
     analysis_id: str,
     trained_model_id: str,
     ctx: Context,
 ) -> str:
-    """Get the snippet for a trained model."""
+    """Read one trained model's metrics, features, and hyperparameters."""
     project_key = _require_non_empty_string(project_key, "project_key")
     analysis_id = _require_non_empty_string(analysis_id, "analysis_id")
     trained_model_id = _require_non_empty_string(trained_model_id, "trained_model_id")

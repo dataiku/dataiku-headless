@@ -1,25 +1,51 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Instance management tools for switching between Dataiku instances."""
 
 import asyncio
 import secrets
 from dataclasses import asdict
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import config, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.async_executor import run_blocking
 from .utils.auth import (
     get_current_instance_for_tool,
-    get_dataiku_version,
     get_dss_client,
 )
 from .utils.serialization import columnar, compact_json, omit_empty
 
+InstanceName = Annotated[
+    str, Field(description="A configured instance name, from list_instances.")
+]
 
-@mcp.tool()
+
+@mcp.tool(
+    title="List Dataiku Instances",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_instances(ctx: Context) -> str:
-    """List the configured Dataiku instances (name, URL, description, active flag)."""
+    """See which Dataiku instances are configured and which one is active."""
     instances = config.get_instances()
     try:
         current_instance_name = get_current_instance_for_tool().name
@@ -40,62 +66,79 @@ async def list_instances(ctx: Context) -> str:
     return compact_json(columnar(result, ["name", "url", "description", "active"]))
 
 
-@mcp.tool()
-async def switch_instance(name: str, ctx: Context) -> str:
-    """Switch the active Dataiku instance. All subsequent tool calls will use this instance.
-
-    Args:
-        name: Instance name (run list_instances() to retrieve all available instance names).
-    """
+@mcp.tool(
+    title="Switch Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def switch_instance(name: InstanceName, ctx: Context) -> str:
+    """Retarget every later tool call at a different configured instance."""
     await ctx.info(f"Switching to instance '{name}'...")
     info = config.set_current_instance(name)
     return compact_json(info)
 
 
-@mcp.tool()
-async def delete_instance(name: str, ctx: Context) -> str:
-    """Delete a Dataiku instance from the resolved configuration file.
-
-    Only instances stored in the config file can be deleted. An instance defined
-    through environment variables must be removed by unsetting DKU_DSS_URL.
-
-    Args:
-        name: Instance name (run list_instances() to see available names).
-    """
+@mcp.tool(
+    title="Delete Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def delete_instance(name: InstanceName, ctx: Context) -> str:
+    """Forget a stored instance's local config; one set via DKU_DSS_URL cannot be deleted."""
     await ctx.info(f"Deleting instance '{name}'...")
     info = config.delete_instance_from_config(name)
     return compact_json(info)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Current Instance",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_current_instance(ctx: Context) -> str:
-    """Get the active Dataiku instance configuration and its Dataiku version.
-
-    `dataiku_version` is the version running on the instance. It is omitted
-    when the configured credentials cannot read it.
-    """
+    """Confirm which instance is active, whether it can be reached, and its version."""
 
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
+    current_instance["connection_status"] = "failed"
     try:
-        current_instance["dataiku_version"] = await run_blocking(
-            lambda: get_dataiku_version(get_dss_client())
+        client = get_dss_client()
+        version = await run_blocking(
+            lambda: client.get_instance_info().raw.get("dssVersion") or ""
         )
-    except ValueError:
-        current_instance["dataiku_version"] = ""
+    except Exception:
+        pass
+    else:
+        current_instance["connection_status"] = "connected"
+        current_instance["dataiku_version"] = version
 
     result = omit_empty(current_instance)
     return compact_json(result)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Configure Dataiku Instance",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def configure_instance(ctx: Context) -> str:
-    """Connect a Dataiku instance. Use when no instance is configured, or to add another.
-
-    Opens a local browser page for the user to enter the instance URL and API key,
-    saved to the resolved configuration file (0600).
-    """
+    """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
     client_params = ctx.session.client_params
     elicitation_capability = (
         client_params.capabilities.elicitation if client_params else None

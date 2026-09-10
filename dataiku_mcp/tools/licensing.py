@@ -1,8 +1,24 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Dataiku licensing status inspection."""
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -38,18 +54,22 @@ def _profile_rows(status: dict, include_capabilities: bool) -> list[dict]:
     return rows
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Licensing Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_licensing_status(
     ctx: Context,
-    include_profile_capabilities: bool = False,
+    include_profile_capabilities: Annotated[
+        bool,
+        Field(description="Adds per-profile permission flags; bloats the response."),
+    ] = False,
 ) -> str:
-    """Get Dataiku license validity, expiration, and profile capacity.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        include_profile_capabilities: Include detailed per-profile permission flags;
-            this quickly bloats the context, so use only if strictly required.
-    """
+    """Check license validity and profile capacity before assigning a profile. Admin only."""
     await require_admin()
     await ctx.info("Retrieving Dataiku licensing status...")
 

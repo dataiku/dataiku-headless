@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Authentication utilities for Dataiku client creation."""
 
 import dataikuapi
@@ -65,18 +79,6 @@ def get_dss_client() -> dataikuapi.DSSClient:
     client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
     client._session.verify = not current_instance.no_check_certificate
     return client
-
-
-def get_dataiku_version(client: dataikuapi.DSSClient) -> str:
-    """Return the instance's Dataiku version, or `""` when it cannot be read.
-
-    `/instance-info` is permission-gated, so reporting the active instance must
-    degrade to omitting the version instead of failing for a non-admin key.
-    """
-    try:
-        return client.get_instance_info().raw.get("dssVersion") or ""
-    except Exception:
-        return ""
 
 
 async def require_admin() -> None:

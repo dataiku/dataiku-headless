@@ -1,6 +1,6 @@
 ---
 name: jobs
-description: Run existing Dataiku datasets or recipes, then track and investigate their jobs. Use when an agent wants to execute an existing Flow asset, list jobs, check status, wait for completion, or inspect logs.
+description: Run existing Dataiku datasets or recipes, then track, investigate, or abort their jobs. Use when an agent wants to execute an existing Flow asset, list jobs, check status, wait for completion, inspect logs, or stop a running job.
 ---
 
 # Jobs
@@ -23,6 +23,7 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 4. Use `wait_for_job` for normal follow-up on an active job.
 5. Use `get_job_status` for lightweight polling, or `full=true` when activities, outputs, or timings matter.
 6. Use `get_job_log` when execution logs or failure text are needed.
+7. Use `abort_job` to stop a job that must not continue, then confirm the terminal state before any replacement run.
 
 ## Preferred Tools
 
@@ -32,6 +33,7 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 - `get_job_status`
 - `wait_for_job`
 - `get_job_log`
+- `abort_job`
 
 ## Safety Rules
 
@@ -43,3 +45,4 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 - Do not assume a missing `job_id` means the job is gone; use `list_jobs` to rediscover recent project jobs first.
 - If the current agent already started the job, keep supervising that same job instead of launching a replacement run.
 - Do not start another overlapping build, run, or training job while the current one may still be running unless the user explicitly wants concurrent work and the targets are disjoint.
+- `abort_job` stops a job that must not continue. `abort_still_pending` means the abort was accepted but the job is not terminal yet; confirm with `get_job_status` before a replacement run. An abort does not roll back what the job already wrote.

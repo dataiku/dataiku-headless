@@ -1,8 +1,23 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """LLM, Knowledge Bank, and Retrieval-Augmented LLM inspection tools."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -67,13 +82,26 @@ def _collect_llms(project_key: str, purpose: str | None) -> list[dict[str, Any]]
     ]
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List LLMs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_llms(
     project_key: str,
     ctx: Context,
-    purpose: str = "ALL",
+    purpose: Annotated[
+        str,
+        Field(
+            description="ALL, or one of GENERIC_COMPLETION, TEXT_EMBEDDING_EXTRACTION, "
+            "IMAGE_EMBEDDING_EXTRACTION, RERANKING, IMAGE_GENERATION."
+        ),
+    ] = "ALL",
 ) -> str:
-    """List Dataiku-managed LLMs available in the project."""
+    """Find the LLM IDs a project can use, and for which purpose."""
     project_key = _require_non_empty_string(project_key, "project_key")
     purpose = _require_non_empty_string(purpose, "purpose").upper()
     normalized_purpose = (
@@ -94,9 +122,16 @@ async def list_llms(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get LLM Info",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_llm_info(project_key: str, llm_id: str, ctx: Context) -> str:
-    """Get the full metadata payload for a Dataiku-managed LLM visible in the project."""
+    """Read one LLM's provider, capabilities, and configuration."""
     project_key = _require_non_empty_string(project_key, "project_key")
     llm_id = _require_non_empty_string(llm_id, "llm_id")
     await ctx.info(f"Loading LLM {llm_id} in {project_key}...")
@@ -123,9 +158,16 @@ async def get_llm_info(project_key: str, llm_id: str, ctx: Context) -> str:
     return compact_json({"llm": llm, "detail_source": "dss_list_llms_payload"})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Knowledge Banks",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_knowledge_banks(project_key: str, ctx: Context) -> str:
-    """List the Knowledge Banks in the project."""
+    """Find a project's knowledge banks and their IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing Knowledge Banks in {project_key}...")
     items = await run_blocking(
@@ -134,13 +176,20 @@ async def list_knowledge_banks(project_key: str, ctx: Context) -> str:
     return compact_json({"knowledge_banks": [dict(item) for item in items]})
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Knowledge Bank Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_knowledge_bank_settings(
     project_key: str,
     knowledge_bank_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full settings dict for a Knowledge Bank."""
+    """Read how a knowledge bank embeds and stores its documents."""
     project_key = _require_non_empty_string(project_key, "project_key")
     knowledge_bank_id = _require_non_empty_string(
         knowledge_bank_id, "knowledge_bank_id"
@@ -160,14 +209,27 @@ async def get_knowledge_bank_settings(
     return compact_json(raw)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Search Knowledge Bank",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def search_knowledge_bank(
     project_key: str,
     knowledge_bank_id: str,
     query: str,
     ctx: Context,
-    max_documents: int = 10,
-    search_type: str = "SIMILARITY",
+    max_documents: Annotated[int, Field(description="Documents returned.")] = 10,
+    search_type: Annotated[
+        str,
+        Field(
+            description="SIMILARITY, SIMILARITY_THRESHOLD, MMR, or HYBRID. "
+            "The parameters below apply only to their own search type."
+        ),
+    ] = "SIMILARITY",
     similarity_threshold: float = 0.5,
     mmr_documents_count: int = 20,
     mmr_factor: float = 0.25,
@@ -175,7 +237,7 @@ async def search_knowledge_bank(
     hybrid_rrf_rank_constant: int = 60,
     hybrid_rrf_rank_window_size: int = 4,
 ) -> str:
-    """Search for documents in a Knowledge Bank."""
+    """Retrieve documents from a knowledge bank, to check what an agent would ground on."""
     project_key = _require_non_empty_string(project_key, "project_key")
     knowledge_bank_id = _require_non_empty_string(
         knowledge_bank_id, "knowledge_bank_id"
@@ -261,9 +323,16 @@ def _serialize_rag_llm_item(raw: dict) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Retrieval-Augmented LLMs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
-    """List the Retrieval-Augmented LLMs in the project."""
+    """Find a project's retrieval-augmented LLMs and their IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing Retrieval-Augmented LLMs in {project_key}...")
     items = await run_blocking(
@@ -282,13 +351,20 @@ async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Retrieval-Augmented LLM Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_retrieval_augmented_llm_settings(
     project_key: str,
     retrieval_augmented_llm_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full live settings dict for a Retrieval-Augmented LLM."""
+    """Read which LLM and knowledge bank a retrieval-augmented LLM combines."""
     project_key = _require_non_empty_string(project_key, "project_key")
     retrieval_augmented_llm_id = _require_non_empty_string(
         retrieval_augmented_llm_id, "retrieval_augmented_llm_id"

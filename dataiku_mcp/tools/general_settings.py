@@ -1,6 +1,23 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Dataiku General Settings inspection tools."""
 
+from typing import Annotated
+
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
@@ -139,16 +156,21 @@ def _serialize_spark_config(raw: dict, include_details: bool) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Container Execution Configs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_container_exec_configs(
-    ctx: Context, include_details: bool = False
+    ctx: Context,
+    include_details: Annotated[
+        bool, Field(description="Adds runtime, image-build, and resource settings.")
+    ] = False,
 ) -> str:
-    """List Dataiku container execution configurations.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        include_details: Include runtime, image-build, and resource settings.
-    """
+    """Find the container execution configs a recipe or notebook can run on. Admin only."""
     await require_admin()
     await ctx.info("Listing Dataiku container execution configurations...")
     settings = await run_blocking(
@@ -168,14 +190,24 @@ async def list_container_exec_configs(
     )
 
 
-@mcp.tool()
-async def list_spark_configs(ctx: Context, include_details: bool = False) -> str:
-    """List Dataiku Spark configurations.
-    Requires global administrator rights on the target Dataiku instance.
-
-    Args:
-        include_details: Include Spark, Kubernetes, image-build, and credential settings.
-    """
+@mcp.tool(
+    title="List Spark Configs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_spark_configs(
+    ctx: Context,
+    include_details: Annotated[
+        bool,
+        Field(
+            description="Adds Spark, Kubernetes, image-build, and credential settings."
+        ),
+    ] = False,
+) -> str:
+    """Find the Spark configs a recipe can run on. Admin only."""
     await require_admin()
     await ctx.info("Listing Dataiku Spark configurations...")
     settings = await run_blocking(

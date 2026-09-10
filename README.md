@@ -138,7 +138,7 @@ limited direct actions Headless supports, see the
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, job management, administrative tasks, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -152,7 +152,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 `skills` exposes two prompt-based entrypoints: `dataiku-headless-setup` for first-time installation, runtime recovery, and instance configuration; and `dataiku-headless` for Dataiku work. The main entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
 ## Onboarding and authentication
 
@@ -223,9 +223,10 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
 │   │   ├── instances.py       # Multi-instance switching tools
-│   │   ├── jobs.py            # Async job status/log/wait tools
+│   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
+│   │   ├── plugins.py         # Instance plugin listing, updates, and deletion
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
@@ -253,7 +254,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py   # same command the plugin ma
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
 │           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
-│           ├── jobs.md             # Dataiku job tracking, waiting, and log inspection
+│           ├── jobs.md             # Dataiku job tracking, waiting, aborting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection

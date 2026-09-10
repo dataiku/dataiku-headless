@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for managed Design-node code environment tools."""
 
 import asyncio
@@ -6,8 +20,32 @@ import json
 
 import pytest
 
+import dataiku_mcp
 from dataiku_mcp.tools import code_environments as tools
 from tests.utils.fakes import FakeContext
+
+
+def _tool_schema(name: str) -> dict:
+    tool = next(
+        item for item in asyncio.run(dataiku_mcp.mcp.list_tools()) if item.name == name
+    )
+    return tool.parameters["properties"]
+
+
+def _enum_values(schema: dict) -> list[str]:
+    """Collect a parameter's advertised enum from any depth of its schema.
+
+    Pydantic nests an optional annotated Literal one ``anyOf`` deeper on Python
+    3.10 than on 3.12+, so a fixed-depth lookup passes on one and fails on the
+    other.
+    """
+    if "enum" in schema:
+        return schema["enum"]
+    for branch in schema.get("anyOf", []):
+        found = _enum_values(branch)
+        if found:
+            return found
+    return []
 
 
 def _raw(name: str, language: str = "PYTHON") -> dict:
@@ -267,15 +305,16 @@ def test_create_code_env_does_not_build_images_without_targets(monkeypatch):
     assert result["image_update"] is None
 
 
-def test_create_code_env_rejects_unknown_python_interpreter(monkeypatch):
-    _patch_client(monkeypatch, FakeClient([FakeCodeEnv(_raw("env"))]))
+def test_create_code_env_rejects_unknown_python_interpreter():
+    """The allowed interpreters ride in the schema, so Pydantic rejects the rest.
 
-    with pytest.raises(ValueError, match="python_interpreter"):
-        asyncio.run(
-            tools.create_code_env(
-                "PYTHON", "env", FakeContext(), python_interpreter="PYTHON38"
-            )
-        )
+    Calling the handler directly bypasses that boundary, so assert on the
+    advertised enum instead of on a runtime check the handler no longer makes.
+    """
+    allowed = _enum_values(_tool_schema("create_code_env")["python_interpreter"])
+    assert allowed, "python_interpreter must advertise its allowed values"
+    assert "PYTHON38" not in allowed
+    assert "PYTHON311" in allowed
 
 
 def test_update_code_env_does_not_accept_python_interpreter():

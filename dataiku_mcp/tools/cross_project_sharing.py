@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Cross-project sharing inspection for Dataiku shared objects."""
 
 from dataikuapi.utils import DataikuException
@@ -19,9 +33,16 @@ def _raise_if_forbidden(project_key: str, exc: DataikuException) -> None:
         ) from exc
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Shared Objects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_shared_objects(project_key: str, ctx: Context) -> str:
-    """List the objects this project shares with other projects."""
+    """Find which of a project's objects are exposed to which other projects."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing shared objects in {project_key}...")
 

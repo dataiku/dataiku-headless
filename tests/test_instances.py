@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for the current instance tool's Dataiku version reporting."""
 
 import asyncio
@@ -49,6 +63,7 @@ def test_get_current_instance_reports_the_dataiku_version(monkeypatch):
     result = _current(monkeypatch, client)
 
     assert result["dataiku_version"] == "14.7.2"
+    assert result["connection_status"] == "connected"
     assert client.info_calls == 1
 
 
@@ -69,4 +84,19 @@ def test_get_current_instance_omits_the_dataiku_version_without_credentials(
     result = json.loads(asyncio.run(instances.get_current_instance(FakeContext())))
 
     assert "dataiku_version" not in result
+    assert result["connection_status"] == "failed"
     assert result["name"] == "primary"
+
+
+def test_get_current_instance_reports_failed_connection(monkeypatch):
+    client = _FakeClient({})
+
+    def unavailable_instance_info():
+        raise ConnectionError("connection failed")
+
+    client.get_instance_info = unavailable_instance_info
+    result = _current(monkeypatch, client)
+
+    assert result["connection_status"] == "failed"
+    assert "dataiku_version" not in result
+    assert client.info_calls == 0

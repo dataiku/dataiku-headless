@@ -1,13 +1,29 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Flow inspection utilities."""
 
+from typing import Annotated, Literal
+
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking
 from .utils.auth import get_dss_client
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
-    require_allowed_value as _require_allowed_value,
     require_non_empty_string as _require_non_empty_string,
     require_positive_int as _require_positive_int,
 )
@@ -20,7 +36,15 @@ _TAGGABLE_TYPES = {
     "retrieval_augmented_llm",
     "knowledge_bank",
 }
-_METADATA_OBJECT_TYPES = _TAGGABLE_TYPES | {"saved_model"}
+MetadataObjectType = Literal[
+    "dataset",
+    "recipe",
+    "managed_folder",
+    "agent",
+    "retrieval_augmented_llm",
+    "knowledge_bank",
+    "saved_model",
+]
 
 
 def _get_metadata_settings(project, object_type: str, object_name: str):
@@ -276,15 +300,28 @@ def _fit_response_to_budget(result: dict) -> str:
     return payload
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Flow Graph",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_flow_graph(
     project_key: str,
     ctx: Context,
-    zone: str | None = None,
-    max_nodes: int = 1_000,
-    max_edges: int = 2_000,
+    zone: Annotated[
+        str | None, Field(description="Restricts the graph to one flow zone.")
+    ] = None,
+    max_nodes: Annotated[
+        int, Field(description="The response flags a graph truncated by this bound.")
+    ] = 1_000,
+    max_edges: Annotated[
+        int, Field(description="The response flags a graph truncated by this bound.")
+    ] = 2_000,
 ) -> str:
-    """Get a flow graph: sources, node refs by type, edges; optionally zone-scoped."""
+    """Map a project's flow: which assets feed which, and where it starts."""
     project_key = _require_non_empty_string(project_key, "project_key")
     if zone is not None:
         zone = _require_non_empty_string(zone, "zone")
@@ -319,9 +356,16 @@ async def get_flow_graph(
     return await run_blocking(_run)
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Flow Zones",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_flow_zones(project_key: str, ctx: Context) -> str:
-    """List the flow zones in the project with their items."""
+    """See how a project's flow is partitioned into zones."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing flow zones in {project_key}...")
 
@@ -355,15 +399,21 @@ async def list_flow_zones(project_key: str, ctx: Context) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Flow Object Metadata",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_flow_object_metadata(
     project_key: str,
-    object_type: str,
+    object_type: MetadataObjectType,
     object_name: str,
     ctx: Context,
 ) -> str:
-    """Get metadata for a flow object."""
-    _require_allowed_value(object_type, "object_type", _METADATA_OBJECT_TYPES)
+    """Read a flow object's description, tags, and custom metadata."""
     await ctx.info(
         f"Fetching metadata for {object_type} '{object_name}' in {project_key}..."
     )

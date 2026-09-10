@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Inspection tools for Dataiku Agent Reviews."""
 
 from fastmcp import Context
@@ -9,9 +23,16 @@ from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agent Reviews",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agent_reviews(project_key: str, ctx: Context) -> str:
-    """List the agent reviews in the project."""
+    """Find a project's agent reviews and their IDs."""
     project_key = require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing agent reviews in {project_key}...")
 
@@ -31,13 +52,20 @@ async def list_agent_reviews(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Agent Review",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_agent_review(
     project_key: str,
     review_id: str,
     ctx: Context,
 ) -> str:
-    """Get an agent review's configuration including its traits."""
+    """Read what an agent review evaluates, including its traits."""
     project_key = require_non_empty_string(project_key, "project_key")
     review_id = require_non_empty_string(review_id, "review_id")
     await ctx.info(f"Getting agent review {review_id} in {project_key}...")
@@ -59,13 +87,20 @@ async def get_agent_review(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agent Review Tests",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agent_review_tests(
     project_key: str,
     review_id: str,
     ctx: Context,
 ) -> str:
-    """List the tests in an agent review."""
+    """See the test cases an agent review runs against an agent."""
     project_key = require_non_empty_string(project_key, "project_key")
     review_id = require_non_empty_string(review_id, "review_id")
     await ctx.info(f"Listing tests for agent review {review_id} in {project_key}...")
@@ -91,13 +126,20 @@ async def list_agent_review_tests(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Agent Review Runs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_agent_review_runs(
     project_key: str,
     review_id: str,
     ctx: Context,
 ) -> str:
-    """List the runs for an agent review."""
+    """Find an agent review's past runs and their IDs and outcomes."""
     project_key = require_non_empty_string(project_key, "project_key")
     review_id = require_non_empty_string(review_id, "review_id")
     await ctx.info(f"Listing runs for agent review {review_id} in {project_key}...")
@@ -139,14 +181,21 @@ async def list_agent_review_runs(
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Agent Review Run Results",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_agent_review_run_results(
     project_key: str,
     review_id: str,
     run_id: str,
     ctx: Context,
 ) -> str:
-    """Get the results of an agent review run."""
+    """Read per-test scores and failures from one agent review run."""
     project_key = require_non_empty_string(project_key, "project_key")
     review_id = require_non_empty_string(review_id, "review_id")
     run_id = require_non_empty_string(run_id, "run_id")

@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Shared fakes for tool unit tests.
 
 Tool tests must run without a live Dataiku connection (same constraint as
@@ -38,3 +52,20 @@ class FakeDSSClient:
         if project_key not in self.projects:
             raise KeyError(f"Unknown fake project: {project_key}")
         return self.projects[project_key]
+
+
+def incrementing_monotonic(step=1000.0):
+    """A ``time.monotonic()`` stand-in that jumps ``step`` seconds on every call.
+
+    Every "remaining" check therefore lands well past the deadline computed on the
+    preceding call, so any bounded wait loop times out on its first iteration —
+    deterministic and with no real sleeping, regardless of call count.
+    """
+    state = {"t": 0.0}
+
+    def _next():
+        value = state["t"]
+        state["t"] += step
+        return value
+
+    return _next

@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Process-local Cobuild conversations with safe retained turns."""
 
 from __future__ import annotations
@@ -7,8 +21,10 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Annotated, Literal
 
 from fastmcp import Context
+from pydantic import Field
 
 from .. import mcp
 from .utils.async_executor import run_blocking, run_cobuild_blocking
@@ -17,6 +33,8 @@ from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 TURN_WAIT_TIMEOUT_SECONDS = 240
+
+ProjectKey = Annotated[str, Field(description="Must match the conversation's project.")]
 
 
 @dataclass
@@ -30,6 +48,7 @@ class _Turn:
 @dataclass
 class _Conversation:
     instance_name: str
+    instance_url: str
     project_key: str
     sdk_conversation: object
     created_at: str
@@ -37,6 +56,18 @@ class _Conversation:
 
 
 _conversations: dict[str, _Conversation] = {}
+
+
+def _project_url(entry: _Conversation) -> str:
+    # Cobuild opens from the project Flow, not a conversation-specific URL.
+    return f"{entry.instance_url.rstrip('/')}/projects/{entry.project_key}/flow/"
+
+
+def _open_in_dss(entry: _Conversation) -> str:
+    return (
+        f"Open the project at {_project_url(entry)} and its Cobuild panel to view this "
+        "conversation in the Dataiku UI."
+    )
 
 
 def _require_conversation_entry(
@@ -80,6 +111,7 @@ def _terminal_turn_result(
         "turn_id": turn.id,
         "instance_name": entry.instance_name,
         "project_key": entry.project_key,
+        "project_url": _project_url(entry),
         "message": str(getattr(response, "message", "")),
         "response_type": response_type,
         "is_error": is_error,
@@ -113,6 +145,8 @@ def _pending_turn_result(
         "status": status,
         "conversation_id": conversation_id,
         "turn_id": turn.id,
+        "project_key": entry.project_key,
+        "project_url": _project_url(entry),
         "next_action": (
             "The turn is queued for a Cobuild worker; poll after a short interval."
             if status == "queued"
@@ -143,13 +177,14 @@ def _require_turn_available(conversation_id: str, entry: _Conversation) -> None:
         status = "in progress" if turn.started.is_set() else "queued"
         raise ValueError(
             f"Cannot start a new Cobuild turn: current turn '{turn.id}' is {status}. "
-            f"First call get_cobuild_turn_status with {poll_payload}."
+            f"First call get_cobuild_turn_status with {poll_payload}. "
+            f"{_open_in_dss(entry)}"
         )
     if not turn.observed:
         raise ValueError(
             f"Cannot start a new Cobuild turn: current turn '{turn.id}' has a "
             "terminal result that has not been observed. First call "
-            f"get_cobuild_turn_status with {poll_payload}."
+            f"get_cobuild_turn_status with {poll_payload}. {_open_in_dss(entry)}"
         )
 
 
@@ -187,6 +222,8 @@ def _start_turn(conversation_id: str, entry: _Conversation, check, call) -> _Tur
                 "status": "failed",
                 "conversation_id": conversation_id,
                 "turn_id": turn.id,
+                "project_key": entry.project_key,
+                "project_url": _project_url(entry),
                 "error_type": type(exc).__name__,
                 "message": str(exc) or type(exc).__name__,
                 "is_confirmation_request": False,
@@ -212,19 +249,28 @@ async def _wait_for_turn(
     return result
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Start Cobuild Conversation",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
-    """Start a process-local Cobuild conversation for a Dataiku project."""
+    """Open a Cobuild conversation on a project, if no retained one applies."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
-    instance_name = get_current_instance_for_tool().name
+    instance = get_current_instance_for_tool()
     client = get_dss_client()
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
-        instance_name,
+        instance.name,
+        instance.url,
         project_key,
         conversation,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -235,20 +281,32 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             "conversation_id": conversation.conversation_id,
             "instance_name": entry.instance_name,
             "project_key": entry.project_key,
+            "project_url": _project_url(entry),
             "created_at": entry.created_at,
         }
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Send Cobuild Message",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def send_cobuild_message(
     conversation_id: str,
-    project_key: str,
+    project_key: ProjectKey,
     message: str,
     ctx: Context,
-    allow_edit_project: bool = False,
+    allow_edit_project: Annotated[
+        bool,
+        Field(description="Permits project changes; default false is inspect-only."),
+    ] = False,
 ) -> str:
-    """Send one message in a retained Cobuild conversation."""
+    """Ask Cobuild to inspect a project, or to build or change assets."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     message = _require_non_empty_string(message, "message")
@@ -283,15 +341,23 @@ async def send_cobuild_message(
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Answer Cobuild Deletion Confirmation",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def answer_cobuild_confirmation(
     conversation_id: str,
-    project_key: str,
+    project_key: ProjectKey,
     turn_id: str,
-    choice: str,
+    choice: Literal["APPROVE", "CANCEL"],
     ctx: Context,
 ) -> str:
-    """Approve or cancel the current Cobuild confirmation turn."""
+    """Approve or cancel a deletion Cobuild proposed in the current turn."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -322,17 +388,31 @@ async def answer_cobuild_confirmation(
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Answer Cobuild Question",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
 async def answer_cobuild_question(
     conversation_id: str,
-    project_key: str,
+    project_key: ProjectKey,
     turn_id: str,
-    answers: list[str],
+    answers: Annotated[
+        list[str], Field(description="Must be empty when rejected is true.")
+    ],
     ctx: Context,
-    rejected: bool = False,
-    used_custom_answer: bool = False,
+    rejected: Annotated[
+        bool, Field(description="Decline to answer and let Cobuild proceed.")
+    ] = False,
+    used_custom_answer: Annotated[
+        bool, Field(description="Answers are free text, not predefined choices.")
+    ] = False,
 ) -> str:
-    """Answer the current Cobuild question turn."""
+    """Answer the question Cobuild asked in the current turn, resuming its work."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -364,11 +444,21 @@ async def answer_cobuild_question(
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Cobuild Turn Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_cobuild_turn_status(
-    conversation_id: str, project_key: str, turn_id: str, ctx: Context
+    conversation_id: str,
+    project_key: ProjectKey,
+    turn_id: str,
+    ctx: Context,
 ) -> str:
-    """Return the current retained turn’s result if complete; otherwise wait up to 240 seconds."""
+    """Wait for or recover a retained turn's result, and inspect it before answering."""
     conversation_id = _require_non_empty_string(conversation_id, "conversation_id")
     project_key = _require_non_empty_string(project_key, "project_key")
     turn_id = _require_non_empty_string(turn_id, "turn_id")
@@ -377,9 +467,16 @@ async def get_cobuild_turn_status(
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Cobuild Conversations",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
-    """List process-local Cobuild conversations for a project and their current turns."""
+    """Find retained conversations for a project and their current turn IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = get_current_instance_for_tool().name
     rows = []
@@ -393,6 +490,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                 "conversation_id": conversation_id,
                 "instance_name": entry.instance_name,
                 "project_key": entry.project_key,
+                "project_url": _project_url(entry),
                 "created_at": entry.created_at,
                 "current_turn_id": turn.id if turn else None,
                 "current_turn_status": (
@@ -414,6 +512,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "conversation_id",
                     "instance_name",
                     "project_key",
+                    "project_url",
                     "created_at",
                     "current_turn_id",
                     "current_turn_status",

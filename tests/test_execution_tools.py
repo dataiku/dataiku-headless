@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for the three direct-execution tools.
 
 These are the only sanctioned direct actions on existing assets (everything else
@@ -13,7 +27,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import dataiku_mcp
 from dataiku_mcp.tools import jobs, scenarios
+from tests.utils.fakes import incrementing_monotonic as _incrementing_monotonic
 
 
 # --------------------------------------------------------------------------- #
@@ -34,23 +50,6 @@ class FakeCtx:
 def _load(coro):
     """Run a tool coroutine and parse its compact-JSON string result."""
     return json.loads(asyncio.run(coro))
-
-
-def _incrementing_monotonic(step=1000.0):
-    """A monotonic() stand-in that jumps ``step`` seconds on every call.
-
-    Every "remaining" check therefore lands well past the deadline computed on the
-    preceding call, so any bounded wait loop times out on its first iteration —
-    deterministic and with no real sleeping, regardless of call count.
-    """
-    state = {"t": 0.0}
-
-    def _next():
-        value = state["t"]
-        state["t"] += step
-        return value
-
-    return _next
 
 
 def _job(job_id, raw_status=None):
@@ -293,9 +292,22 @@ def test_build_datasets_start_failure_raises_with_safe_retry_guidance():
     assert "nope" in str(raised.value.__cause__)
 
 
-def test_build_datasets_invalid_job_type_rejected():
-    with pytest.raises(ValueError, match="job_type"):
-        _load(jobs.build_datasets("PK", FakeCtx(), ["a"], job_type="BOGUS"))
+def test_build_datasets_advertises_only_valid_job_types():
+    """The allowed job types ride in the schema, so Pydantic rejects the rest.
+
+    Calling the handler directly bypasses that boundary, so assert on the
+    advertised enum instead of on a runtime check the handler no longer makes.
+    """
+    tool = next(
+        item
+        for item in asyncio.run(dataiku_mcp.mcp.list_tools())
+        if item.name == "build_datasets"
+    )
+    assert tool.parameters["properties"]["job_type"]["enum"] == [
+        "NON_RECURSIVE_FORCED_BUILD",
+        "RECURSIVE_BUILD",
+        "RECURSIVE_FORCED_BUILD",
+    ]
 
 
 def test_build_datasets_rejects_duplicates_and_unbounded_inputs():
@@ -566,6 +578,47 @@ def test_run_recipe_start_failure_is_raised_as_outcome_unknown():
             _load(jobs.run_recipe("PK", "recipe", FakeCtx()))
 
     assert isinstance(raised.value.__cause__, ConnectionError)
+
+
+# --------------------------------------------------------------------------- #
+# abort_job
+# --------------------------------------------------------------------------- #
+
+
+def test_abort_job_reports_terminal_state_after_abort_request():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        _raw_status("J1", end_time=200, runtime_state="DONE"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "job_finished_after_abort_request"
+    assert res["job"]["state"] == "DONE"
+
+
+def test_abort_job_poll_failure_returns_confirmed_abort_outcome():
+    job = _job("J1")
+    job.get_status.side_effect = [
+        _raw_status("J1", end_time=0, runtime_state="RUNNING"),
+        ConnectionError("poll dropped"),
+    ]
+    client = MagicMock()
+    client.get_project.return_value.get_job.return_value = job
+
+    with patch("dataiku_mcp.tools.jobs.get_dss_client", return_value=client):
+        res = _load(jobs.abort_job("PK", "J1", FakeCtx()))
+
+    job.abort.assert_called_once()
+    assert res["status"] == "abort_poll_failed"
+    assert res["abort_requested"] is True
+    assert res["job"]["job_id"] == "J1"
+    assert res["error_type"] == "ConnectionError"
 
 
 # --------------------------------------------------------------------------- #

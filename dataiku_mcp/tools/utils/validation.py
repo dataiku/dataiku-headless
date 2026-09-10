@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Shared validation helpers for tool modules."""
 
 import re
@@ -48,6 +62,16 @@ def require_int_at_least(value: int, field_name: str, minimum: int) -> int:
     cleaned = require_positive_int(value, field_name)
     if cleaned < minimum:
         raise ValueError(f"'{field_name}' must be >= {minimum}")
+    return cleaned
+
+
+def require_int_in_range(
+    value: int, field_name: str, minimum: int, maximum: int
+) -> int:
+    """Require an int within an inclusive range, for bounded inline waits and caps."""
+    cleaned = require_int_at_least(value, field_name, minimum)
+    if cleaned > maximum:
+        raise ValueError(f"'{field_name}' must be <= {maximum}")
     return cleaned
 
 

@@ -1,3 +1,17 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Semantic model inspection for Dataiku."""
 
 from fastmcp import Context
@@ -9,9 +23,16 @@ from .utils.serialization import columnar, compact_json
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 
-@mcp.tool()
+@mcp.tool(
+    title="List Semantic Models",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def list_semantic_models(project_key: str, ctx: Context) -> str:
-    """List semantic models with IDs, names, active version, and version IDs."""
+    """Find a project's semantic models, their active version, and version IDs."""
     await ctx.info(f"Listing semantic models in {project_key}...")
 
     def _run():
@@ -39,14 +60,21 @@ async def list_semantic_models(project_key: str, ctx: Context) -> str:
     return compact_json(await run_blocking(_run))
 
 
-@mcp.tool()
+@mcp.tool(
+    title="Get Semantic Model Version Settings",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
 async def get_semantic_model_version_settings(
     project_key: str,
     semantic_model_id: str,
     version_id: str,
     ctx: Context,
 ) -> str:
-    """Get the full settings of a semantic model version."""
+    """Read one semantic model version's full definition."""
     semantic_model_id = _require_non_empty_string(
         semantic_model_id, "semantic_model_id"
     )
