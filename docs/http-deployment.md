@@ -95,10 +95,60 @@ select an entry, and Dataiku decides what that user may do. `configure_instance`
 
 ## Distribute the connection to end users
 
-The public `dataiku-headless` marketplace plugin starts its own stdio server and
-must not be installed for this mode. Install the shared skills and distribute a
-server named `dataiku` through managed Codex, Claude Code, or workstation
-configuration. Codex clients can
+The public `dataiku-headless` marketplace plugin provides the Dataiku tools and
+skills through a personal stdio connection. It must not be installed for this
+mode because it would launch a second MCP server on the workstation using uv and
+a personal API key.
+
+For HTTP, generate a customer-specific marketplace bundle after configuring the
+server:
+
+```bash
+uv run python scripts/build_http_plugin.py \
+  --http-config .dataiku/http-config.json \
+  --output ./dataiku-headless-http-marketplace
+```
+
+When `--http-config` is used, the generator verifies that
+`auth.interactive_login` is enabled, then reads `server.public_url` and
+`server.path`. Administrators who have already verified the deployment can instead
+pass `--interactive-oauth-url https://mcp.customer.example/mcp`. The bundle is not
+for direct bearer authentication.
+
+The generated private-marketplace repository contains a portable plugin, a
+Claude-compatible plugin, the fixed Streamable HTTP endpoint, and the shared
+Dataiku skills. It does not copy the HTTP configuration, OAuth secrets, or Dataiku
+credentials. The output path must not already exist.
+
+Publish the generated directory to a private GitHub repository, then distribute
+it according to the client surface:
+
+- **ChatGPT desktop and the Codex app:** a ChatGPT workspace administrator
+  [imports the repository from Admin > Plugins](https://learn.chatgpt.com/docs/enterprise/plugin-management),
+  then makes the plugin Available or Installed for the appropriate roles.
+  Workspace-imported plugins containing MCP servers are desktop-only.
+- **Codex CLI:** an administrator adds the marketplace through managed or system
+  configuration. Users install **Dataiku Headless** from the
+  [`/plugins` browser](https://learn.chatgpt.com/docs/plugins), or receive it
+  automatically.
+- **Codex IDE extension:** plugins are not available. Distribute the shared MCP
+  configuration and skills separately as described below.
+- **Claude Code and Claude Desktop:** a Claude administrator registers the
+  repository as a managed marketplace and enables the plugin.
+
+On supported plugin surfaces, users select **Dataiku Headless**—or receive it
+automatically—and complete interactive browser authentication. They do not need
+uv, a Dataiku API key, or the MCP URL.
+
+Keep exactly one Dataiku MCP definition enabled in each client. Disable the public
+marketplace plugin before distributing the customer-specific remote plugin.
+
+### Managed or configuration-only distribution
+
+Use this path for direct bearer deployments, the Codex IDE extension, or any
+environment where the organization cannot distribute a plugin. Install the shared
+skills and distribute a server named `dataiku` through managed Codex, Claude Code,
+or workstation configuration. Codex clients can
 [share MCP configuration](https://learn.chatgpt.com/docs/extend/mcp) where their
 administrator-managed setup supports it, but the skills must also be made available
 to clients without plugin support. The server URL is the externally visible
@@ -110,8 +160,6 @@ user's login. For direct bearer authentication, the managed client or calling
 application must obtain a correctly scoped access token and attach it to every MCP
 request. Do not put OAuth client secrets, bearer tokens, or Dataiku credentials in
 plugin files or source repositories.
-
-Keep exactly one Dataiku MCP definition enabled in each client.
 
 Users whose clients are not centrally managed can install the skills with
 `npx skills add dataiku/dataiku-headless`, then use the following commands with
