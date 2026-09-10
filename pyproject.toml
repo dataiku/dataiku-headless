@@ -36,6 +36,12 @@ packages = ["dataiku_mcp"]
 include = [
     "dataiku_mcp",
     "skills",
+    "runtime",
+    "plugin.json",
+    ".claude-plugin",
+    ".codex-plugin",
+    ".mcp.json",
+    "mcp.json",
     "README.md",
     "pyproject.toml",
 ]

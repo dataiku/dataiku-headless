@@ -4,7 +4,13 @@
     "dataiku": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--quiet", "--locked", "--script", "./bin/run_mcp.py"],
+      "args": [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py"
+      ],
       "cwd": "${PLUGIN_ROOT}"
     }
   }

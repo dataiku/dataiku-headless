@@ -90,7 +90,7 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
         "--quiet",
         "--locked",
         "--script",
-        "./bin/run_mcp.py",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py",
     ]
 
     cwd = server.get("cwd")
@@ -117,7 +117,10 @@ def test_skill_is_discovered_as_immediate_child_of_skills():
         for p in (ROOT / "skills").iterdir()
         if p.is_dir() and (p / "SKILL.md").is_file()
     ]
-    assert [p.name for p in skill_dirs] == ["dataiku-headless"]
+    assert [p.name for p in skill_dirs] == [
+        "dataiku-headless",
+        "dataiku-headless-setup",
+    ]
 
     frontmatter = skill_md.read_text(encoding="utf-8").split("---", 2)
     assert len(frontmatter) >= 3, "SKILL.md missing YAML frontmatter"
@@ -129,7 +132,8 @@ def test_mcp_script_path_exists_in_package():
     """Portable mcp.json must point at the supported script entry point."""
     config = _load_json(ROOT / "mcp.json")
     server = config["mcpServers"]["dataiku"]
-    assert (ROOT / server["args"][-1]).is_file()
+    script_path = server["args"][-1].removeprefix("${PLUGIN_ROOT}/")
+    assert (ROOT / script_path).is_file()
 
 
 def test_plugin_versions_match_project_version():

@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace. The repository also ships an [Agent Plugins](https://agent-plugins.org/) v1.0.0 package for Cursor and other conforming clients.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with Cursor, OpenCode, and other Agent Plugins-compatible clients. The portable package uses the root `plugin.json`, root `mcp.json`, and the shared `skills/` directory; dedicated manifests remain for Claude Code and Codex.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
