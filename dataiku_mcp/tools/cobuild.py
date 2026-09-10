@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
 
@@ -247,6 +248,65 @@ async def _wait_for_turn(
         return _pending_turn_result(conversation_id, entry, turn)
     turn.observed = True
     return result
+
+
+def _any_project_key(client) -> str:
+    """One project key. Root folder response is small; instance-wide list
+    carries every project's metadata, megabytes on a large instance."""
+    keys = (
+        client.get_root_project_folder().list_project_keys()
+        or client.list_project_keys()
+    )
+    if not keys:
+        raise ValueError("Instance holds 0 projects. Cobuild check needs 1.")
+    return keys[0]
+
+
+@mcp.tool(
+    title="Get Cobuild Status",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def get_cobuild_status(
+    ctx: Context,
+    project_key: Annotated[
+        str,
+        Field(description="Project to probe. Empty borrows any accessible one."),
+    ] = "",
+) -> str:
+    """Check Cobuild availability for these credentials on this instance."""
+    # Temporary. Opening a conversation is the only way to ask today, and it
+    # leaves an empty one in the probed project. Replace with
+    # DSSClient.get_cobuild_status() when it ships.
+    requested_key = project_key.strip()
+    await ctx.info("Checking Cobuild status...")
+    instance = get_current_instance_for_tool()
+
+    def _run():
+        client = get_dss_client()
+        probed_key = requested_key or _any_project_key(client)
+        try:
+            client.get_project(probed_key).new_cobuild_conversation()
+        except DataikuException as exc:
+            raise ValueError(
+                f"Cobuild refused project '{probed_key}': {exc}. Causes: Cobuild "
+                "off on this instance, credentials lack a personal API key, project "
+                "lacks read access. Retry with a readable project_key."
+            ) from exc
+        return probed_key
+
+    probed_key = await run_blocking(_run)
+    return compact_json(
+        {
+            "enabled": True,
+            "instance_name": instance.name,
+            "probed_project_key": probed_key,
+        }
+    )
 
 
 @mcp.tool(
