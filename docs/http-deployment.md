@@ -67,7 +67,7 @@ OAuth client secrets:
 mkdir -p ~/.dataiku
 cp .dataiku/http-config.json.entra-example ~/.dataiku/http-config.json
 chmod 600 ~/.dataiku/http-config.json
-uv run --quiet --locked --script bin/run_mcp.py --transport http
+uv run --quiet --locked --script runtime/run_mcp.py --transport http
 ```
 
 For RFC 8693, copy `.dataiku/http-config.json.generic_oidc-example` instead. The

@@ -30,17 +30,17 @@ The inline script metadata above lets uv build the runtime environment on the
 fly, so a harness with uv 0.12.0 or later can start the server without a
 project install:
 
-    uv run --quiet --locked --script bin/run_mcp.py --transport stdio
-    uv run --quiet --locked --script bin/run_mcp.py --transport http
+    uv run --quiet --locked --script runtime/run_mcp.py --transport stdio
+    uv run --quiet --locked --script runtime/run_mcp.py --transport http
 
-The plugin manifests invoke this script directly through uv. ``bin/launcher.sh``
+The plugin manifests invoke this script directly through uv. ``runtime/launcher.sh``
 is retained as inactive legacy code for a possible future fallback path.
 
-uv installs the committed ``bin/run_mcp.py.lock`` resolution into a cached,
+uv installs the committed ``runtime/run_mcp.py.lock`` resolution into a cached,
 isolated environment on the first launch and reuses it afterwards. ``--locked``
 prevents a launch from resolving or changing that lock. After deliberately
 changing the inline metadata, regenerate the lock with
-``uv lock --script bin/run_mcp.py`` and commit it. The ``==`` pins above remain
+``uv lock --script runtime/run_mcp.py`` and commit it. The ``==`` pins above remain
 the direct dependency constraints; the lock also records their transitive
 dependencies.
 

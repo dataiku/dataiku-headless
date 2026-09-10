@@ -101,7 +101,7 @@ Add the following to your `.mcp.json` from a checkout of this repository:
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uv", "run", "--quiet", "--locked", "--script", "./bin/run_mcp.py", "--transport", "stdio"],
+      "command": ["uv", "run", "--quiet", "--locked", "--script", "./runtime/run_mcp.py", "--transport", "stdio"],
       "enabled": true
     }
   }
@@ -187,7 +187,7 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
-The canonical `bin/run_mcp.py` launcher reads this file after validating its
+The canonical `runtime/run_mcp.py` launcher reads this file after validating its
 arguments and before importing the MCP package. `.env` only fills in variables
 not already set in your shell or launcher—a real environment variable of the
 same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
@@ -207,7 +207,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
+uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```
 
 ## Project Structure
@@ -268,7 +268,7 @@ uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio
 │           ├── agents.md           # Agent and agent-tool inspection
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
-├── bin/
+├── runtime/
 │   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point

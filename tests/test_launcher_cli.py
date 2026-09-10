@@ -22,7 +22,7 @@ from types import ModuleType
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "run_mcp.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "runtime" / "run_mcp.py"
 SETUP_SKILL = (
     Path(__file__).resolve().parent.parent
     / "skills"

@@ -38,7 +38,9 @@ def test_http_managed_folder_upload_rejects_before_blocking_work(monkeypatch):
         lambda *args: pytest.fail("local upload must not start blocking work"),
     )
 
-    with pytest.raises(ValueError, match="upload_file_to_managed_folder is unavailable"):
+    with pytest.raises(
+        ValueError, match="upload_file_to_managed_folder is unavailable"
+    ):
         _run_as_http(
             lambda: asyncio.run(
                 managed_folders.upload_file_to_managed_folder(

@@ -7,7 +7,7 @@
         "--quiet",
         "--locked",
         "--script",
-        "./bin/run_mcp.py",
+        "./runtime/run_mcp.py",
         "--transport",
         "stdio"
       ],

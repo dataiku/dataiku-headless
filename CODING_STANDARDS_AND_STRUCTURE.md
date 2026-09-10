@@ -76,7 +76,7 @@ export DKU_API_KEY="your-api-key"
 
 ## Fixed Tool Surface
 
-- `bin/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
+- `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
@@ -97,19 +97,19 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-uv run --quiet --locked --script ./bin/run_mcp.py --transport stdio  # exactly what every manifest runs
+uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio  # exactly what every manifest runs
 ```
 
-`uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`bin/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.
+`uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`runtime/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.
 
 The launcher validates its arguments, loads the repository-root `.env` without
 overriding real environment variables, and only then imports `dataiku_mcp`.
 Direct package imports do not load `.env`; embedding callers own environment
 setup before import.
 
-**`bin/launcher.sh`** is inactive legacy code retained for possible future fallback use. No manifest invokes it; do not re-enable it without explicitly reviewing the platform behavior and updating all manifests.
+**`runtime/launcher.sh`** is inactive legacy code retained for possible future fallback use. No manifest invokes it; do not re-enable it without explicitly reviewing the platform behavior and updating all manifests.
 
-The inline metadata and its adjacent `bin/run_mcp.py.lock` resolve independently of the project `uv.lock`. The `==` pins are the direct dependency constraints for plugin launches; the script lock records the complete direct and transitive resolution. Bump direct pins deliberately, then regenerate and commit the script lock with `uv lock --script bin/run_mcp.py`. Every launcher uses `--locked`, so a stale or absent script lock fails before server startup rather than resolving on a user's machine.
+The inline metadata and its adjacent `runtime/run_mcp.py.lock` resolve independently of the project `uv.lock`. The `==` pins are the direct dependency constraints for plugin launches; the script lock records the complete direct and transitive resolution. Bump direct pins deliberately, then regenerate and commit the script lock with `uv lock --script runtime/run_mcp.py`. Every launcher uses `--locked`, so a stale or absent script lock fails before server startup rather than resolving on a user's machine.
 
 The inline dependency list duplicates `[project].dependencies`; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
