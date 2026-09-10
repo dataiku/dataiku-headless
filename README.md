@@ -29,11 +29,11 @@ Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugi
 
 ## Requirements
 
-Install [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) and make sure it is available on your `PATH`. Dataiku Headless uses `uv` to provide its Python runtime and pinned dependencies.
+Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) to provide its isolated Python runtime and pinned dependencies. You do not need to install it before installing the plugin: the setup skill checks for uv and, with your approval, can run the official installer for your platform.
 
 ## Get started with the Codex app or Claude Desktop app
 
-Install the plugin, then ask Codex or Claude to set up your Dataiku instance. The setup flow securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
@@ -150,7 +150,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 ## Agent Skills
 
-`skills` exposes a single prompt-based skill entrypoint, `dataiku-headless`, plus a routed reference library under `skills/dataiku-headless/references/`. The entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
+`skills` exposes two prompt-based entrypoints: `dataiku-headless-setup` for first-time installation, runtime recovery, and instance configuration; and `dataiku-headless` for Dataiku work. The main entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
 The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
@@ -158,7 +158,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 The onboarding flow is the same:
 
-1. Ask the agent to setup your Dataiku instance (**run `configure_instance`**).
+1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, Dataiku URL, and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.

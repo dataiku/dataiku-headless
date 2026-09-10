@@ -84,5 +84,5 @@ Do not use this guide when:
 - When a turn is `queued` or `in_progress`, retain its exact IDs and continue polling until its terminal result. Independent work is allowed, but do not send another message in the same conversation, take an action that depends on the turn succeeding, or report the relevant Cobuild work complete while it remains pending.
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `./jobs.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
-- If Cobuild's coverage can't do what's needed and no read tool covers it either, stop and report the gap rather than falling back to raw `dataikuapi`/Python/REST calls — those aren't available in this environment.
+- If Cobuild cannot perform the request and no direct tool covers it, stop and report the gap. Include the Dataiku version when known, but attribute the gap to that version only when the requirement is established; otherwise, do not guess or fall back to raw APIs.
 - There is no close or delete conversation tool.

@@ -9,8 +9,8 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 ## Shared Operating Rules
 
-1. Just after installation, the plugin may still be getting ready. If its Dataiku tools are unavailable, run `uv --version` when local commands are available. If `uv` is missing or older than 0.12.0, explain that the plugin cannot start until uv is installed and on `PATH`; detect the platform, offer the official installer, and obtain explicit approval before running it. Otherwise, wait a minute, then restart the Codex or Claude app (or their agent) once before treating it as a Dataiku connection problem. Ask the user to run `uv --version` only when local commands are unavailable.
-2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first.
+1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
+2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -18,7 +18,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 7. Direct-write exceptions are allowed for operations that Cobuild cannot perform, especially bootstrap, cross-project, instance-level, or administrative actions. Treat them as narrow documented exceptions, not as the default mutation path.
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
-10. If MCP coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls.
+10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
 
 ## Default Workflow
 
