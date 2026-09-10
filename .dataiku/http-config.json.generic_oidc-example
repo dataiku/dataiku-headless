@@ -23,9 +23,9 @@
   },
   "dss_instances": {
     "prod": {
-      "url": "https://dss.example",
-      "delegated_audience": "dss-prod",
-      "delegated_scope": "dss.api"
+      "url": "https://dataiku.example",
+      "delegated_audience": "dataiku-prod",
+      "delegated_scope": "dataiku.api"
     }
   },
   "user_selections": {}

@@ -446,9 +446,9 @@ def test_generic_oidc_http_config_example_is_valid(monkeypatch):
     instances, selections = http.get_instances_and_selections()
     assert isinstance(http._load_config(), HTTPConfig)
     assert set(instances) == {"prod"}
-    assert instances["prod"].url == "https://dss.example"
-    assert instances["prod"].delegated_audience == "dss-prod"
-    assert instances["prod"].delegated_scope == "dss.api"
+    assert instances["prod"].url == "https://dataiku.example"
+    assert instances["prod"].delegated_audience == "dataiku-prod"
+    assert instances["prod"].delegated_scope == "dataiku.api"
     assert selections == {}
 
 
@@ -474,7 +474,7 @@ def test_entra_http_config_example_is_valid(monkeypatch):
     instances, selections = http.get_instances_and_selections()
     assert instances["prod"].delegated_audience == ""
     assert instances["prod"].delegated_scope == (
-        "api://replace-with-dss-app-client-id/dss.access"
+        "api://replace-with-dataiku-app-client-id/dataiku.access"
     )
     assert selections == {}
 
