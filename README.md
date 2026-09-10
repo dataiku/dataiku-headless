@@ -167,6 +167,12 @@ The resolved configuration file contains named profiles, their URLs, defaults, a
 1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
 2. `~/.dataiku/stdio-config.json` otherwise.
 
+On upgrade, a valid legacy `config.json` at either location is migrated automatically
+to `stdio-config.json` (the working-directory location takes precedence). Existing
+canonical files are used without inspecting a sibling `config.json`; invalid legacy
+files are left untouched and ignored. `DKU_CONFIG_FILE` is no longer supported;
+replace it with `--settings-path PATH` in the launcher configuration.
+
 The server loads environment and profile settings at startup. Profile additions and
 deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
 or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.

@@ -93,6 +93,15 @@ The instance catalog is not an authorization list: any authenticated user can
 select an entry, and DSS decides what that user may do. `configure_instance` and
 `delete_instance` are therefore disabled in HTTP mode.
 
+## Host-local file operations
+
+Streamable HTTP does not expose reads from or writes to caller-supplied paths on the
+MCP host. In HTTP mode, `export_dataset`, `upload_file_to_managed_folder`,
+`write_project_library_file`, and `update_plugin` are unavailable. To create an
+Uploaded Files dataset, pass `columns` and `rows` directly to
+`create_upload_dataset`; this route accepts at most 10,000 rows. Stdio retains the
+local-path workflows for a process running on the user's machine.
+
 ### Interactive login or direct bearer token
 
 With interactive login, set `server.public_url` to the externally visible HTTPS

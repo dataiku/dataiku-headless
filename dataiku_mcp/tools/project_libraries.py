@@ -31,6 +31,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..config import request
 from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -574,6 +575,10 @@ async def write_project_library_file(
     ] = False,
 ) -> str:
     """Upload a local file into a project's library, optionally replacing it."""
+    if request.is_http_request():
+        raise ValueError(
+            "write_project_library_file is unavailable in HTTP mode because it reads the MCP host filesystem."
+        )
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     filepath = _require_non_empty_string(filepath, "filepath")

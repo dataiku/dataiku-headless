@@ -14,6 +14,7 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ def isolated_config(tmp_path, monkeypatch):
         "DKU_API_KEY",
         "DKU_INSTANCE_NAME",
         "DKU_NO_CHECK_CERTIFICATE",
+        "DKU_CONFIG_FILE",
     ):
         monkeypatch.delenv(variable, raising=False)
 
@@ -69,6 +71,133 @@ def test_stdio_config_prefers_existing_cwd_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(stdio, "_settings_path", None)
 
     assert stdio.get_settings_path() == settings_path
+
+
+def test_stdio_config_rejects_deprecated_dku_config_file(monkeypatch):
+    monkeypatch.setattr(stdio, "_settings_path", None)
+    monkeypatch.setenv("DKU_CONFIG_FILE", "")
+
+    with pytest.raises(ValueError, match="DKU_CONFIG_FILE.*--settings-path"):
+        stdio.set_settings_path(None)
+
+
+def test_stdio_config_migrates_legacy_cwd_settings(tmp_path, monkeypatch, caplog):
+    legacy_path = tmp_path / ".dataiku" / "config.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "default_instance": "dev",
+                "dss_instances": {
+                    "dev": {"url": "https://dev.example.com", "api_key": "api-key"}
+                },
+            }
+        )
+    )
+    canonical_path = legacy_path.with_name("stdio-config.json")
+    default_path = tmp_path / "home" / ".dataiku" / "stdio-config.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", default_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    with caplog.at_level(logging.INFO, logger="dataiku-mcp"):
+        assert stdio.get_settings_path() == canonical_path
+
+    assert not legacy_path.exists()
+    assert stdio._load_config().default_instance == "dev"
+    assert "Migrated legacy stdio configuration" in caplog.text
+    assert "api-key" not in caplog.text
+
+
+def test_stdio_config_migrates_legacy_home_settings(tmp_path, monkeypatch):
+    default_path = tmp_path / "home" / ".dataiku" / "stdio-config.json"
+    legacy_path = default_path.with_name("config.json")
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text("{}")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", default_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == default_path
+    assert default_path.exists()
+    assert not legacy_path.exists()
+
+
+@pytest.mark.parametrize("contents", [json.dumps({"unexpected": True}), "{"])
+def test_stdio_config_ignores_invalid_legacy_settings(tmp_path, monkeypatch, contents):
+    legacy_path = tmp_path / ".dataiku" / "config.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(contents)
+    default_path = tmp_path / "home" / ".dataiku" / "stdio-config.json"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", default_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == default_path
+    assert legacy_path.exists()
+    assert not legacy_path.with_name("stdio-config.json").exists()
+    assert not default_path.exists()
+
+
+def test_stdio_config_migrates_valid_home_legacy_after_invalid_cwd_legacy(
+    tmp_path, monkeypatch
+):
+    cwd_legacy_path = tmp_path / ".dataiku" / "config.json"
+    cwd_legacy_path.parent.mkdir()
+    cwd_legacy_path.write_text("{")
+    default_path = tmp_path / "home" / ".dataiku" / "stdio-config.json"
+    home_legacy_path = default_path.with_name("config.json")
+    home_legacy_path.parent.mkdir(parents=True)
+    home_legacy_path.write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", default_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == default_path
+    assert cwd_legacy_path.exists()
+    assert not home_legacy_path.exists()
+    assert default_path.exists()
+
+
+def test_stdio_config_uses_canonical_when_legacy_also_exists(tmp_path, monkeypatch):
+    canonical_path = tmp_path / ".dataiku" / "stdio-config.json"
+    legacy_path = canonical_path.with_name("config.json")
+    canonical_path.parent.mkdir()
+    canonical_path.write_text("{}")
+    legacy_path.write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "_settings_path", None)
+
+    assert stdio.get_settings_path() == canonical_path
+
+    assert legacy_path.exists()
+
+
+def test_canonical_default_settings_helper_prefers_cwd_settings(tmp_path, monkeypatch):
+    default_path = tmp_path / "home" / ".dataiku" / "stdio-config.json"
+    cwd_settings_path = tmp_path / ".dataiku" / "stdio-config.json"
+    cwd_settings_path.parent.mkdir()
+    cwd_settings_path.write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", default_path)
+
+    assert stdio._resolve_canonical_default_settings_path() == cwd_settings_path
+
+
+def test_stdio_config_does_not_migrate_legacy_settings_for_explicit_path(
+    tmp_path, monkeypatch
+):
+    legacy_path = tmp_path / ".dataiku" / "config.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    explicit_path = tmp_path / "custom.json"
+
+    assert stdio.set_settings_path(explicit_path) == explicit_path
+    assert legacy_path.exists()
+    assert not legacy_path.with_name("stdio-config.json").exists()
 
 
 def test_stdio_getters_require_initialization():

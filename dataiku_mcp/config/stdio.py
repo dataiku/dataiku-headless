@@ -14,6 +14,7 @@
 
 """Local stdio configuration from environment variables and profile files."""
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -25,6 +26,9 @@ from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
+_LEGACY_SETTINGS_FILENAME = "config.json"
+
+logger = logging.getLogger("dataiku-mcp")
 
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()
@@ -33,16 +37,65 @@ _environment_instance: DSSInstance | None = None
 _current_instance: DSSInstance | None = None
 
 
+# TODO: Remove this helper after three minor releases.
+def _migrate_legacy_settings_if_valid(legacy_path: Path, settings_path: Path) -> bool:
+    try:
+        document = read_json_object(
+            legacy_path, description="Legacy stdio instance configuration"
+        )
+        config = StdioConfig.model_validate(document)
+    except (ValidationError, ValueError):
+        return False
+    write_json_atomic(
+        settings_path,
+        config.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+    )
+    legacy_path.unlink()
+    logger.info(
+        "Migrated legacy stdio configuration from '%s' to '%s'.",
+        legacy_path,
+        settings_path,
+    )
+    return True
+
+
+# TODO: Replace _resolve_default_settings_path with this helper after three minor
+# releases, when legacy config.json compatibility is removed.
+def _resolve_canonical_default_settings_path() -> Path:
+    cwd_settings_path = Path.cwd() / ".dataiku" / DEFAULT_SETTINGS_PATH.name
+    return cwd_settings_path if cwd_settings_path.exists() else DEFAULT_SETTINGS_PATH
+
+
+# TODO: Remove legacy config compatibility after three minor releases.
+def _resolve_default_settings_path() -> Path:
+    cwd_settings_path = Path.cwd() / ".dataiku" / DEFAULT_SETTINGS_PATH.name
+    if cwd_settings_path.exists():
+        return cwd_settings_path
+    if DEFAULT_SETTINGS_PATH.exists():
+        return DEFAULT_SETTINGS_PATH
+
+    for settings_directory in (Path.cwd() / ".dataiku", DEFAULT_SETTINGS_PATH.parent):
+        settings_path = settings_directory / DEFAULT_SETTINGS_PATH.name
+        legacy_path = settings_directory / _LEGACY_SETTINGS_FILENAME
+        if legacy_path.exists() and _migrate_legacy_settings_if_valid(
+            legacy_path, settings_path
+        ):
+            return settings_path
+    return DEFAULT_SETTINGS_PATH
+
+
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
     global _config, _current_instance, _environment_instance, _settings_path
+    if "DKU_CONFIG_FILE" in os.environ:
+        raise ValueError(
+            "DKU_CONFIG_FILE is deprecated. Use --settings-path to select the "
+            "stdio settings file."
+        )
     if path is not None:
         _settings_path = path.expanduser()
     else:
-        cwd_settings_path = Path.cwd() / ".dataiku" / "stdio-config.json"
-        _settings_path = (
-            cwd_settings_path if cwd_settings_path.exists() else DEFAULT_SETTINGS_PATH
-        )
+        _settings_path = _resolve_default_settings_path()
     _config = None
     _environment_instance = None
     _current_instance = None
