@@ -87,6 +87,25 @@ task. Do not dump every SDK object's internal attributes to discover the schema.
 | Configure review gates or work with feedback, approvals, and workflow state | [Signoffs](./govern/signoffs.md) |
 | Manage roles, users, groups, pages, attachments, or time series | [Supporting objects](./govern/supporting-objects.md) |
 
+## Design the governance process
+
+For process design, identify the item being governed, its parent, required evidence,
+responsible roles, and the decision that each review gate records. Reuse a suitable
+standard blueprint before designing a custom item type. Derive risk criteria and
+approval rules from the user's policy; a plausible template is not an established policy.
+
+Synced Dataiku assets and their governance layer are distinct. Discover an asset's
+existing Govern record before creating another; a Govern project may also exist
+before it is linked to a Dataiku project. A parent must be governed before its
+children can be governed. Hiding a parent hides its children in Govern; it does
+not delete them. See [Govern items](https://doc.dataiku.com/dss/latest/governance/types-govern-items.html)
+and [governance actions](https://doc.dataiku.com/dss/latest/governance/governance-features.html).
+
+Workflow progress, signoff approval, and deployment authorization are separate.
+Use the configured signoff to record a decision. For deployment eligibility, inspect
+the [Deployer infrastructure policy](https://doc.dataiku.com/dss/latest/governance/deployment-policies.html);
+an `approved` field or a finished workflow step is not a deployment gate.
+
 ## Execution pattern
 
 Discover IDs, read the full target definition, change only the requested fields,

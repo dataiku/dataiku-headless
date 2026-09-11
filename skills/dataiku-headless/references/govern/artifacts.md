@@ -46,6 +46,11 @@ raw = definition.get_raw()
 schema = definition.get_blueprint_version().get_definition().get_raw()
 ```
 
+Govern 15 also exposes creation and last-modification metadata, including the actor
+and timestamp. Inspect `creationRevision` and `lastModificationRevision` when the
+task needs provenance; preserve server-managed metadata when editing other fields.
+These values describe creation and the latest change, not a complete audit history.
+
 ## Create or update
 
 For creation, select an ACTIVE version and inspect its fields before assembling

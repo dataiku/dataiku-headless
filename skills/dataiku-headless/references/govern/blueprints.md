@@ -61,26 +61,51 @@ artifacts first; do not cascade-delete them just to unblock a schema operation.
 | `fieldDefinitions` | Dictionary keyed by field ID; inspect `fieldType`, `sourceType`, and list/required constraints. See [Artifacts](./artifacts.md). |
 | `workflowDefinition` | Contains ordered `stepDefinitions`; preserve stable step IDs referenced by signoffs and UI definitions. |
 | `uiDefinition` | Layout structure varies by release: inspect `views`, `uiStepDefinitions`, and the artifact page or tab configuration. Workflow and UI step IDs must match. |
-| `logicalHookList` | Lifecycle hooks; preserve phases and scripts when the task does not change them. |
+| `logicalHookList` | Pre-phase hooks for validation and computed fields before commit. |
+| `postLogicalHookList` | Govern 15 post-phase hooks for work after commit. Preserve both hook lists when editing unrelated settings. |
 | `actions` | Action definitions keyed by action ID; a UI action component must reference the action for it to be visible. |
 
 An accepted definition can still render an empty artifact page. Check that the
 configured artifact tabs/page and workflow steps resolve to nonempty views, and
 editable fields appear in the intended views. Older definitions may use
 `artifactPageViewId`; Govern 15 definitions can use `tabs` and
-`artifactStructureTabIds` instead. Reuse components from a matching field type in
-the inspected definition rather than inventing UI component names or adding legacy keys.
-State separately whether layout was inspected in the UI or only checked structurally.
+`artifactStructureTabIds` instead. The optional `customRightPanel` and
+`rightPanelTabIds` configure the selection panel independently. A custom tab can
+be shared by the artifact page and right panel; its ID and view remain shared.
+System tabs such as Workflow, Timeline, and Role assignments belong only on the
+artifact page. Preserve stable tab IDs used in navigation, and check both orders
+and separators. See [page structure](https://doc.dataiku.com/dss/latest/governance/blueprint-designer/blueprint-version-design.html#design-the-item-page-structure).
+
+Reuse components from an inspected definition rather than inventing UI keys.
+Govern 15 text components have separate display settings (Markdown/plain text)
+and editor settings (rich text/single-line/multiline); configure these on the view
+component without changing the field's `TEXT` type. State separately whether
+layout was inspected in the UI or only checked structurally.
 
 Required field constraints apply globally; hiding a required field does not make
 it optional. A hidden workflow step can bypass its mandatory signoff. Review view
 and step visibility conditions when they affect the requested approval behavior.
 
 Use [Signoffs](./signoffs.md) for the separate signoff configuration API. Field and
-workflow saves alone do not create review gates. For hook authoring, use the
-target release's [Govern documentation](https://doc.dataiku.com/dss/latest/govern/index.html):
-hooks run before commit, so avoid external side effects or API writes to neighboring
-artifacts from a hook. Treat scripts as executable changes, not descriptive fields.
+workflow saves alone do not create review gates.
+
+## Choose the hook phase
+
+Hooks select lifecycle events (`CREATE`, `UPDATE`, `DELETE`) and when to run:
+
+- Pre-phase hooks run before commit. Use them to validate changes or populate
+  computed fields. The operation can still fail afterward; keep external side
+  effects and API writes to other items out of these hooks. To schedule related
+  items' UPDATE hooks after commit, use `handler.artifactIdsToUpdate`.
+- Govern 15 post-phase hooks run after commit. Use them for work that requires
+  persisted state, such as an authorized notification or external synchronization.
+  They cannot validate or veto an action that has already committed. Check the
+  saved item and any downstream effect separately before retrying.
+
+Use the target release's [hook documentation and editor samples](https://doc.dataiku.com/dss/latest/governance/blueprint-designer/blueprint-version-design.html#set-rules-with-hooks)
+for the handler context. Older examples may emulate post-create work with threads
+and polling; use native post-phase hooks on Govern 15 when that is the intent.
+Treat scripts as executable changes, and verify execution as well as saved configuration.
 
 ## Export and import boundary
 

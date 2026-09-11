@@ -20,6 +20,8 @@ Use `help()` on the specific handle for argument and payload shapes. Read the
 existing definition before saving and re-read afterward. Role definitions and
 blueprint role assignments are separate resources. Updating one role's binding
 must preserve other roles; deleting a blueprint's assignments removes all bindings.
+For global permissions on Govern 15, use `isGovernArchitect`; the deprecated
+`mayManageGovern` key was removed. Discover existing permissions before changing them.
 
 For role bindings, the CLI uses `roleAssignmentsRules[role_id]` containing rules
 with `criteria`, `userContainers`, and `fieldIds`. An unconditional binding has
@@ -32,6 +34,31 @@ page types; built-in `standard-page` entries are not creatable custom pages. Pre
 the page type and definition, and treat HTML/scripts as executable content. An
 external embed needs a browser-accessible URL and compatible authentication; an
 API save does not prove that the embedded page renders.
+
+## Govern 15 grid pages and charts
+
+Prefer native grid pages for dashboards over Govern items. A `grid` page can contain
+multiple tabs with table, chart, HTML, and nested subgrid tiles. Existing public
+custom-page definition methods carry this configuration; copy the payload structure
+from a matching page or a target-version UI export instead of guessing nested keys.
+
+Build the chart's data settings before its appearance:
+
+1. Filter the intended items and add projections for the needed fields. By default,
+   only item IDs are projected. Table tiles fetch their own columns, so a working
+   table does not prove that a chart has the data it needs.
+2. Define breakdown dimensions and measures, then select that breakdown and measure
+   in the chart. A subgrid inherits its parent's data settings unless overridden.
+3. Use standard charts when they fit. Chart selections filter tables and charts
+   sharing the same data settings. Converting to a custom JavaScript/ECharts chart
+   cannot be reverted to the standard chart configuration.
+
+Re-read the saved definition, then check the page with real data: displayed counts
+and measures, drill-down targets, and selection-panel behavior. A preview using
+sample data does not validate the real query. Create pages hidden while validating
+them, and make them visible when publication is part of the task. See
+[custom page design](https://doc.dataiku.com/dss/latest/governance/custom-pages.html)
+for the current tile, projection, aggregation, and chart options.
 
 ## Attachments and time series
 
