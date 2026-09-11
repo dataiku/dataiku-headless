@@ -51,6 +51,7 @@ configuration until reset; a configuration edit alone does not update every revi
 artifact = client.get_artifact(artifact_id)
 signoffs = [item.get_raw() for item in artifact.list_signoffs()]
 signoff = artifact.get_signoff(step_id)
+runtime = signoff.get_definition().get_raw()
 details = signoff.get_details().get_raw()
 ```
 
@@ -70,11 +71,13 @@ not create a review on the server.
 
 Feedback statuses are `APPROVED`, `MINOR_ISSUE`, and `MAJOR_ISSUE`; approval statuses
 are `APPROVED`, `REJECTED`, and `ABANDONED`. Submit decisions only when requested,
-using the authenticated identity; do not alter reviewer membership to bypass a
-permission error. Delegation changes who reviews and is not impersonation.
+using the authenticated identity. Administrative API access does not make that
+identity a reviewer or approver; check the configured membership, and do not alter
+it to bypass a permission error. Delegation changes who reviews and is not impersonation.
 
 Omitting `users_to_notify` from `update_status` notifies all configured reviewers
 for the target stage. Pass an empty list unless the task authorizes notifications;
-when notifying, use the documented recipients for that stage. Re-read details
-after each operation. Resetting an in-progress review requires ABANDONED before
+when notifying, use the documented recipients for that stage. Re-read
+`get_definition()` for status and recorded decisions; `get_details()` resolves
+reviewer membership. Resetting an in-progress review requires ABANDONED before
 NOT_STARTED; changing status to APPROVED is not a substitute for recording approval.

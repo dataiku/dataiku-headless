@@ -27,10 +27,11 @@ empty `criteria` and `fieldIds` lists and the selected user/group containers in
 `userContainers`. Inspect a matching rule and verify the saved membership; do not
 replace the whole assignment definition to change one role.
 
-Custom pages can display artifact views or custom HTML. Preserve the page type and
-definition, and treat HTML/scripts as executable content. An external embed needs
-a browser-accessible URL and compatible authentication; an API save does not prove
-that the embedded page renders.
+Custom pages can display artifact views or custom HTML. Discover the target release's
+page types; built-in `standard-page` entries are not creatable custom pages. Preserve
+the page type and definition, and treat HTML/scripts as executable content. An
+external embed needs a browser-accessible URL and compatible authentication; an
+API save does not prove that the embedded page renders.
 
 ## Attachments and time series
 
@@ -47,4 +48,6 @@ that the embedded page renders.
 - Datapoints contain `timestamp` in epoch **milliseconds** and `value`.
   `push_values(..., upsert=True)` can overwrite existing timestamps; choose the
   mode deliberately. Read the affected interval after a write. `delete()` removes
-  values in its timestamp range, or all values when neither bound is supplied.
+  values in its timestamp range, or all values when neither bound is supplied; it
+  does not delete the time-series object. Verify boundary behavior before a range
+  deletion: Govern 15.0.1 excludes both endpoint timestamps from reads and deletes.

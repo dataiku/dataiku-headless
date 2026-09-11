@@ -3,6 +3,7 @@
 Use the connected `client` from [Govern](../govern.md). A blueprint stores identity
 and presentation metadata. Its versions hold fields, workflow, views, hooks, and
 actions. The ordinary blueprint handle is read-only; authoring uses the designer.
+For a basic blueprint listing, use [Govern discovery](../govern.md#discover-blueprints).
 
 ## Inspect, fork, edit, publish
 
@@ -59,14 +60,16 @@ artifacts first; do not cascade-delete them just to unblock a schema operation.
 | `id` | Preserve the `{blueprintId, versionId}` belonging to the target handle. |
 | `fieldDefinitions` | Dictionary keyed by field ID; inspect `fieldType`, `sourceType`, and list/required constraints. See [Artifacts](./artifacts.md). |
 | `workflowDefinition` | Contains ordered `stepDefinitions`; preserve stable step IDs referenced by signoffs and UI definitions. |
-| `uiDefinition` | Holds `views`, `artifactPageViewId`, and `uiStepDefinitions`. Preserve working layouts and map added fields and steps to views. |
+| `uiDefinition` | Layout structure varies by release: inspect `views`, `uiStepDefinitions`, and the artifact page or tab configuration. Workflow and UI step IDs must match. |
 | `logicalHookList` | Lifecycle hooks; preserve phases and scripts when the task does not change them. |
 | `actions` | Action definitions keyed by action ID; a UI action component must reference the action for it to be visible. |
 
-An accepted definition can still render an empty artifact page. Check that
-`artifactPageViewId` resolves to a nonempty view, workflow step views resolve, and
-editable fields appear in the intended views. Reuse components from a matching
-field type in the inspected definition rather than inventing UI component names.
+An accepted definition can still render an empty artifact page. Check that the
+configured artifact tabs/page and workflow steps resolve to nonempty views, and
+editable fields appear in the intended views. Older definitions may use
+`artifactPageViewId`; Govern 15 definitions can use `tabs` and
+`artifactStructureTabIds` instead. Reuse components from a matching field type in
+the inspected definition rather than inventing UI component names or adding legacy keys.
 State separately whether layout was inspected in the UI or only checked structurally.
 
 Required field constraints apply globally; hiding a required field does not make

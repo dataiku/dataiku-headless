@@ -6,9 +6,9 @@ Use the connected `client` from [Govern](../govern.md). Variables such as
 ## Discover and inspect
 
 ```python
-blueprints = [item.get_raw() for item in client.list_blueprints()]
+blueprints = [item.get_raw()["blueprint"] for item in client.list_blueprints()]
 blueprint = client.get_blueprint(blueprint_id)
-versions = [item.get_raw() for item in blueprint.list_versions()]
+versions = [item.get_raw()["blueprintVersion"] for item in blueprint.list_versions()]
 version = blueprint.get_version(version_id)
 schema = version.get_definition().get_raw()
 field_definitions = schema["fieldDefinitions"]

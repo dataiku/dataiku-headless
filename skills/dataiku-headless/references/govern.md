@@ -27,11 +27,12 @@ supply missing credentials through their host's secret/environment configuration
 not in chat, scripts, or command-line arguments. Do not print credentials or dump
 the environment. Keep certificate verification enabled.
 
-Create a task script outside the plugin installation. If the execution environment
-does not already provide the SDK, run it in an isolated environment, for example:
+Create a task script outside the plugin installation. From a writable task workspace,
+run it with an isolated SDK environment and a local UV cache. This avoids requiring
+access to a shared cache outside the filesystem sandbox:
 
 ```bash
-uv run --no-project --with 'dataiku-api-client==14.7.2' python /absolute/path/govern_task.py
+UV_CACHE_DIR="$PWD/.cache/uv" uv run --no-project --with 'dataiku-api-client==14.7.2' python /absolute/path/govern_task.py
 ```
 
 The examples were checked against 14.7.2, Headless's current locked SDK. Use a client
@@ -51,6 +52,7 @@ if info.node_type != "GOVERN":
     raise RuntimeError("The selected URL is not a Govern node")
 identity = client.get_auth_info()
 print({"url": govern_url, "node_type": info.node_type,
+       "server_version": info.raw.get("dssVersion"),
        "identity": identity.get("authIdentifier")})
 ```
 
@@ -59,6 +61,22 @@ instance information when available; the SDK package version is not the server
 version. Permissions depend on the operation: ordinary reads need access to the
 objects, while blueprint design and administration require the corresponding rights.
 If execution, credentials, or permissions are missing, report that specific blocker.
+
+## Discover blueprints
+
+For a read-only blueprint listing, use the ordinary client directly. No authoring
+guide or administrative designer handle is needed:
+
+```python
+for item in client.list_blueprints():
+    blueprint = item.get_raw()["blueprint"]
+    print({"id": blueprint["id"], "name": blueprint["name"]})
+```
+
+List items are envelopes: blueprint metadata is nested under `blueprint`, not at
+the top level of `get_raw()`. If another response shape is unfamiliar, inspect one
+item through its public `get_raw()` method, then project the fields needed for the
+task. Do not dump every SDK object's internal attributes to discover the schema.
 
 ## Choose the task guide
 
