@@ -1,24 +1,26 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, Cobuild conversations, and Govern. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and use the Python API for Govern.
 ---
 
 # Dataiku Headless
 
 Use this for any Dataiku task. Choose the right reference guide first, inspect the current state before acting, route project changes through Cobuild by default, and validate by re-reading the resulting state.
 
+For **Dataiku Govern**, start with [Govern](./references/govern.md) before the DSS setup and project workflow below. Govern uses its own node and the public Python API through the agent's local execution environment.
+
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
-2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests.
-3. Discover project keys and object identifiers through tools; do not invent them.
+2. For DSS work, ensure an instance is configured. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests. Govern connection instructions live in its guide.
+3. Discover project keys and object identifiers through tools or the Govern API; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
 6. Route in-project asset creation and modification through `./references/cobuild.md` unless the matching guide documents a narrow direct exception.
 7. Direct-write exceptions are allowed for operations that Cobuild cannot perform, especially bootstrap, cross-project, instance-level, or administrative actions. Treat them as narrow documented exceptions, not as the default mutation path.
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
-10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
+10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. The documented Govern workflow is the exception: use public `dataikuapi.GovernClient` methods as described in its guide. Attribute a gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
 
 ## Default Workflow
 
@@ -36,6 +38,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 | User intent | Guide to read next |
 | --- | --- |
+| Work with Dataiku Govern artifacts, blueprints, signoffs, roles, pages, or administration through the Python API | `./references/govern.md` |
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
 | Inspect or update project settings, including Flow display, pipelines, default code envs, or container execution | `./references/projects/settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |

@@ -11,13 +11,22 @@ its object-specific references as directed.
 or modify a recipe, ML analysis, dashboard, insight, agent, agent tool, scenario, webapp,
 wiki article, data quality rule, knowledge bank, semantic model, or evaluation store.
 
-Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
+The MCP server writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
 configuration**, **cross-project**, and **instance-level administration**. It also
 re-runs assets that already exist. Some bootstrap writes do land inside a project —
 see the table below.
 Local profile actions are listed separately because they only change which Dataiku
 instance the local client targets.
+
+## Govern through the Python API
+
+The [Govern guide](../skills/dataiku-headless/references/govern.md) covers artifacts,
+blueprint authoring, signoffs, roles, pages, identities, files, and time series using
+the public Python SDK. This is a skill-guided workflow in the agent's local execution
+environment, with separately supplied Govern credentials. It adds no MCP tools and
+does not use DSS instance configuration or Cobuild. Public SDK gaps, including
+blueprint-version import in SDK 14.7.2, are called out in the guide.
 
 
 ## Surface

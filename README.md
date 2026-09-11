@@ -124,6 +124,11 @@ Cobuild runs as a retained conversation through MCP tools. This repository inten
 
 ## Capability reference
 
+Dataiku Govern uses a [Python API skill guide](skills/dataiku-headless/references/govern.md)
+for artifacts, blueprints, signoffs, and supporting objects. It requires an agent
+with local Python execution and separately supplied Govern credentials. This path
+adds no MCP tools; DSS project construction continues through Cobuild.
+
 For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
