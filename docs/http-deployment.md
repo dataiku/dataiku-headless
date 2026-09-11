@@ -28,6 +28,12 @@ token exchange.
 | MCP authentication | Local process boundary | OAuth access token |
 | Dataiku authentication | API key | Exchanged user access token |
 | Active instance | Process-wide | Selected per authenticated user |
+| Local file operations | Can read/write workstation paths | Cannot access caller workstation paths |
+
+Streamable HTTP runs on the shared server, not the user's workstation. Tools that
+need a caller-supplied local path—such as local CSV export, file upload,
+project-library writes, or local plugin sources—are unavailable. Follow the
+object-specific skill guidance for supported HTTP alternatives.
 
 ## How a request reaches Dataiku
 
@@ -47,6 +53,17 @@ For each Dataiku-backed tool call:
 5. Dataiku verifies the delegated token, maps its subject to a Dataiku user, and
    applies that user's normal Dataiku permissions.
 
+## Choose client authentication
+
+For an interactive Codex or Claude deployment, use **interactive login**. Set
+`server.public_url`, configure `auth.interactive_login`, and distribute the
+rendered HTTP plugin described below.
+
+For a custom caller that manages its own OAuth, use a **direct bearer token**.
+The caller obtains and sends the MCP access token; remove `interactive_login` and
+make `server.public_url` optional. The rendered plugin can still provide the
+remote endpoint and skills; the caller remains responsible for its token.
+
 ## Deploy the server
 
 Before starting, prepare:
@@ -59,6 +76,12 @@ Before starting, prepare:
 If using a reverse proxy, forward the original scheme and host. Route the whole
 public origin to the MCP server: OAuth metadata, login, callback, consent, and token
 endpoints are served outside the configured MCP path.
+
+Complete the matching identity-provider setup before writing the settings file:
+[Microsoft Entra ID](#microsoft-entra-id) or
+[generic OIDC and RFC 8693](#generic-oidc-and-rfc-8693). Also complete
+[Dataiku JWT trust](#configure-dataiku-to-trust-delegated-jwts) for every configured
+Dataiku instance.
 
 Choose the matching example, then restrict the settings file because it contains
 OAuth client secrets:
@@ -93,80 +116,29 @@ The instance catalog is not an authorization list: any authenticated user can
 select an entry, and Dataiku decides what that user may do. `configure_instance` and
 `delete_instance` are therefore disabled in HTTP mode.
 
-## Distribute the connection to end users
+## Distribute the interactive OAuth plugin
 
 The public `dataiku-headless` marketplace plugin starts its own stdio server and
-must not be installed for this mode. Install the shared skills and distribute a
-server named `dataiku` through managed Codex, Claude Code, or workstation
-configuration. Codex clients can
-[share MCP configuration](https://learn.chatgpt.com/docs/extend/mcp) where their
-administrator-managed setup supports it, but the skills must also be made available
-to clients without plugin support. The server URL is the externally visible
-`server.public_url` followed by `server.path`, for example
-`https://mcp.customer.example/mcp`.
+must not be installed for this mode.
 
-For interactive OAuth, clients discover the server's OAuth metadata and store each
-user's login. For direct bearer authentication, the managed client or calling
-application must obtain a correctly scoped access token and attach it to every MCP
-request. Do not put OAuth client secrets, bearer tokens, or Dataiku credentials in
-plugin files or source repositories.
-
-Keep exactly one Dataiku MCP definition enabled in each client.
-
-Users whose clients are not centrally managed can install the skills with
-`npx skills add dataiku/dataiku-headless`, then use the following commands with
-the exact MCP URL supplied by the administrator. Codex supports Streamable HTTP
-and interactive OAuth:
+1. Render the customer-specific plugin with the deployed server's public MCP URL:
 
 ```bash
-codex mcp add dataiku --url https://mcp.customer.example/mcp
-codex mcp login dataiku
+uv run python scripts/build_http_plugin.py \
+  --url https://mcp.customer.example/mcp \
+  --output ./dataiku-headless-http
 ```
 
-Claude Code uses the equivalent HTTP registration and login:
+2. Add the rendered directory to the organization's enterprise/private marketplace
+   or normal plugin distribution channel. Add `--zip` to the command to create
+   `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
+3. Users install `dataiku-headless-http`. Its setup skill completes OAuth, chooses
+   an administrator-managed instance, and verifies access.
 
-```bash
-claude mcp add --scope user --transport http dataiku https://mcp.customer.example/mcp
-claude mcp login dataiku
-```
-
-If `dataiku` already exists, inspect that definition rather than adding another
-one. Users receiving a managed definition skip `mcp add` and authenticate the
-existing server through their client's MCP panel or login command.
-
-After authentication, the end-user workflow is:
-
-1. Ask the agent to **Set up Dataiku Headless**.
-2. The setup skill calls `list_instances`; the user chooses from the
-   administrator-managed catalog.
-3. The skill calls `switch_instance`, then `get_current_instance` and
-   `list_projects` to verify delegated Dataiku access.
-4. The user begins normal Dataiku work. Their existing Dataiku permissions govern
-   every operation.
-
-The user's workstation needs neither uv nor a Dataiku API key. Browser login,
-token storage, and refresh belong to the MCP client; incoming-token validation
-and downstream Dataiku token exchange belong to the deployed server.
-
-## Host-local file operations
-
-Streamable HTTP does not expose reads from or writes to caller-supplied paths on the
-MCP host. In HTTP mode, `export_dataset`, `upload_file_to_managed_folder`,
-`write_project_library_file`, and `update_plugin` are unavailable. To create an
-Uploaded Files dataset, pass `columns` and `rows` directly to
-`create_upload_dataset`; this route accepts at most 10,000 rows. Stdio retains the
-local-path workflows for a process running on the user's machine.
-
-### Interactive login or direct bearer token
-
-With interactive login, set `server.public_url` to the externally visible HTTPS
-base URL and register `<public_url>/auth/callback` with the identity provider. The
-`auth.interactive_login` setting enables the browser-based login flow.
-
-With direct bearer authentication, the calling application is responsible for
-obtaining a correctly scoped MCP token and sending it with every request. Remove
-`auth.interactive_login`; `server.public_url` is then optional. The remaining token
-exchange settings are still required for Dataiku-backed tools.
+The renderer does not modify this stdio-first source checkout or copy Dataiku
+credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one
+Dataiku MCP server enabled in each client: disable the public stdio plugin before
+installing this HTTP plugin.
 
 ## Microsoft Entra ID
 
@@ -401,32 +373,3 @@ string-or-array format found in the exchanged token.
 > delegated token's `sub` must equal the selected Dataiku login or email. Validate this
 > constraint before production rollout. See Microsoft's
 > [access-token claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference).
-
-## Verify and troubleshoot
-
-After starting the server:
-
-1. Authenticate and call `list_instances`.
-2. Call `switch_instance` for one catalog entry.
-3. Call a Dataiku-backed tool such as `list_projects`.
-
-| Failure | Where it occurred | Check |
-| --- | --- | --- |
-| MCP returns 401 | Incoming-token validation | Signature, expiry, issuer, MCP audience, and required scope |
-| Token exchange returns 400 | Identity-provider token endpoint | Exchange credentials, incoming audience, downstream scope, trust, and consent |
-| Dataiku rejects the token | Dataiku JWT validation or user lookup | Delegated issuer, JWKS, audience, scope claim/format, and `sub` mapping |
-
-For Entra, a token whose issuer is `https://sts.windows.net/<tenant-id>/` is a v1
-token. Calling a v2 token endpoint does not override the version selected by the
-target resource registration, so set `api.requestedAccessTokenVersion` to `2` on
-both app registrations:
-
-- If the MCP server rejects the incoming token, check the **MCP registration**.
-- If Dataiku rejects the exchanged token, check the **Dataiku API registration identified
-  by that instance's `delegated_scope`**.
-
-After correcting the Dataiku API registration, the next Dataiku-backed tool call performs
-a new exchange; the MCP server does not need to be restarted.
-
-Do not paste bearer tokens into tickets or logs. Use decoded claims without the
-encoded token when diagnosing issuer, audience, scope, or subject mismatches.
