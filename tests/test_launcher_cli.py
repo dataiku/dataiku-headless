@@ -127,3 +127,11 @@ def test_setup_skill_warmup_commands_select_stdio_transport():
 
     assert len(commands) == 2
     assert all("--transport stdio" in command for command in commands)
+
+
+def test_setup_skill_checks_mcp_before_uv():
+    setup_skill = STDIO_SETUP_REFERENCE.read_text(encoding="utf-8")
+
+    assert setup_skill.index("First run `list_instances`.") < setup_skill.index(
+        "`uv --version`"
+    )
