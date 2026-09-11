@@ -72,6 +72,15 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     setup = (output / "skills" / "dataiku-headless-setup" / "SKILL.md").read_text(
         encoding="utf-8"
     )
+    expected_setup = (
+        ROOT
+        / "scripts"
+        / "http_plugin_assets"
+        / "skills"
+        / "dataiku-headless-setup"
+        / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert setup == expected_setup
     assert "ask whether the user wants to authenticate now" in setup
     assert "codex mcp login dataiku" in setup
     assert "claude mcp login dataiku" in setup

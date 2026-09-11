@@ -27,8 +27,7 @@ STDIO_SETUP_REFERENCE = (
     Path(__file__).resolve().parent.parent
     / "skills"
     / "dataiku-headless-setup"
-    / "references"
-    / "stdio.md"
+    / "SKILL.md"
 )
 
 

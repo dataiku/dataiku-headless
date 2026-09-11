@@ -34,7 +34,7 @@ Dataiku Headless supports two connection modes:
 
 Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
 
-The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-connection-to-end-users).
+The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
 
 Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 

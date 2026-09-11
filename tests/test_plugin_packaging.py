@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Packaging invariants for plugin transport and setup references."""
+"""Packaging invariants for the public stdio plugin."""
 
 import json
 from pathlib import Path
@@ -47,10 +47,11 @@ def test_marketplace_entry_matches_plugin_identity():
     assert entries[0]["source"] == "./"
 
 
-def test_setup_skill_routes_to_complete_transport_references():
-    setup_root = ROOT / "skills" / "dataiku-headless-setup"
-    router = (setup_root / "SKILL.md").read_text(encoding="utf-8")
+def test_public_setup_skill_is_stdio_only():
+    setup_skill = (
+        ROOT / "skills" / "dataiku-headless-setup" / "SKILL.md"
+    ).read_text(encoding="utf-8")
 
-    for reference in ("stdio.md", "http.md"):
-        assert f"references/{reference}" in router
-        assert (setup_root / "references" / reference).is_file()
+    assert "--transport stdio" in setup_skill
+    assert "references/http.md" not in setup_skill
+    assert "customer-managed HTTP" not in setup_skill
