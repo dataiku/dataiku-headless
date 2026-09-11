@@ -41,3 +41,7 @@ migration_token_diet.md
 sample_extracted/
 extract/
 *_extracted/
+
+# Default http plugin bundle location
+dataiku-headless-http/
+dataiku-headless-http.zip
