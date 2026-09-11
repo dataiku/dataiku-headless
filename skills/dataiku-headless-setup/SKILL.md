@@ -9,7 +9,7 @@ Bring a new or broken plugin installation to a verified Dataiku connection. A re
 
 ## Workflow
 
-1. First run `list_instances`. If it succeeds, the local plugin and runtime are already available; skip directly to instance configuration and verification below.
+1. First run `list_instances`. If it succeeds, the local plugin and runtime are already available; skip directly to instance configuration and verification below (step 8).
 2. If the Dataiku MCP tools are unavailable, check the runtime. Run `uv --version` when local commands are available; ask the user to run it only when they are not. Dataiku Headless requires uv 0.12.0 or later.
 3. If uv is missing or too old, explain briefly that it supplies the isolated Python runtime and pinned dependencies used by the local MCP server. Detect the operating system and offer the matching official Astral installer:
    - macOS or Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
