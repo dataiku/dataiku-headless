@@ -3,12 +3,12 @@
 Streamable HTTP runs Dataiku Headless as a centrally managed service, rather than
 as a local process on each user's computer. An infrastructure administrator deploys
 the MCP server on a host that users can reach, exposes it through HTTPS, and gives
-it network access to one or more DSS instances.
+it network access to one or more Dataiku instances.
 
-The administrator also configures OAuth and a catalog of those DSS instances.
+The administrator also configures OAuth and a catalog of those Dataiku instances.
 Authenticated users can select an instance from the catalog, but cannot add or
-delete entries. The MCP server does not store DSS API keys: it exchanges each
-user's MCP access token for a short-lived token that DSS accepts.
+delete entries. The MCP server does not store Dataiku API keys: it exchanges each
+user's MCP access token for a short-lived token that Dataiku accepts.
 
 Clients can authenticate to the MCP server in two ways:
 
@@ -26,39 +26,62 @@ token exchange.
 | --- | --- | --- |
 | Deployment | Local process started by a plugin | Shared remote service |
 | MCP authentication | Local process boundary | OAuth access token |
-| DSS authentication | API key | Exchanged user access token |
+| Dataiku authentication | API key | Exchanged user access token |
 | Active instance | Process-wide | Selected per authenticated user |
+| Local file operations | Can read/write workstation paths | Cannot access caller workstation paths |
 
-## How a request reaches DSS
+Streamable HTTP runs on the shared server, not the user's workstation. Tools that
+need a caller-supplied local path—such as local CSV export, file upload,
+project-library writes, or local plugin sources—are unavailable. Follow the
+object-specific skill guidance for supported HTTP alternatives.
+
+## How a request reaches Dataiku
 
 An access token's **audience** identifies the service allowed to accept it. Its
 **scope** describes the access granted to the caller. The token sent to the MCP
-server therefore cannot be sent directly to DSS: it has the wrong audience.
+server therefore cannot be sent directly to Dataiku: it has the wrong audience.
 
-For each DSS-backed tool call:
+For each Dataiku-backed tool call:
 
 1. The client obtains an MCP-audience access token, interactively or directly, and
    sends it to the MCP server.
 2. The MCP server verifies its signature, issuer, audience, required scope, and
    expiry.
-3. The server identifies the user and resolves the DSS instance they selected.
+3. The server identifies the user and resolves the Dataiku instance they selected.
 4. It asks the identity provider to exchange the MCP token for a **delegated token**
-   whose audience and scope match that DSS instance.
-5. DSS verifies the delegated token, maps its subject to a DSS user, and applies
-   that user's normal DSS permissions.
+   whose audience and scope match that Dataiku instance.
+5. Dataiku verifies the delegated token, maps its subject to a Dataiku user, and
+   applies that user's normal Dataiku permissions.
+
+## Choose client authentication
+
+For an interactive Codex or Claude deployment, use **interactive login**. Set
+`server.public_url`, configure `auth.interactive_login`, and distribute the
+rendered HTTP plugin described below.
+
+For a custom caller that manages its own OAuth, use a **direct bearer token**.
+The caller obtains and sends the MCP access token; remove `interactive_login` and
+make `server.public_url` optional. The rendered plugin can still provide the
+remote endpoint and skills; the caller remains responsible for its token.
 
 ## Deploy the server
 
 Before starting, prepare:
 
 - a server with DNS and HTTPS, either directly or through a reverse proxy;
-- network access from that server to every configured DSS URL;
+- network access from that server to every configured Dataiku URL;
 - the identity-provider configuration for one of the supported exchange modes; and
-- administrator access to configure JWT authentication on each DSS instance.
+- administrator access to configure JWT authentication on each Dataiku instance.
 
 If using a reverse proxy, forward the original scheme and host. Route the whole
 public origin to the MCP server: OAuth metadata, login, callback, consent, and token
 endpoints are served outside the configured MCP path.
+
+Complete the matching identity-provider setup before writing the settings file:
+[Microsoft Entra ID](#microsoft-entra-id) or
+[generic OIDC and RFC 8693](#generic-oidc-and-rfc-8693). Also complete
+[Dataiku JWT trust](#configure-dataiku-to-trust-delegated-jwts) for every configured
+Dataiku instance.
 
 Choose the matching example, then restrict the settings file because it contains
 OAuth client secrets:
@@ -79,7 +102,7 @@ The settings file has four sections:
 - `server` controls the listening address, MCP path, and externally visible URL.
 - `auth` configures incoming-token verification, optional interactive login, and
   token exchange.
-- `dss_instances` lists the DSS endpoints users may select and the audience or
+- `dss_instances` lists the Dataiku endpoints users may select and the audience or
   scope requested for each one.
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
@@ -90,28 +113,32 @@ as users call `switch_instance`. This file-backed selection state supports one
 server process.
 
 The instance catalog is not an authorization list: any authenticated user can
-select an entry, and DSS decides what that user may do. `configure_instance` and
+select an entry, and Dataiku decides what that user may do. `configure_instance` and
 `delete_instance` are therefore disabled in HTTP mode.
 
-## Host-local file operations
+## Distribute the interactive OAuth plugin
 
-Streamable HTTP does not expose reads from or writes to caller-supplied paths on the
-MCP host. In HTTP mode, `export_dataset`, `upload_file_to_managed_folder`,
-`write_project_library_file`, and `update_plugin` are unavailable. To create an
-Uploaded Files dataset, pass `columns` and `rows` directly to
-`create_upload_dataset`; this route accepts at most 10,000 rows. Stdio retains the
-local-path workflows for a process running on the user's machine.
+The public `dataiku-headless` marketplace plugin starts its own stdio server and
+must not be installed for this mode.
 
-### Interactive login or direct bearer token
+1. Render the customer-specific plugin with the deployed server's public MCP URL:
 
-With interactive login, set `server.public_url` to the externally visible HTTPS
-base URL and register `<public_url>/auth/callback` with the identity provider. The
-`auth.interactive_login` setting enables the browser-based login flow.
+```bash
+uv run python scripts/build_http_plugin.py \
+  --url https://mcp.customer.example/mcp \
+  --output ./dataiku-headless-http
+```
 
-With direct bearer authentication, the calling application is responsible for
-obtaining a correctly scoped MCP token and sending it with every request. Remove
-`auth.interactive_login`; `server.public_url` is then optional. The remaining token
-exchange settings are still required for DSS-backed tools.
+2. Add the rendered directory to the organization's enterprise/private marketplace
+   or normal plugin distribution channel. Add `--zip` to the command to create
+   `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
+3. Users install `dataiku-headless-http`. Its setup skill completes OAuth, chooses
+   an administrator-managed instance, and verifies access.
+
+The renderer does not modify this stdio-first source checkout or copy Dataiku
+credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one
+Dataiku MCP server enabled in each client: disable the public stdio plugin before
+installing this HTTP plugin.
 
 ## Microsoft Entra ID
 
@@ -122,36 +149,37 @@ The examples use these values:
 
 - `<tenant-id>`: the Directory (tenant) ID.
 - `<mcp-app-client-id>`: the Application (client) ID of the MCP registration.
-- `<dss-app-client-id>`: the Application (client) ID of a DSS API registration.
+- `<dataiku-app-client-id>`: the Application (client) ID of a Dataiku API registration.
 - `<public-url>`: the HTTPS base URL of the deployed MCP server.
 
 Two app registrations are required. The **MCP registration** represents the API
-that clients call and acts as the confidential client during OBO. The **DSS API
+that clients call and acts as the confidential client during OBO. The **Dataiku API
 registration** represents the downstream resource for which Entra issues the
 delegated token. The current MCP server authenticates with a client secret;
 certificate credentials are not yet supported.
 
 Both registrations must request v2 access tokens. The MCP registration controls
-the token accepted by the MCP server; the DSS API registration controls the
-delegated token accepted by DSS.
+the token accepted by the MCP server; the Dataiku API registration controls the
+delegated token accepted by Dataiku.
 
-### 1. Register the DSS API
+### 1. Register the Dataiku API
 
 In **Microsoft Entra admin center → App registrations**:
 
-1. Create a single-tenant registration for the DSS instance. This resource
+1. Create a single-tenant registration for the Dataiku instance. This resource
    registration needs no redirect URI or credential.
 2. Under **Expose an API**, accept the default Application ID URI
-   `api://<dss-app-client-id>` and add an enabled delegated scope named `dss.access`.
-3. In this DSS API registration's Microsoft Graph app manifest, set
+   `api://<dataiku-app-client-id>` and add an enabled delegated scope named
+   `dataiku.access`.
+3. In this Dataiku API registration's Microsoft Graph app manifest, set
    `api.requestedAccessTokenVersion` to `2`. Access-token format is controlled by
    the target resource registration, not by the token endpoint: leaving this
    value unset or setting it to `1` makes Entra issue a v1 token even when the MCP
    server uses the v2 OBO endpoint.
 4. Record the client ID and the full scope
-   `api://<dss-app-client-id>/dss.access`.
+   `api://<dataiku-app-client-id>/dataiku.access`.
 
-Use a separate registration for each DSS instance that needs a distinct token
+Use a separate registration for each Dataiku instance that needs a distinct token
 audience.
 
 ### 2. Register the MCP server
@@ -166,9 +194,9 @@ audience.
    URI.
 5. Under **Certificates & secrets**, create a client secret and store its value
    securely for the MCP settings file.
-6. Under **API permissions → Add a permission → My APIs**, select each DSS API and
-   add its delegated `dss.access` permission. This permits the MCP application to
-   request a DSS token on behalf of the signed-in user.
+6. Under **API permissions → Add a permission → My APIs**, select each Dataiku API and
+   add its delegated `dataiku.access` permission. This permits the MCP application to
+   request a Dataiku token on behalf of the signed-in user.
 7. Grant administrator consent for the tenant.
 
 See Microsoft's guidance for [exposing API scopes](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-expose-web-apis),
@@ -196,8 +224,8 @@ and the [OBO flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-
   },
   "dss_instances": {
     "prod": {
-      "url": "https://dss.example",
-      "delegated_scope": "api://replace-with-dss-app-client-id/dss.access"
+      "url": "https://dataiku.example",
+      "delegated_scope": "api://replace-with-dataiku-app-client-id/dataiku.access"
     }
   },
   "user_selections": {}
@@ -205,14 +233,14 @@ and the [OBO flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-
 ```
 
 `tenant_id` identifies the Entra tenant. `client_id` and `client_secret` come from
-the MCP registration. For each DSS instance, `delegated_scope` is the full scope
-exposed by its DSS API registration. Do not add `delegated_audience`: Entra derives
+the MCP registration. For each Dataiku instance, `delegated_scope` is the full scope
+exposed by its Dataiku API registration. Do not add `delegated_audience`: Entra derives
 the downstream resource from this scope.
 
 The server derives the tenant-specific v2 issuer, JWKS URI, token endpoint, and
 incoming audience. A valid incoming token has the MCP client ID as `aud` and
-`mcp.access` in `scp`; the exchanged token has the DSS client ID as `aud` and
-`dss.access` in `scp`.
+`mcp.access` in `scp`; the exchanged token has the Dataiku client ID as `aud` and
+`dataiku.access` in `scp`.
 
 For direct bearer mode, remove `interactive_login` and optionally `public_url`.
 The client ID and secret remain required because the server still performs OBO.
@@ -222,7 +250,7 @@ The client ID and secret remain required because the server still performs OBO.
 Generic mode separates two concerns. First, the MCP server verifies an incoming
 OIDC access token. It may obtain that token through interactive login, or the caller
 may supply it directly. Second, a confidential exchange client trades that token
-for one that DSS accepts.
+for one that Dataiku accepts.
 
 The authorization server must:
 
@@ -230,7 +258,7 @@ The authorization server must:
 - support an OIDC web client when interactive login is enabled;
 - accept an access token through [RFC 8693 token exchange](https://www.rfc-editor.org/rfc/rfc8693.html);
 - authenticate the exchange client with HTTP Basic client ID and secret; and
-- return an access token whose issuer, audience, scope, and subject DSS trusts.
+- return an access token whose issuer, audience, scope, and subject Dataiku trusts.
 
 The interactive and exchange clients may be separate registrations. Their exact
 setup, trust, and consent requirements depend on the authorization server.
@@ -261,9 +289,9 @@ setup, trust, and consent requirements depend on the authorization server.
   },
   "dss_instances": {
     "prod": {
-      "url": "https://dss.example",
-      "delegated_audience": "dss-prod",
-      "delegated_scope": "dss.api"
+      "url": "https://dataiku.example",
+      "delegated_audience": "dataiku-prod",
+      "delegated_scope": "dataiku.api"
     }
   },
   "user_selections": {}
@@ -272,38 +300,38 @@ setup, trust, and consent requirements depend on the authorization server.
 
 `issuer`, `jwks_uri`, `required_audience`, and `required_scope` describe the token
 accepted by the MCP server. `delegation` identifies the token endpoint and the
-confidential client allowed to exchange it. Each DSS instance supplies the
+confidential client allowed to exchange it. Each Dataiku instance supplies the
 `delegated_audience` and `delegated_scope` requested for its resulting token. One
 settings file uses one exchange endpoint and client for all instances.
 
 For direct bearer mode, remove `interactive_login` and optionally `public_url`.
-`delegation` remains required for DSS-backed tools.
+`delegation` remains required for Dataiku-backed tools.
 
-## Configure DSS to trust delegated JWTs
+## Configure Dataiku to trust delegated JWTs
 
-This step is required for both exchange modes. DSS validates the delegated token
+This step is required for both exchange modes. Dataiku validates the delegated token
 returned by the identity provider—not the original token sent to the MCP server.
-Configure each DSS instance with values taken from that delegated token:
+Configure each Dataiku instance with values taken from that delegated token:
 
-| DSS setting | Purpose |
+| Dataiku setting | Purpose |
 | --- | --- |
 | Issuer | Must exactly match the token's `iss` claim |
 | JWKS URI | Supplies the public keys used to verify its signature |
 | Audience | Must match the token's `aud` claim |
-| Scope | Permission DSS requires from the token |
+| Scope | Permission Dataiku requires from the token |
 | Scope claim key and format | Identifies whether the scope claim is a string or array |
-| Subject match | Chooses the DSS user field compared with the token's `sub` |
+| Subject match | Chooses the Dataiku user field compared with the token's `sub` |
 
-Current DSS releases configure these values through general settings. A forthcoming
-DSS release will expose the equivalent settings in the administration UI. Until
-then, run the following from a Dataiku Python environment as a DSS administrator.
+Current Dataiku releases configure these values through general settings. A forthcoming
+Dataiku release will expose the equivalent settings in the administration UI. Until
+then, run the following from a Dataiku Python environment as a Dataiku administrator.
 It replaces the existing global JWT settings, so record the previous value first.
 
 ```python
 import dataiku
 
 TENANT_ID = "replace-with-tenant-id"
-DSS_APP_CLIENT_ID = "replace-with-dss-app-client-id"
+DATAIKU_APP_CLIENT_ID = "replace-with-dataiku-app-client-id"
 ENTRA_ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 
 admin = dataiku.api_client()
@@ -320,8 +348,8 @@ raw["jwtAuthSettings"] = {
         f"https://login.microsoftonline.com/{TENANT_ID}"
         "/discovery/v2.0/keys"
     ),
-    "audience": DSS_APP_CLIENT_ID,
-    "scope": "dss.access",
+    "audience": DATAIKU_APP_CLIENT_ID,
+    "scope": "dataiku.access",
     "scopeClaimFormat": "STRING",
     "scopeClaimKey": "scp",
     "subjectMatch": "LOGIN",
@@ -335,42 +363,13 @@ string-or-array format found in the exchanged token.
 
 > **Current subject-mapping limitation**
 >
-> DSS always reads the standard JWT `sub` claim. `subjectMatch` only chooses whether
-> that value is compared with the DSS user's login (`LOGIN`) or email (`EMAIL`); it
+> Dataiku always reads the standard JWT `sub` claim. `subjectMatch` only chooses whether
+> that value is compared with the Dataiku user's login (`LOGIN`) or email (`EMAIL`); it
 > cannot select another JWT claim. This remains true for the forthcoming UI.
 >
 > Entra uses a pairwise, application-specific `sub`, so it normally differs from a
-> person's login and email. The MCP and DSS tokens may also contain different `sub`
+> person's login and email. The MCP and Dataiku tokens may also contain different `sub`
 > values for the same user because they target different applications. For now, the
-> delegated token's `sub` must equal the selected DSS login or email. Validate this
+> delegated token's `sub` must equal the selected Dataiku login or email. Validate this
 > constraint before production rollout. See Microsoft's
 > [access-token claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference).
-
-## Verify and troubleshoot
-
-After starting the server:
-
-1. Authenticate and call `list_instances`.
-2. Call `switch_instance` for one catalog entry.
-3. Call a DSS-backed tool such as `list_projects`.
-
-| Failure | Where it occurred | Check |
-| --- | --- | --- |
-| MCP returns 401 | Incoming-token validation | Signature, expiry, issuer, MCP audience, and required scope |
-| Token exchange returns 400 | Identity-provider token endpoint | Exchange credentials, incoming audience, downstream scope, trust, and consent |
-| DSS rejects the token | DSS JWT validation or user lookup | Delegated issuer, JWKS, audience, scope claim/format, and `sub` mapping |
-
-For Entra, a token whose issuer is `https://sts.windows.net/<tenant-id>/` is a v1
-token. Calling a v2 token endpoint does not override the version selected by the
-target resource registration, so set `api.requestedAccessTokenVersion` to `2` on
-both app registrations:
-
-- If the MCP server rejects the incoming token, check the **MCP registration**.
-- If DSS rejects the exchanged token, check the **DSS API registration identified
-  by that instance's `delegated_scope`**.
-
-After correcting the DSS API registration, the next DSS-backed tool call performs
-a new exchange; the MCP server does not need to be restarted.
-
-Do not paste bearer tokens into tickets or logs. Use decoded claims without the
-encoded token when diagnosing issuer, audience, scope, or subject mismatches.

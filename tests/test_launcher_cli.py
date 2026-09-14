@@ -23,7 +23,7 @@ from types import ModuleType
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "runtime" / "run_mcp.py"
-SETUP_SKILL = (
+STDIO_SETUP_REFERENCE = (
     Path(__file__).resolve().parent.parent
     / "skills"
     / "dataiku-headless-setup"
@@ -121,9 +121,17 @@ def test_launcher_help_does_not_import_the_server():
 def test_setup_skill_warmup_commands_select_stdio_transport():
     commands = [
         line
-        for line in SETUP_SKILL.read_text(encoding="utf-8").splitlines()
+        for line in STDIO_SETUP_REFERENCE.read_text(encoding="utf-8").splitlines()
         if "uv run " in line and "run_mcp.py" in line
     ]
 
     assert len(commands) == 2
     assert all("--transport stdio" in command for command in commands)
+
+
+def test_setup_skill_checks_mcp_before_uv():
+    setup_skill = STDIO_SETUP_REFERENCE.read_text(encoding="utf-8")
+
+    assert setup_skill.index("First run `list_instances`.") < setup_skill.index(
+        "`uv --version`"
+    )

@@ -25,7 +25,18 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Dataiku Headless supports two connection modes:
+
+| Mode | MCP server | Authentication | Installation |
+| --- | --- | --- | --- |
+| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
+| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
+
+Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
+
+The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
+
+Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -151,7 +162,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-The onboarding flow is the same:
+The onboarding flow is:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
@@ -273,7 +284,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
 ├── .claude-plugin/
-│   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
+│   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest
