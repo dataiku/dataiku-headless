@@ -129,11 +129,29 @@ uv run python scripts/build_http_plugin.py \
   --output ./dataiku-headless-http
 ```
 
-2. Add the rendered directory to the organization's enterprise/private marketplace
-   or normal plugin distribution channel. Add `--zip` to the command to create
-   `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
-3. Users install `dataiku-headless-http`. Its setup skill completes OAuth, chooses
-   an administrator-managed instance, and verifies access.
+2. Distribute the rendered directory according to the client surface:
+   - **ChatGPT desktop and the Codex app:** publish it as a private GitHub repository.
+     A workspace administrator imports the repository from **Admin → Plugins** and
+     makes the plugin Available or Installed. Because it declares an MCP server, the
+     imported plugin is desktop-only.
+   - **Codex CLI:** an administrator configures the private marketplace through
+     managed or system configuration. Users install `dataiku-headless-http` from
+     `/plugins`, or receive it automatically.
+   - **Codex IDE extension:** plugins are unavailable. Distribute the MCP connection
+     and shared skills separately; Codex app, CLI, and IDE can share managed MCP
+     configuration.
+   - **Claude chat, Cowork, and Claude Desktop:** add `--zip`, upload the custom plugin
+     from **Customize → Plugins**, and share it with the organization. Alternatively,
+     an organization owner can register the URL under **Organization settings →
+     Connectors** and distribute the skills separately. Claude reaches remote MCP
+     connectors from Anthropic's cloud, so the endpoint must accept that traffic.
+   - **Claude Code CLI and desktop local sessions:** publish the rendered directory
+     as a private repository and register it as an organization-managed marketplace.
+     Users install it through the plugin browser or `/plugin`; administrators can
+     make it available automatically through managed settings.
+3. On a supported plugin surface, users install `dataiku-headless-http`, authenticate
+   in the client when prompted, ask the agent to set up Dataiku Headless, choose an
+   administrator-managed instance, and begin normal Dataiku work.
 
 The renderer does not modify this stdio-first source checkout or copy Dataiku
 credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one
