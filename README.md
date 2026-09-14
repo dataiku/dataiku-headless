@@ -90,6 +90,14 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 cortex plugin install dataiku/dataiku-headless
 ```
 
+### Kiro and other Agent Plugins clients
+
+The repository root is an [Agent Plugins](https://agent-plugins.org/) v1.0.0
+package: `plugin.json`, `mcp.json`, and `skills/`. Any client implementing the
+standard can install it straight from this repository — in Kiro, **Powers** →
+**Add Custom Power** → **Import power from GitHub** (or from a local clone).
+The harness-specific manifests above remain for the clients that predate it.
+
 ### Other AI assistants
 
 #### MCP

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "dataiku": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py"
+      ],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
