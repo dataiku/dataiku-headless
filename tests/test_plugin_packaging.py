@@ -48,9 +48,9 @@ def test_marketplace_entry_matches_plugin_identity():
 
 
 def test_public_setup_skill_is_stdio_only():
-    setup_skill = (
-        ROOT / "skills" / "dataiku-headless-setup" / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    setup_skill = (ROOT / "skills" / "dataiku-headless-setup" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "--transport stdio" in setup_skill
     assert "references/http.md" not in setup_skill
