@@ -11,8 +11,8 @@ Use this file when changing this repository. It is not an operating guide for us
 
 ## Architecture and boundaries
 
-- `dataiku_mcp/` is a local, stdio-only FastMCP server. `dataiku_mcp/__init__.py` constructs the server and imports each tool module so decorators register their tools.
-- `dataiku_mcp/tools/` contains thin adapters over the synchronous `dataikuapi` client. Shared authentication, validation, serialization, error, and executor helpers live under `dataiku_mcp/tools/utils/`.
+- `dataiku_mcp/server.py` constructs the FastMCP server, request middleware, and stdio/HTTP runners. `dataiku_mcp/__init__.py` re-exports that public server API and imports each tool module so decorators register their tools.
+- `dataiku_mcp/tools/` contains thin adapters over the synchronous `dataikuapi` client. Shared client authentication and executors live at the package root; validation, serialization, and error helpers live under `dataiku_mcp/tools/utils/`.
 - `dataiku_mcp/tools/cobuild.py` owns retained Cobuild conversations. Cobuild is the default path for constructing or modifying project-level flow and analytic assets.
 - Cobuild owns construction and modification of project-level flow and analytic assets. Direct writes are allowed only for the fixed exception categories defined by the **Cobuild Write-Routing Convention** in `CODING_STANDARDS_AND_STRUCTURE.md`; do not infer permission for a new direct write from existing implementation.
 - `skills/dataiku-headless/SKILL.md` is the operator-facing router. Its `references/` directory owns object-specific inspection, mutation, and verification workflows.

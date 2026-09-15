@@ -20,9 +20,11 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
-    "fastmcp",
+    "fastmcp>=3.4.5,<4",
     "dataiku-api-client>=14.7.2",
+    "pydantic>=2.11,<3",
     "python-dotenv",
+    "requests>=2.32",
 ]
 
 [project.urls]

@@ -25,7 +25,18 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Dataiku Headless supports two connection modes:
+
+| Mode | MCP server | Authentication | Installation |
+| --- | --- | --- | --- |
+| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
+| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
+
+Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
+
+The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
+
+Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -101,7 +112,7 @@ Add the following to your `.mcp.json` from a checkout of this repository:
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uv", "run", "--quiet", "--locked", "--script", "./runtime/run_mcp.py"],
+      "command": ["uv", "run", "--quiet", "--locked", "--script", "./runtime/run_mcp.py", "--transport", "stdio"],
       "enabled": true
     }
   }
@@ -134,11 +145,14 @@ limited direct actions Headless supports, see the
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication (env API key or `.dataiku/config.json`)
+- Server-side authentication for the local stdio plugin (env API key or `.dataiku/stdio-config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
-Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
+In local stdio mode, tools do not accept API keys as arguments — authentication is
+resolved server-side from environment variables or a config file.
+
+For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
 
 ## Agent Skills
 
@@ -146,9 +160,9 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
-## Onboarding and authentication
+## Stdio onboarding and authentication
 
-The onboarding flow is the same:
+The onboarding flow is:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
@@ -159,13 +173,20 @@ The API key never appears in MCP tool arguments.
 
 ### Where configuration lives
 
-The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. The server selects its configuration file once at startup, in this order:
+The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. Use `--settings-path PATH` to select an explicit path; otherwise, the server selects its configuration file once at startup in this order:
 
-1. The explicit `DKU_CONFIG_FILE` path, when set.
-2. An existing `./.dataiku/config.json` in the server's working directory.
-3. `~/.dataiku/config.json` otherwise.
+1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
+2. `~/.dataiku/stdio-config.json` otherwise.
 
-All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/config.json.example`](.dataiku/config.json.example) for the file shape.
+On upgrade, a valid legacy `config.json` at either location is migrated automatically
+to `stdio-config.json` (the working-directory location takes precedence). Existing
+canonical files are used without inspecting a sibling `config.json`; invalid legacy
+files are left untouched and ignored. `DKU_CONFIG_FILE` is no longer supported;
+replace it with `--settings-path PATH` in the launcher configuration.
+
+The server loads environment and profile settings at startup. Profile additions and
+deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
+or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
 Environment variables are an explicit override:
 
@@ -177,10 +198,14 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
-`.env` only fills in variables not already set in your shell or launcher — a real environment variable of the same name always wins, even if it's empty.
+The canonical `runtime/run_mcp.py` launcher reads this file after validating its
+arguments and before importing the MCP package. `.env` only fills in variables
+not already set in your shell or launcher—a real environment variable of the
+same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
+not read `.env`; embedding callers must prepare their environment first.
 
 **Connect to multiple instances:**
-Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
+Put instance info in the resolved configuration file. See `.dataiku/stdio-config.json.example` for the expected shape.
 
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
@@ -193,7 +218,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugin manifests use
+uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```
 
 ## Project Structure
@@ -201,6 +226,8 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 ```text
 .
 ├── dataiku_mcp/
+│   ├── auth.py                # Dataiku client creation and HTTP token exchange
+│   ├── executors.py           # Shared blocking and Cobuild executors
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
@@ -231,11 +258,11 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Shared runtime utilities
-│   ├── config.py              # Instance/profile loading from config file + env vars
-│   ├── config_mcp.py          # MCP configuration
+│   │   └── utils/             # Tool validation and response-shaping utilities
+│   ├── config/                # Models, stdio/HTTP configuration, and request routing
+│   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
-│   └── __init__.py
+│   └── __init__.py            # Public API and tool-registration composition root
 ├── skills/
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
@@ -257,7 +284,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
 ├── .claude-plugin/
-│   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
+│   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest

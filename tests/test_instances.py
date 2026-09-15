@@ -17,7 +17,8 @@
 import asyncio
 import json
 
-from dataiku_mcp import config
+from dataiku_mcp.config import request
+from dataiku_mcp.config.models import DSSInstance
 from dataiku_mcp.tools import instances
 
 from tests.utils.fakes import FakeContext
@@ -40,16 +41,15 @@ class _FakeClient:
         return _FakeInstanceInfo(self.raw)
 
 
-def _instance(name: str) -> config.DSSInstance:
-    return config.DSSInstance(
+def _instance(name: str) -> DSSInstance:
+    return DSSInstance(
         name, f"https://{name}.example", API_KEY, False, "config", f"{name} desc"
     )
 
 
 def _install(monkeypatch, instance_names: list[str], client: _FakeClient, active: str):
     configured = {name: _instance(name) for name in instance_names}
-    monkeypatch.setattr(config, "get_instances", lambda: configured)
-    monkeypatch.setattr(config, "_current_instance", configured[active])
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: configured[active])
     monkeypatch.setattr(instances, "get_dss_client", lambda: client)
 
 

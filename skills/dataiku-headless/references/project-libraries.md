@@ -19,7 +19,7 @@ A project library can contain internal files and git-imported external libraries
 
 | Action | Route |
 | --- | --- |
-| Write one user-supplied local source file | Direct write exception |
+| Write one user-supplied local source file | Direct write exception (stdio only) |
 | Move, rename, delete, or restructure library content | Cobuild |
 | Configure, update, or remove a git-imported external library | Cobuild |
 
@@ -27,7 +27,7 @@ A project library can contain internal files and git-imported external libraries
 
 1. Use `list_project_library` to discover the current tree and distinguish internal from external content when relevant.
 2. Use `read_project_library_file` and `search_project_library` to understand existing source before changing it.
-3. When the user explicitly wants to add or replace a local source file, use `write_project_library_file`.
+3. In stdio, when the user explicitly wants to add or replace a local source file, use `write_project_library_file`. It is unavailable in Streamable HTTP.
 4. Read the existing target before replacement. Use overwrite only with explicit user intent.
 5. Validate or re-read a written Python file with `validate_project_library_file` and `read_project_library_file`.
 6. When the user mentions a git-hosted library, repository, branch, tag, or commit, route external-library configuration through `./cobuild.md`.
