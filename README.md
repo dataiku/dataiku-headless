@@ -23,7 +23,7 @@
 
 ## About Dataiku Headless
 
-Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
+Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more. Connect a Dataiku Govern node too, and it can inspect and manage governed artifacts, blueprints, and signoffs through one `govern` tool.
 
 Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
@@ -128,9 +128,15 @@ For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
 
+Dataiku Govern is reached through a single `govern` tool: a fixed catalog of
+operations over the public Govern Python SDK, listed by the tool itself. The Govern
+node has its own URL and API key, entered on the `configure_instance` page or through
+`DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY`. See the
+[Govern guide](skills/dataiku-headless/references/govern.md).
+
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, Cobuild conversations, and Dataiku Govern.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -144,7 +150,7 @@ Tools do not accept API keys as arguments — authentication is resolved server-
 
 `skills` exposes two prompt-based entrypoints: `dataiku-headless-setup` for first-time installation, runtime recovery, and instance configuration; and `dataiku-headless` for Dataiku work. The main entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, migrations, and Govern.
 
 ## Onboarding and authentication
 
@@ -214,6 +220,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
+│   │   ├── govern.py          # Single `govern` tool: fixed operation catalog over the Govern Python SDK
 │   │   ├── instances.py       # Multi-instance switching tools
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
@@ -250,6 +257,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │           ├── connections.md      # Connection discovery and capability inspection
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
+│           ├── govern.md           # Govern entry guide; govern/ holds the artifact, blueprint, signoff, and supporting-object guides
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── runtime/

@@ -1,16 +1,18 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, Cobuild conversations, and Govern. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, use the govern tool for Govern, and validate results after execution.
 ---
 
 # Dataiku Headless
 
 Use this for any Dataiku task. Choose the right reference guide first, inspect the current state before acting, route project changes through Cobuild by default, and validate by re-reading the resulting state.
 
+For **Dataiku Govern**, start with [Govern](./references/govern.md). Govern runs on its own node and is reached through the single `govern` tool, which needs a Govern URL and API key of its own.
+
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
-2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests.
+2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests. Govern work also needs the Govern node configured; its guide says how.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -36,6 +38,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 | User intent | Guide to read next |
 | --- | --- |
+| Work with Dataiku Govern artifacts, blueprints, signoffs, roles, custom pages, users, files, or time series | `./references/govern.md` |
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
 | Inspect or update project settings, including Flow display, pipelines, default code envs, or container execution | `./references/projects/settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |

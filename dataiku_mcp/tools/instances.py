@@ -60,10 +60,13 @@ async def list_instances(ctx: Context) -> str:
                 "name": name,
                 "url": inst.url,
                 "description": inst.description,
+                "govern_url": inst.govern_url,
                 "active": name == current_instance_name,
             }
         )
-    return compact_json(columnar(result, ["name", "url", "description", "active"]))
+    return compact_json(
+        columnar(result, ["name", "url", "description", "govern_url", "active"])
+    )
 
 
 @mcp.tool(
@@ -112,6 +115,11 @@ async def get_current_instance(ctx: Context) -> str:
     # Strip api_key from return value
     current_instance = asdict(get_current_instance_for_tool())
     current_instance.pop("api_key", None)
+    govern_api_key = current_instance.pop("govern_api_key", "")
+    if current_instance.get("govern_url"):
+        current_instance["govern_api_key_configured"] = bool(govern_api_key)
+    else:
+        current_instance.pop("govern_no_check_certificate", None)
     current_instance["connection_status"] = "failed"
     try:
         client = get_dss_client()

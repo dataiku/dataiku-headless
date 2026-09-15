@@ -47,7 +47,7 @@ class SetupSession:
     browser_opened: bool
     completed: threading.Event
     result: dict | None = None
-    validated_connection: tuple[str, str, bool] | None = None
+    validated_connection: tuple | None = None
     expired: bool = False
 
     def close(self) -> None:
@@ -57,36 +57,46 @@ class SetupSession:
         self.server.server_close()
 
 
-def _validate_form(form: dict[str, list[str]]) -> dict:
-    name = form.get("name", [""])[0].strip()
-    url = form.get("url", [""])[0].strip()
-    api_key = form.get("api_key", [""])[0].strip()
-    description = form.get("description", [""])[0].strip()
-
-    if not name:
-        raise ValueError("Instance name is required.")
-    if len(name) > 80 or any(ord(character) < 32 for character in name):
-        raise ValueError("Instance name must be 80 characters or fewer.")
+def _validate_url(url: str, label: str) -> str:
     if "\\" in url or any(
         ord(character) < 32 or character.isspace() for character in url
     ):
-        raise ValueError("Instance URL contains invalid whitespace or backslashes.")
+        raise ValueError(f"{label} contains invalid whitespace or backslashes.")
     try:
         parsed_url = urlsplit(url)
         port = parsed_url.port
         if parsed_url.netloc.endswith(":") or port == 0:
             raise ValueError
     except ValueError:
-        raise ValueError(
-            "Instance URL is malformed or contains an invalid port."
-        ) from None
+        raise ValueError(f"{label} is malformed or contains an invalid port.") from None
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
-        raise ValueError("Instance URL must be a complete http:// or https:// URL.")
+        raise ValueError(f"{label} must be a complete http:// or https:// URL.")
     if parsed_url.username or parsed_url.password:
-        raise ValueError("Instance URL cannot contain credentials.")
-    url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        raise ValueError(f"{label} cannot contain credentials.")
+    return f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+
+def _validate_form(form: dict[str, list[str]]) -> dict:
+    name = form.get("name", [""])[0].strip()
+    url = form.get("url", [""])[0].strip()
+    api_key = form.get("api_key", [""])[0].strip()
+    description = form.get("description", [""])[0].strip()
+    govern_url = form.get("govern_url", [""])[0].strip()
+    govern_api_key = form.get("govern_api_key", [""])[0].strip()
+
+    if not name:
+        raise ValueError("Instance name is required.")
+    if len(name) > 80 or any(ord(character) < 32 for character in name):
+        raise ValueError("Instance name must be 80 characters or fewer.")
+    url = _validate_url(url, "Instance URL")
     if not api_key:
         raise ValueError("API key is required.")
+    if govern_url:
+        govern_url = _validate_url(govern_url, "Govern URL")
+        if not govern_api_key:
+            raise ValueError("Govern API key is required when a Govern URL is set.")
+    elif govern_api_key:
+        raise ValueError("Govern URL is required when a Govern API key is set.")
 
     return {
         "name": name,
@@ -95,6 +105,9 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
         "description": description,
         "no_check_certificate": "no_check_certificate" in form,
         "set_default": "set_default" in form,
+        "govern_url": govern_url,
+        "govern_api_key": govern_api_key,
+        "govern_no_check_certificate": "govern_no_check_certificate" in form,
     }
 
 
@@ -119,6 +132,12 @@ def _page(
     api_key = escape(values.get("api_key", ""))
     set_default = " checked" if is_initial_page or values.get("set_default") else ""
     no_check_certificate = " checked" if values.get("no_check_certificate") else ""
+    govern_url = escape(values.get("govern_url", ""))
+    govern_api_key = escape(values.get("govern_api_key", ""))
+    govern_no_check_certificate = (
+        " checked" if values.get("govern_no_check_certificate") else ""
+    )
+    govern_open = " open" if govern_url or govern_api_key else ""
     save_disabled = "" if connection_validated else " disabled"
     return f"""<!doctype html>
 <html lang="en">
@@ -156,6 +175,7 @@ def _page(
     details {{ margin-top:16px; }}
     summary {{ color:var(--muted); cursor:pointer; font-size:13px; font-weight:650; }}
     details .check {{ margin-top:12px; }}
+    details .grid {{ margin-top:12px; }}
     .actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
     button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
     button:hover {{ background:#00696c; }}
@@ -188,6 +208,13 @@ def _page(
           <label class="check"><input type="checkbox" name="set_default"{set_default}><span>Use this instance by default when Dataiku Headless starts.</span></label>
         </div>
         <details><summary>Advanced options</summary><label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label></details>
+        <details{govern_open}><summary>Govern node (optional)</summary>
+          <div class="grid">
+            <div class="full"><label for="govern_url">Govern URL</label><input id="govern_url" name="govern_url" type="url" placeholder="https://your-govern-node.dataiku.com" value="{govern_url}"><div class="hint">Leave empty when this instance has no Govern node. The govern tool uses it.</div></div>
+            <div class="full"><label for="govern_api_key">Govern API key</label><input id="govern_api_key" name="govern_api_key" type="password" value="{govern_api_key}"><div class="hint">Create one in Govern under Administration → API keys.</div></div>
+          </div>
+          <label class="check"><input type="checkbox" name="govern_no_check_certificate"{govern_no_check_certificate}><span>Skip certificate verification for the Govern node.</span></label>
+        </details>
         {status_markup}
         <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save"{save_disabled}>Save instance</button></div>
       </form>
@@ -237,10 +264,30 @@ def _test_connection(values: dict) -> None:
         raise ValueError(
             "Could not connect. Check the URL, API key, and certificate settings."
         ) from exc
+    if not values["govern_url"]:
+        return
+    try:
+        govern_client = dataikuapi.GovernClient(
+            values["govern_url"], values["govern_api_key"]
+        )
+        govern_client._session.verify = not values["govern_no_check_certificate"]
+        govern_client.get_auth_info()
+    except Exception as exc:
+        raise ValueError(
+            "Could not connect to the Govern node. Check the Govern URL, API key, "
+            "and certificate settings."
+        ) from exc
 
 
-def _connection_settings(values: dict) -> tuple[str, str, bool]:
-    return values["url"], values["api_key"], values["no_check_certificate"]
+def _connection_settings(values: dict) -> tuple:
+    return (
+        values["url"],
+        values["api_key"],
+        values["no_check_certificate"],
+        values["govern_url"],
+        values["govern_api_key"],
+        values["govern_no_check_certificate"],
+    )
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):

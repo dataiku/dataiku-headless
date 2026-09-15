@@ -65,6 +65,7 @@ from .tools import (  # noqa: F401,E402
     evaluation_stores,
     flow,
     general_settings,
+    govern,
     groups,
     insights,
     instances,

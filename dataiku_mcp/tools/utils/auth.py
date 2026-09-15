@@ -81,6 +81,39 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
+def get_govern_client() -> dataikuapi.GovernClient:
+    """Get a Govern API client from the environment or the active instance.
+
+    `DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY` win when set. Otherwise the
+    active instance profile must carry a Govern URL and API key, entered
+    through `configure_instance`.
+    """
+    connection = config.get_govern_connection_from_env()
+    if connection is None:
+        current_instance = get_current_instance_for_tool()
+        connection = config.govern_connection_for_instance(current_instance)
+        if not connection.url:
+            raise ValueError(
+                f"Dataiku instance '{current_instance.name}' has no Govern node "
+                "configured. Set DKU_GOVERN_URL and DKU_GOVERN_API_KEY in the MCP "
+                "server environment, or run configure_instance and fill the "
+                "Govern node fields."
+            )
+    if not connection.api_key:
+        source = (
+            "DKU_GOVERN_API_KEY"
+            if connection.source == "environment"
+            else f"the Govern API key of instance '{connection.instance_name}'"
+        )
+        raise ValueError(
+            f"The Govern node at {connection.url} has no API key. Set {source}."
+        )
+
+    client = dataikuapi.GovernClient(connection.url, connection.api_key)
+    client._session.verify = not connection.no_check_certificate
+    return client
+
+
 async def require_admin() -> None:
     """Raise a concise error unless the configured credentials are an admin."""
 

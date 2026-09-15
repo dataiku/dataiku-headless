@@ -19,16 +19,21 @@ see the table below.
 Local profile actions are listed separately because they only change which Dataiku
 instance the local client targets.
 
+**Dataiku Govern** runs on a separate node and is reached through the single `govern`
+tool: a fixed catalog of 86 operations over the public Govern Python SDK, listed by
+the tool itself when called without an operation. It counts once as a direct write
+below; its reads and writes are separated inside the catalog.
+
 
 ## Surface
 
-**128 tools** · 93 read · 21 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**129 tools** · 93 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 21 | Bootstrap, project configuration, cross-project, admin |
+| Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin, Govern |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -91,6 +96,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
+| Govern | `govern` (catalog and read operations) | `govern` (write and delete operations) | Separate Govern node; artifacts, signoffs, blueprints, roles, custom pages, time series, files, users |
 
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build a recipe, a model, or an agent.
@@ -101,7 +107,7 @@ Local client configuration, not Dataiku objects.
 
 | Tool | Effect |
 |---|---|
-| `configure_instance` | Connect an instance; opens a local page for URL + API key |
+| `configure_instance` | Connect an instance; opens a local page for URL + API key, with optional Govern node URL + API key |
 | `switch_instance` | Change which configured instance subsequent calls target |
-| `list_instances`, `get_current_instance` | Show configured instances and the active one; `get_current_instance` includes the Dataiku version when available |
+| `list_instances`, `get_current_instance` | Show configured instances and the active one, with their Govern URL when set; `get_current_instance` includes the Dataiku version when available |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |

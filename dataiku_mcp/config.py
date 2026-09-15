@@ -30,6 +30,20 @@ class DSSInstance:
     no_check_certificate: bool
     source: str
     description: str = ""
+    govern_url: str = ""
+    govern_api_key: str = ""
+    govern_no_check_certificate: bool = False
+
+
+@dataclass(frozen=True)
+class GovernConnection:
+    """Resolved Govern node credentials for the govern tool."""
+
+    url: str
+    api_key: str
+    no_check_certificate: bool
+    source: str
+    instance_name: str = ""
 
 
 @dataclass
@@ -112,6 +126,41 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
             os.environ.get("DKU_NO_CHECK_CERTIFICATE", "")
         ),
         source="environment",
+        govern_url=os.environ.get("DKU_GOVERN_URL", ""),
+        govern_api_key=os.environ.get("DKU_GOVERN_API_KEY", ""),
+        govern_no_check_certificate=_parse_no_check_certificate(
+            os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "")
+        ),
+    )
+
+
+def get_govern_connection_from_env() -> GovernConnection | None:
+    """Return the Govern node defined by `DKU_GOVERN_URL`, or None.
+
+    Environment variables win over the active instance profile so a CI job or
+    a quick test can target a Govern node without editing the config file.
+    """
+    govern_url = os.environ.get("DKU_GOVERN_URL", "").strip()
+    if not govern_url:
+        return None
+    return GovernConnection(
+        url=govern_url,
+        api_key=os.environ.get("DKU_GOVERN_API_KEY", ""),
+        no_check_certificate=_parse_no_check_certificate(
+            os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "")
+        ),
+        source="environment",
+    )
+
+
+def govern_connection_for_instance(instance: DSSInstance) -> GovernConnection:
+    """Return the Govern node stored on an instance profile (URL may be empty)."""
+    return GovernConnection(
+        url=instance.govern_url,
+        api_key=instance.govern_api_key,
+        no_check_certificate=instance.govern_no_check_certificate,
+        source=instance.source,
+        instance_name=instance.name,
     )
 
 
@@ -146,6 +195,11 @@ def _load_config() -> DSSConfig:
             description=details.get("description", ""),
             no_check_certificate=details.get("no_check_certificate", False),
             source="config",
+            govern_url=details.get("govern_url", ""),
+            govern_api_key=details.get("govern_api_key", ""),
+            govern_no_check_certificate=details.get(
+                "govern_no_check_certificate", False
+            ),
         )
     return DSSConfig(default_instance_name, dss_instances)
 
@@ -161,6 +215,12 @@ def _save_config(config: DSSConfig) -> None:
         }
         if instance.description:
             serialized_instance["description"] = instance.description
+        if instance.govern_url or instance.govern_api_key:
+            serialized_instance["govern_url"] = instance.govern_url
+            serialized_instance["govern_api_key"] = instance.govern_api_key
+            serialized_instance["govern_no_check_certificate"] = (
+                instance.govern_no_check_certificate
+            )
         serialized_instances[name] = serialized_instance
 
     data = {
@@ -260,6 +320,7 @@ def set_current_instance(name: str) -> dict:
         "name": _current_instance.name,
         "url": _current_instance.url,
         "description": _current_instance.description,
+        "govern_url": _current_instance.govern_url,
     }
 
 
@@ -271,6 +332,9 @@ def add_instance_to_config(
     description: str = "",
     no_check_certificate: bool = False,
     set_default: bool = False,
+    govern_url: str = "",
+    govern_api_key: str = "",
+    govern_no_check_certificate: bool = False,
 ) -> dict:
     """Add an instance to the resolved config file."""
     new_instance = DSSInstance(
@@ -280,6 +344,9 @@ def add_instance_to_config(
         description=description,
         no_check_certificate=no_check_certificate,
         source="config",
+        govern_url=govern_url,
+        govern_api_key=govern_api_key,
+        govern_no_check_certificate=govern_no_check_certificate,
     )
 
     config = _load_config()
@@ -294,6 +361,7 @@ def add_instance_to_config(
         "name": name,
         "url": url,
         "description": description,
+        "govern_url": govern_url,
         "path": str(get_config_path()),
         "default_instance": config.default_instance,
     }
