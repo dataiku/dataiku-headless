@@ -139,29 +139,24 @@ NEW_IDENTIFIER = _p(
 USERS_CONTAINER = _p(
     "users_container",
     "object",
-    "Users container: {type: user|group|role|global-api-key, login|groupName|roleId|keyId}.",
+    "Delegate: {type: user, login}. Delegation accepts a single user only.",
     True,
 )
 COMMENT = _p("comment", "string", "Optional comment recorded with the decision.")
 
 
-class _UsersContainer:
-    """Adapter so a raw users-container dict satisfies the SDK build() contract."""
-
-    def __init__(self, definition: dict[str, Any]):
-        self.definition = definition
-
-    def build(self) -> dict[str, Any]:
-        return self.definition
-
-
-def _users_container(value: Any) -> _UsersContainer:
-    if not isinstance(value, dict) or not value.get("type"):
+def _users_container(value: Any) -> dict[str, Any]:
+    """Validate a raw users-container dict; the SDK sends it as the request body."""
+    if (
+        not isinstance(value, dict)
+        or value.get("type") != "user"
+        or not value.get("login")
+    ):
         raise ValueError(
-            "users_container must be an object with a 'type' key: "
-            "user, group, role or global-api-key"
+            "users_container must be {type: 'user', login: <login>}; delegation "
+            "accepts a single user only"
         )
-    return _UsersContainer(value)
+    return value
 
 
 def _replace_raw(definition, new_raw: dict[str, Any]):
@@ -590,7 +585,7 @@ def _update_signoff_feedback(client, p):
     "delete_signoff_feedback",
     domain="signoffs",
     kind="delete",
-    description="Delete a feedback response.",
+    description="Delete a feedback response; the signoff must be WAITING_FOR_FEEDBACK.",
     sdk="GovernArtifactSignoffFeedback.delete",
     params=(ARTIFACT_ID, STEP_ID, FEEDBACK_ID),
 )
@@ -603,7 +598,7 @@ def _delete_signoff_feedback(client, p):
     "delegate_signoff_feedback",
     domain="signoffs",
     kind="write",
-    description="Add a delegated reviewer to a feedback group of a signoff.",
+    description="Add a delegated reviewer (one user) to a feedback group of a signoff.",
     sdk="GovernArtifactSignoff.delegate_feedback",
     params=(
         ARTIFACT_ID,
@@ -666,7 +661,7 @@ def _update_signoff_approval(client, p):
     "delete_signoff_approval",
     domain="signoffs",
     kind="delete",
-    description="Delete the recorded approval of a signoff.",
+    description="Delete the recorded approval; the signoff must be APPROVED, REJECTED or ABANDONED.",
     sdk="GovernArtifactSignoffApproval.delete",
     params=(ARTIFACT_ID, STEP_ID),
 )
@@ -683,7 +678,7 @@ def _delete_signoff_approval(client, p):
     "delegate_signoff_approval",
     domain="signoffs",
     kind="write",
-    description="Add a delegated approver to a signoff.",
+    description="Add a delegated approver (one user) to a signoff.",
     sdk="GovernArtifactSignoff.delegate_approval",
     params=(ARTIFACT_ID, STEP_ID, USERS_CONTAINER),
 )

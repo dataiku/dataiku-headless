@@ -35,8 +35,8 @@ Configuration keys:
   it is not necessarily a Govern role ID.
 - Reviewers and approvers are `{"usersContainer": {...}}` entries. The container
   type is lowercase: `user` (`login`), `group` (`groupName`), `role` (`roleId`),
-  or `global-api-key` (`keyId`). Discover the user, group, or role first.
-  Approvers form a flat list.
+  or `global-api-key` (`globalAPIKeyId`). Discover the user, group, or role
+  first. Approvers form a flat list.
 - `recurrenceConfiguration` is `{activated, days, weeks, months, years, reloadConf}`;
   activation needs a positive interval.
 
@@ -59,8 +59,10 @@ configuration edit alone does not update every review.
 - `list_signoffs` with `artifact_id` lists the runtime signoffs.
 - `get_signoff` returns status, feedback responses, and the approver response.
 - `get_signoff_details` resolves reviewer and approver membership to users.
-- `create_signoff` creates the review for a step, only when the step is ONGOING and
-  a configuration exists. Signoffs may already exist from artifact creation.
+- A signoff exists only for an ONGOING step. Setting `workflow.steps.<step_id>.status`
+  to `ONGOING` through `update_artifact` creates the signoff when the step has a
+  configuration; `create_signoff` covers the case where it is missing. Both fail
+  on a step that is not ONGOING.
 
 | Intent | Operation |
 | --- | --- |
@@ -71,7 +73,7 @@ configuration edit alone does not update every review.
 | Read approval | `get_signoff_approval` |
 | Record requested approval decision | `add_signoff_approval` with `status`, `comment` |
 | Change or remove the approval | `update_signoff_approval`, `delete_signoff_approval` |
-| Delegate reviewers | `delegate_signoff_feedback` with `group_id` and `users_container`, or `delegate_signoff_approval` with `users_container` |
+| Delegate reviewers | `delegate_signoff_feedback` with `group_id` and `users_container`, or `delegate_signoff_approval` with `users_container`; both take one `{"type": "user", "login": ...}` |
 | Scheduled reset | `get_signoff_recurrence`, `update_signoff_recurrence` |
 
 Feedback statuses are `APPROVED`, `MINOR_ISSUE`, and `MAJOR_ISSUE`; approval statuses
@@ -89,3 +91,5 @@ stage and `{userLogin}` entries for the approval stage. Resetting an in-progress
 review requires `ABANDONED` before `NOT_STARTED`; setting `APPROVED` through
 `update_signoff_status` is not a substitute for recording an approval.
 `reload_conf_for_reset: true` also clears delegations; do not set it incidentally.
+A feedback can be deleted only while the signoff is `WAITING_FOR_FEEDBACK`, and
+the approval only once the signoff is `APPROVED`, `REJECTED`, or `ABANDONED`.

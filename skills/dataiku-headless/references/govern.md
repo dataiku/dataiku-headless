@@ -78,9 +78,11 @@ licensing blocker, not as a tool gap.
   keys into the current definition and preserve the rest.
 - `create_*` payloads never contain an `id`; the server derives it from
   `new_identifier` or the parent.
-- `users_container` values are `{"type": "user", "login": ...}`,
-  `{"type": "group", "groupName": ...}`, `{"type": "role", "roleId": ...}`, or
-  `{"type": "global-api-key", "keyId": ...}`. The type is lowercase.
+- Users containers in signoff configurations and role rules are
+  `{"type": "user", "login": ...}`, `{"type": "group", "groupName": ...}`,
+  `{"type": "role", "roleId": ...}`, or `{"type": "global-api-key", "globalAPIKeyId": ...}`.
+  The type is lowercase. The `users_container` param of the two delegation
+  operations accepts the `user` form only.
 - `update_signoff_status` notifies every configured reviewer or approver when
   `users_to_notify` is omitted. Pass `[]` unless the task authorizes notifications.
 - `update_blueprint_version` refuses a save that removes a field or changes its
