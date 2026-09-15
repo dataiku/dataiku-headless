@@ -104,6 +104,42 @@ async def _exchange(events, token):
     return "dss-token"
 
 
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"sub": "alice"},
+        {"iss": "https://idp.example"},
+        {"iss": None, "sub": "alice"},
+        {"iss": 42, "sub": "alice"},
+        {"iss": [], "sub": "alice"},
+        {"iss": "https://idp.example", "sub": None},
+        {"iss": "https://idp.example", "sub": 42},
+        {"iss": "https://idp.example", "sub": []},
+    ],
+)
+def test_http_invalid_identity_claims_fail_before_request_setup(monkeypatch, claims):
+    events = []
+    middleware = server.RequestContextMiddleware()
+    access_token = SimpleNamespace(token="mcp-token", claims=claims)
+
+    monkeypatch.setattr(server, "get_access_token", lambda: access_token)
+    monkeypatch.setattr(
+        request, "pin_current_instance", lambda: events.append(("pin",))
+    )
+    monkeypatch.setattr(
+        server, "exchange_http_token", lambda _: events.append(("exchange",))
+    )
+
+    async def call_next(_context):
+        events.append(("tool",))
+
+    context = SimpleNamespace(message=SimpleNamespace(name="list_projects"))
+    with pytest.raises(ValueError, match="non-empty string iss and sub claims"):
+        asyncio.run(middleware.on_call_tool(context, call_next))
+
+    assert events == []
+
+
 def test_dss_independent_tools_are_tagged():
     async def get_tagged_tool_names():
         tools = await server.mcp.list_tools(run_middleware=False)

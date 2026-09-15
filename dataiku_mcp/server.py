@@ -104,7 +104,7 @@ class RequestContextMiddleware(Middleware):
         if access_token is not None:
             claims = access_token.claims
             http_identity_reset_token = request.bind_http_identity(
-                str(claims.get("iss", "")), str(claims.get("sub", ""))
+                claims.get("iss"), claims.get("sub")
             )
 
         try:

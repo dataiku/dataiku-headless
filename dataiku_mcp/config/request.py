@@ -36,11 +36,16 @@ def is_http_request() -> bool:
     return _http_identity.get() is not None
 
 
-def bind_http_identity(issuer: str, subject: str) -> Token:
+def bind_http_identity(issuer: object, subject: object) -> Token:
     """Bind the verified OIDC identity for one HTTP tool request."""
-    if not issuer or not subject:
+    if (
+        not isinstance(issuer, str)
+        or not issuer
+        or not isinstance(subject, str)
+        or not subject
+    ):
         raise ValueError(
-            "The HTTP access token must contain non-empty iss and sub claims."
+            "The HTTP access token must contain non-empty string iss and sub claims."
         )
     return _http_identity.set((issuer, subject))
 

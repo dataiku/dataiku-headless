@@ -60,9 +60,11 @@ For an interactive Codex or Claude deployment, use **interactive login**. Set
 rendered HTTP plugin described below.
 
 For a custom caller that manages its own OAuth, use a **direct bearer token**.
-The caller obtains and sends the MCP access token; remove `interactive_login` and
-make `server.public_url` optional. The rendered plugin can still provide the
-remote endpoint and skills; the caller remains responsible for its token.
+Remove `interactive_login` and make `server.public_url` optional. Configure the
+service URL plus token acquisition and `Authorization: Bearer` delivery in that
+custom caller's or organization's managed MCP-client configuration. The rendered
+HTTP plugin is not bearer-client configuration: it contains only the service URL
+and skills, with no bearer header or token provider.
 
 ## Deploy the server
 
@@ -138,7 +140,8 @@ uv run python scripts/build_http_plugin.py \
 The renderer does not modify this stdio-first source checkout or copy Dataiku
 credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one
 Dataiku MCP server enabled in each client: disable the public stdio plugin before
-installing this HTTP plugin.
+installing this interactive-OAuth HTTP plugin. Direct-bearer clients are configured
+through their custom or managed harness instead.
 
 ## Microsoft Entra ID
 
