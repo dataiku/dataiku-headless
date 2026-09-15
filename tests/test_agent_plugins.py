@@ -36,6 +36,7 @@ MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
 PLUGIN_TOP_LEVEL = {
     "$schema",
     "name",
+    "displayName",
     "version",
     "description",
     "author",
