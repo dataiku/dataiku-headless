@@ -96,6 +96,23 @@ skills and MCP server.
 cortex plugin install dataiku/dataiku-headless
 ```
 
+### Kiro
+
+The Kiro IDE installs the [portable package](#agent-plugins-portable) as a
+power: **Powers** → **Add Custom Power** → **Import power from GitHub**, or
+from a local clone. Kiro copies it to `~/.kiro/powers/dataiku-headless/`,
+registers the MCP server internally, and loads the skills. Kiro CLI cannot
+install a power, so it is not covered.
+
+**Credentials:** use the setup flow above; it writes `~/.dataiku/config.json`,
+which the server resolves on its own. Exporting `DKU_DSS_URL` / `DKU_API_KEY`
+in your shell does *not* reach the server — Kiro passes only `HOME`, `PATH`,
+`SHELL`, `TERM`, `USER`, and `LOGNAME` through to an MCP subprocess, dropping
+everything else unless it is named in the config's `env` block.
+
+**Verify:** the **MCP Servers** panel lists `dataiku` as connected, and
+`get_current_instance` returns the instance you configured.
+
 ### Other AI assistants
 
 #### MCP
