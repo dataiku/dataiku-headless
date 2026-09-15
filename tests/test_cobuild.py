@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 from dataiku_mcp.config import request
 from dataiku_mcp.tools import cobuild
+from dataikuapi.utils import DataikuException
 
 
 class Context:
@@ -110,9 +111,25 @@ class Conversation:
 class Client:
     def __init__(self, conversation=None):
         self.conversation = conversation or Conversation()
+        self.root_project_keys = ["ROOT_PROJECT"]
+        self.all_project_keys = ["NESTED_PROJECT"]
+        self.listed_all_projects = False
+        self.open_error = None
 
     def get_project(self, _project_key):
-        return SimpleNamespace(new_cobuild_conversation=lambda: self.conversation)
+        def new_cobuild_conversation():
+            if self.open_error:
+                raise self.open_error
+            return self.conversation
+
+        return SimpleNamespace(new_cobuild_conversation=new_cobuild_conversation)
+
+    def get_root_project_folder(self):
+        return SimpleNamespace(list_project_keys=lambda: list(self.root_project_keys))
+
+    def list_project_keys(self):
+        self.listed_all_projects = True
+        return list(self.all_project_keys)
 
 
 @pytest.fixture(autouse=True)
@@ -595,5 +612,32 @@ def test_project_url_tolerates_a_trailing_slash_in_the_instance_url(environment)
 
     async def scenario():
         assert (await start())["project_url"] == PROJECT_URL
+
+    run(scenario())
+
+
+def test_cobuild_status_probes_without_the_instance_project_list(environment):
+    client, _ = environment
+
+    async def scenario():
+        assert json.loads(await cobuild.get_cobuild_status(Context())) == {
+            "enabled": True,
+            "instance_name": "instance-a",
+            "probed_project_key": "ROOT_PROJECT",
+        }
+        assert client.listed_all_projects is False
+
+        client.root_project_keys = []
+        status = json.loads(await cobuild.get_cobuild_status(Context()))
+        assert status["probed_project_key"] == "NESTED_PROJECT"
+        assert client.listed_all_projects is True
+
+        client.all_project_keys = []
+        with pytest.raises(ValueError, match="Instance holds 0 projects"):
+            await cobuild.get_cobuild_status(Context())
+
+        client.open_error = DataikuException("403 forbidden")
+        with pytest.raises(ValueError, match="Cobuild refused project 'GIVEN'"):
+            await cobuild.get_cobuild_status(Context(), "GIVEN")
 
     run(scenario())

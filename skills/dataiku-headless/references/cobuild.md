@@ -17,6 +17,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
+- Cobuild availability = instance+user gate. `get_cobuild_status` checks it before any conversation. `enabled=true` covers those credentials; LLM backend and project permissions stay unproven.
 - Every Cobuild payload carries `project_url`, the Dataiku UI URL of the conversation's project on the instance that conversation is pinned to. Dataiku exposes no per-conversation URL: Cobuild opens as a panel inside the project, so `project_url` points at the project and the user opens Cobuild from there.
 
 ## When To Use This Skill
@@ -61,6 +62,7 @@ Do not use this guide when:
 
 | Goal | Tool |
 | --- | --- |
+| Check Cobuild availability | `get_cobuild_status` |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
@@ -87,4 +89,5 @@ Do not use this guide when:
 - Approve a deletion only when its scope clearly matches the user's stated intent. If it is broader, ambiguous, or surprising, clarify with the user before responding.
 - Before triggering a build-affecting prompt, check `./jobs.md` if there's any chance the same flow objects are already mid-build elsewhere — don't kick off overlapping work.
 - If Cobuild cannot perform the request and no direct tool covers it, stop and report the gap. Include the Dataiku version when known, but attribute the gap to that version only when the requirement is established; otherwise, do not guess or fall back to raw APIs.
+- `get_cobuild_status` probes by opening a conversation. Leaves one permanent "Empty chat" in the probed project, visible to the probing account alone, removable by hand in its Cobuild panel. Pass a `project_key` the user owns.
 - There is no close or delete conversation tool.
