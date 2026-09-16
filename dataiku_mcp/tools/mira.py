@@ -133,6 +133,19 @@ MIRA_OPERATIONS: dict[str, MiraOperation] = {
         "agents",
         "Get agent settings and revision.",
     ),
+    "get_mira_agent_monitoring_thresholds": _op(
+        "GET",
+        "/dam/infras/{infra_id}/agents/{agent_id}/monitoring-thresholds",
+        "agents",
+        "Get the metric catalog, configured/effective/inherited thresholds, and threshold revision. Requires the monitoring-thresholds public API extension.",
+    ),
+    "update_mira_agent_monitoring_thresholds": _op(
+        "PUT",
+        "/dam/infras/{infra_id}/agents/{agent_id}/monitoring-thresholds",
+        "agents",
+        "Merge named agent threshold overrides or reset them using expectedRevision, thresholds, and resetMetricIds. Requires the monitoring-thresholds public API extension.",
+        body="required",
+    ),
     "create_mira_agent": _op(
         "POST",
         "/dam/infras/{infra_id}/agents",
@@ -189,6 +202,13 @@ MIRA_OPERATIONS: dict[str, MiraOperation] = {
         body="required",
     ),
     # Long-running operations
+    "evaluate_mira_alerts": _op(
+        "POST",
+        "/dam/agents/actions/evaluate-alerts",
+        "operations",
+        "Evaluate native time-bucketed alerts for an explicit agent filter; only writable agents are evaluated. This can open or close alert occurrences.",
+        body="required",
+    ),
     "scan_infra": _op(
         "POST",
         "/dam/infras/{infra_id}/actions/scan",

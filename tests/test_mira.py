@@ -38,6 +38,7 @@ EXPECTED_OPERATION_IDS = {
     "delete_mira_tag",
     "delete_topic_family",
     "download_agent_risk_evidence",
+    "evaluate_mira_alerts",
     "fetch_agent_logs",
     "fetch_agent_operational_metrics",
     "generate_agent_briefing",
@@ -54,6 +55,7 @@ EXPECTED_OPERATION_IDS = {
     "get_mira_agent_history",
     "get_mira_agent_metrics",
     "get_mira_agent_settings",
+    "get_mira_agent_monitoring_thresholds",
     "get_mira_agent_status",
     "get_mira_agent_topic_modeling",
     "get_mira_agent_uptime_results",
@@ -77,6 +79,7 @@ EXPECTED_OPERATION_IDS = {
     "update_business_kpi",
     "update_infra_settings",
     "update_mira_agent_settings",
+    "update_mira_agent_monitoring_thresholds",
     "update_mira_settings",
     "update_mira_tag",
     "update_risk_taxonomy",
@@ -139,7 +142,7 @@ def _call(coro):
 
 def test_operation_catalog_pins_every_public_controller_operation():
     assert set(mira.MIRA_OPERATIONS) == EXPECTED_OPERATION_IDS
-    assert len(mira.MIRA_OPERATIONS) == 58
+    assert len(mira.MIRA_OPERATIONS) == 61
     assert {operation.domain for operation in mira.MIRA_OPERATIONS.values()} == {
         "infrastructures",
         "agents",
@@ -159,7 +162,7 @@ def test_operation_catalog_pins_every_public_controller_operation():
                 for operation in mira.MIRA_OPERATIONS.values()
             }
         )
-        == 58
+        == 61
     )
 
 
@@ -234,6 +237,7 @@ def test_read_call_passes_only_documented_query_parameters(monkeypatch):
     [
         ("search_mira_agents", "/dam/agents/search"),
         ("search_mira_operations", "/dam/operations/search"),
+        ("evaluate_mira_alerts", "/dam/agents/actions/evaluate-alerts"),
     ],
 )
 def test_global_search_calls_use_required_json_filters(monkeypatch, operation_id, path):
@@ -347,3 +351,111 @@ def test_invalid_or_speculative_calls_fail_before_network(
 
     assert client.json_calls == []
     assert client.raw_calls == []
+
+
+def test_monitoring_threshold_reads_expose_native_context(monkeypatch):
+    client = FakeMiraClient()
+    monkeypatch.setattr(mira, "get_dss_client", lambda: client)
+    _call(
+        mira.call_mira_api(
+            "get_mira_agent_monitoring_thresholds",
+            FakeContext(),
+            path_params={"infra_id": "infra", "agent_id": "agent"},
+        )
+    )
+    assert client.json_calls[0]["method"] == "GET"
+    assert (
+        client.json_calls[0]["path"]
+        == "/dam/infras/infra/agents/agent/monitoring-thresholds"
+    )
+    assert client.json_calls[0]["body"] is None
+
+
+@pytest.mark.parametrize(
+    "thresholds,reset_ids",
+    [
+        (
+            {
+                "usage.daily.conversations": {
+                    "softThreshold": 100,
+                    "hardThreshold": 200,
+                    "direction": "AT_OR_ABOVE",
+                    "useInherited": False,
+                }
+            },
+            [],
+        ),
+        (
+            {
+                "business.quality": {
+                    "softThreshold": 20,
+                    "hardThreshold": 40,
+                    "direction": "AT_OR_ABOVE",
+                    "useInherited": False,
+                }
+            },
+            [],
+        ),
+        ({"usage.daily.active_users": {"useInherited": True}}, []),
+        (
+            {
+                "usage.daily.active_users": {
+                    "softThreshold": None,
+                    "hardThreshold": None,
+                    "direction": "AT_OR_BELOW",
+                    "useInherited": False,
+                }
+            },
+            [],
+        ),
+        ({}, ["usage.daily.active_users"]),
+    ],
+)
+def test_threshold_patch_preserves_revision_and_edit_reset_semantics(
+    monkeypatch, thresholds, reset_ids
+):
+    client = FakeMiraClient()
+    monkeypatch.setattr(mira, "get_dss_client", lambda: client)
+    body = {
+        "expectedRevision": "read-revision",
+        "thresholds": thresholds,
+        "resetMetricIds": reset_ids,
+    }
+    _call(
+        mira.call_mira_api(
+            "update_mira_agent_monitoring_thresholds",
+            FakeContext(),
+            path_params={"infra_id": "infra/a", "agent_id": "agent b"},
+            body=body,
+        )
+    )
+    call = client.json_calls[0]
+    assert call["method"] == "PUT"
+    assert (
+        call["path"] == "/dam/infras/infra%2Fa/agents/agent%20b/monitoring-thresholds"
+    )
+    assert call["body"] == body
+
+
+def test_threshold_conflicts_are_not_retried_or_fallen_back_to_internal_api(
+    monkeypatch,
+):
+    client = FakeMiraClient()
+    calls = []
+
+    def conflict(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise RuntimeError("STALE_REVISION")
+
+    client._perform_json = conflict
+    monkeypatch.setattr(mira, "get_dss_client", lambda: client)
+    with pytest.raises(RuntimeError, match="STALE_REVISION"):
+        _call(
+            mira.call_mira_api(
+                "update_mira_agent_monitoring_thresholds",
+                FakeContext(),
+                path_params={"infra_id": "infra", "agent_id": "agent"},
+                body={"expectedRevision": "stale", "thresholds": {}},
+            )
+        )
+    assert len(calls) == 1

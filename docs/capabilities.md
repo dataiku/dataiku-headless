@@ -91,7 +91,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
-| Agent Management (MIRA) | `get_mira_api_capabilities` | `call_mira_api` | Complete fixed public API catalog; operation may read, execute, or mutate |
+| Agent Management (MIRA) | `get_mira_api_capabilities` | `call_mira_api` | Fixed public API catalog, including agent monitoring threshold read/merge/reset and native alert evaluation; threshold operations require the matching DIP API extension; operation may read, execute, or mutate |
 
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build a recipe, a model, or an agent.

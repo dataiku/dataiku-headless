@@ -218,7 +218,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── mira.py            # Complete fixed Agent Management public API catalog and executor
+│   │   ├── mira.py            # Agent Management public API catalog, thresholds, and native alert evaluation
 │   │   ├── plugins.py         # Instance plugin listing, updates, and deletion
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
