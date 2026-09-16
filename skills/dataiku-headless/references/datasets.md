@@ -1,6 +1,6 @@
 ---
 name: datasets
-description: Understand and inspect Dataiku datasets, including their storage, schema, metadata, and quality signals. Use when an agent must inspect existing datasets, prepare a grounded Cobuild request, write a local CSV export, or create a new Uploaded Files dataset from user-supplied data.
+description: Understand and inspect Dataiku datasets, including their storage, schema, metadata, and quality signals. Use when an agent must inspect existing datasets, prepare a grounded Cobuild request, write a local CSV export in stdio, or create a new Uploaded Files dataset from user-supplied data.
 ---
 
 # Datasets
@@ -39,7 +39,7 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 2. Use `get_dataset_info` to inspect a selected dataset's type, connection, schema, meanings, and descriptions.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
-5. Use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling. On large datasets this can take a while to run, so prefer the lighter inspection tools unless a full local CSV is truly needed. Use `limit` to bound the export; the tool will not export more than 1,000,000 rows in one call.
+5. In stdio, use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling. It is unavailable in Streamable HTTP because it writes a local CSV. On large datasets this can take a while to run, so prefer the lighter inspection tools unless a full local CSV is truly needed. Use `limit` to bound the export; the tool will not export more than 1,000,000 rows in one call.
 6. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter.
 7. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
 
@@ -64,6 +64,8 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 
 - Inspect an existing dataset before asking Cobuild to build from or modify it.
 - Use direct creation only for a new Uploaded Files dataset from user-supplied data.
+- In Streamable HTTP, supply direct-upload data as `columns` and at most 10,000
+  `rows`; host-local file paths are stdio only.
 - Direct upload never replaces an existing dataset. Use a new name or route
   changes through Cobuild.
 - `export_dataset` preserves raw CSV values by default. Set

@@ -19,9 +19,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..config import request
+from ..server import mcp
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_non_empty_string as _require_non_empty_string,
@@ -227,6 +228,10 @@ async def upload_file_to_managed_folder(
     ],
 ) -> str:
     """Put a local file into a managed folder, replacing whatever is at that path."""
+    if request.is_http_request():
+        raise ValueError(
+            "upload_file_to_managed_folder is unavailable in HTTP mode because it reads the MCP host filesystem."
+        )
     project_key = _require_non_empty_string(project_key, "project_key")
     folder_id = _require_non_empty_string(folder_id, "folder_id")
     target_path = _require_non_empty_string(target_path, "target_path")

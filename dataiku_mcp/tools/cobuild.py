@@ -26,9 +26,10 @@ from typing import Annotated, Literal
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking, run_cobuild_blocking
-from .utils.auth import get_current_instance_for_tool, get_dss_client
+from ..auth import get_dss_client
+from ..config import request
+from ..executors import run_blocking, run_cobuild_blocking
+from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
@@ -47,6 +48,7 @@ class _Turn:
 
 @dataclass
 class _Conversation:
+    owner: tuple[str, ...]
     instance_name: str
     instance_url: str
     project_key: str
@@ -78,12 +80,16 @@ def _require_conversation_entry(
         raise ValueError(
             f"Unknown Cobuild conversation_id '{conversation_id}'. Start a new conversation first."
         )
+    if entry.owner != request.get_request_owner():
+        raise ValueError(
+            f"Cobuild conversation '{conversation_id}' belongs to another user."
+        )
     if entry.project_key != project_key:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to project "
             f"'{entry.project_key}', not '{project_key}'."
         )
-    active_instance = get_current_instance_for_tool().name
+    active_instance = request.get_pinned_instance().name
     if entry.instance_name != active_instance:
         raise ValueError(
             f"Cobuild conversation '{conversation_id}' belongs to instance "
@@ -263,12 +269,13 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
-    instance = get_current_instance_for_tool()
+    instance = request.get_pinned_instance()
     client = get_dss_client()
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
+        request.get_request_owner(),
         instance.name,
         instance.url,
         project_key,
@@ -333,6 +340,7 @@ async def send_cobuild_message(
             )
 
     def call():
+        entry.sdk_conversation.client = get_dss_client()
         return entry.sdk_conversation.send_message(
             message, allow_edit_project=allow_edit_project
         )
@@ -379,12 +387,11 @@ async def answer_cobuild_confirmation(
                 f"{status_payload} and inspect the result before answering."
             )
 
-    turn = _start_turn(
-        conversation_id,
-        entry,
-        check,
-        lambda: entry.sdk_conversation.answer_confirmation(choice),
-    )
+    def call():
+        entry.sdk_conversation.client = get_dss_client()
+        return entry.sdk_conversation.answer_confirmation(choice)
+
+    turn = _start_turn(conversation_id, entry, check, call)
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
@@ -431,21 +438,26 @@ async def answer_cobuild_question(
                 f"{status_payload} and inspect the result before answering."
             )
 
+    def call():
+        entry.sdk_conversation.client = get_dss_client()
+        return entry.sdk_conversation.answer_question(
+            answers,
+            rejected=rejected,
+            used_custom_answer=used_custom_answer,
+        )
+
     turn = _start_turn(
         conversation_id,
         entry,
         check,
-        lambda: entry.sdk_conversation.answer_question(
-            answers,
-            rejected=rejected,
-            used_custom_answer=used_custom_answer,
-        ),
+        call,
     )
     return compact_json(await _wait_for_turn(conversation_id, entry, turn))
 
 
 @mcp.tool(
     title="Get Cobuild Turn Status",
+    tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -469,6 +481,7 @@ async def get_cobuild_turn_status(
 
 @mcp.tool(
     title="List Cobuild Conversations",
+    tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -478,10 +491,15 @@ async def get_cobuild_turn_status(
 async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """Find retained conversations for a project and their current turn IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
-    active_instance = get_current_instance_for_tool().name
+    active_instance = request.get_pinned_instance().name
+    owner = request.get_request_owner()
     rows = []
     for conversation_id, entry in _conversations.items():
-        if entry.instance_name != active_instance or entry.project_key != project_key:
+        if (
+            entry.owner != owner
+            or entry.instance_name != active_instance
+            or entry.project_key != project_key
+        ):
             continue
 
         turn = entry.turn

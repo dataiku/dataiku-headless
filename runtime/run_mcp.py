@@ -4,7 +4,9 @@
 # dependencies = [
 #     "fastmcp==3.4.5",
 #     "dataiku-api-client==14.7.2",
+#     "pydantic==2.13.4",
 #     "python-dotenv==1.2.2",
+#     "requests==2.34.2",
 # ]
 # ///
 
@@ -28,7 +30,8 @@ The inline script metadata above lets uv build the runtime environment on the
 fly, so a harness with uv 0.12.0 or later can start the server without a
 project install:
 
-    uv run --quiet --locked --script runtime/run_mcp.py
+    uv run --quiet --locked --script runtime/run_mcp.py --transport stdio
+    uv run --quiet --locked --script runtime/run_mcp.py --transport http
 
 The plugin manifests invoke this script directly through uv. ``runtime/launcher.sh``
 is retained as inactive legacy code for a possible future fallback path.
@@ -51,14 +54,36 @@ distribution — the package is not published to a package index — so the
 repository root goes on ``sys.path`` before the import.
 """
 
+import argparse
 import sys
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from dataiku_mcp import run_server  # noqa: E402
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the Dataiku MCP server.")
+    parser.add_argument("--transport", choices=("stdio", "http"), required=True)
+    parser.add_argument(
+        "--settings-path",
+        type=Path,
+        help="Path to the transport-specific settings file.",
+    )
+    args = parser.parse_args()
+
+    load_dotenv(REPO_ROOT / ".env", override=False)
+
+    from dataiku_mcp import run_http_server, run_stdio_server
+
+    if args.transport == "stdio":
+        run_stdio_server(args.settings_path)
+    else:
+        run_http_server(args.settings_path)
+
 
 if __name__ == "__main__":
-    run_server()
+    main()

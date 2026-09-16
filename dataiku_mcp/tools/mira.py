@@ -26,9 +26,10 @@ from urllib.parse import quote
 
 from fastmcp import Context
 
-from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..auth import get_dss_client
+from ..config import request
+from ..executors import run_blocking
+from ..server import mcp
 from .utils.serialization import compact_json
 from .utils.validation import require_non_empty_string
 
@@ -635,6 +636,11 @@ async def call_mira_api(
     query_params = dict(query_params or {})
     form_params = dict(form_params or {})
     file_paths = list(file_paths or [])
+    if request.is_http_request() and (file_paths or operation.response == "binary"):
+        raise ValueError(
+            "MIRA local-file evidence upload/download is unavailable in HTTP mode "
+            "because it accesses the MCP host filesystem. Use the local stdio plugin."
+        )
     path = _resolve_path(operation, path_params)
     _validate_query(operation, query_params)
     _validate_payload(operation, body, form_params, file_paths)

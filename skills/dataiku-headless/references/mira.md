@@ -95,6 +95,10 @@ alerts. Verify the resulting conditions/occurrences separately.
   `documentEvidenceIds` and `file_paths` in the same order.
 - `download_agent_risk_evidence` requires `output_path`; it will not overwrite an
   existing file unless `overwrite` is true.
+- Local-file evidence upload/download requires the local stdio plugin. HTTP
+  requests cannot read or write the MCP host filesystem. Other operations,
+  including risk-assessment updates without files, use the authenticated
+  request's delegated Dataiku identity in HTTP mode.
 - Query parameter names are case-sensitive and are listed in the capability
   response.
 

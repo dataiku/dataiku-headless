@@ -22,9 +22,9 @@ from dataikuapi.dss.future import DSSFuture
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..server import mcp
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.errors import safe_error_text as _safe_error_text
 from .utils.job_summaries import (
     get_job_status_brief as _get_job_status_brief,
