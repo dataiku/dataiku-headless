@@ -19,7 +19,7 @@ import asyncio
 import pytest
 
 from dataiku_mcp.config import request
-from dataiku_mcp.tools import managed_folders, project_libraries
+from dataiku_mcp.tools import managed_folders, mira, project_libraries
 from tests.utils.fakes import FakeContext
 
 
@@ -65,3 +65,45 @@ def test_http_project_library_upload_rejects_before_local_read(monkeypatch):
                 )
             )
         )
+
+
+@pytest.mark.parametrize(
+    "operation,kwargs",
+    [
+        ("update_agent_risk_assessment", {"file_paths": ["/server/evidence.pdf"]}),
+        ("download_agent_risk_evidence", {"output_path": "/server/evidence.pdf"}),
+    ],
+)
+def test_http_mira_evidence_rejects_before_blocking_work(
+    monkeypatch, operation, kwargs
+):
+    monkeypatch.setattr(
+        mira,
+        "run_blocking",
+        lambda *args: pytest.fail("local evidence I/O must not start blocking work"),
+    )
+    with pytest.raises(ValueError, match="unavailable in HTTP mode"):
+        _run_as_http(
+            lambda: asyncio.run(mira.call_mira_api(operation, FakeContext(), **kwargs))
+        )
+
+
+def test_http_mira_json_operations_remain_available(monkeypatch):
+    class Client:
+        def _perform_json(self, method, path, **kwargs):
+            assert request.is_http_request()  # context survives the executor
+            assert method == "GET"
+            assert path == "/dam/infras/infra/agents/agent/monitoring-thresholds"
+            return {"revision": "current"}
+
+    monkeypatch.setattr(mira, "get_dss_client", Client)
+    result = _run_as_http(
+        lambda: asyncio.run(
+            mira.call_mira_api(
+                "get_mira_agent_monitoring_thresholds",
+                FakeContext(),
+                path_params={"infra_id": "infra", "agent_id": "agent"},
+            )
+        )
+    )
+    assert '"revision":"current"' in result

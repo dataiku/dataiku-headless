@@ -163,6 +163,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "upload_file_to_managed_folder",
         }
     ),
+    "mira": frozenset({"call_mira_api", "get_mira_api_capabilities"}),
     "plugins": frozenset(
         {
             "delete_plugin",
