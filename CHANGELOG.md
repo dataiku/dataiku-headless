@@ -1,3 +1,21 @@
+## v0.6.0 (2026-09-21)
+
+### Feat
+
+- **mcp**: add HTTP JWT delegation (#125)
+- **plugins**: manage installed instance plugins (#138)
+- **tools**: add titles, intent descriptions, and annotations to inspection, data, admin, and execution tools (#146–#149)
+- **jobs**: add abort_job tool to stop a running Dataiku job (#144)
+- **cobuild**: add tool titles, intent descriptions, and annotations (#139)
+- **setup**: warm the uv runtime before first server launch (#136)
+- **cobuild**: return the project UI URL in Cobuild payloads (#133)
+
+### Fix
+
+- **plugins**: support Claude-hosted uploads (#153)
+- **onboarding**: handle "discovered" but bad credentials better (#143)
+- **cobuild**: add the trailing slash to the project Flow URL (#145)
+
 ## v0.5.0 (2026-09-02)
 
 ### Feat
