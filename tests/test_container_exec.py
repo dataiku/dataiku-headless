@@ -127,10 +127,6 @@ class _FakeProject:
         assert analysis_id == "object"
         return self.objects["analysis"]
 
-    def get_saved_model(self, saved_model_id: str):
-        assert saved_model_id == "object"
-        return self.objects["saved_model"]
-
     def get_webapp(self, webapp_id: str):
         assert webapp_id == "object"
         return self.objects["webapp"]
@@ -330,36 +326,6 @@ def test_reject_analysis_without_single_ml_task(monkeypatch):
     assert mltask.save_calls == 0
 
 
-def test_set_container_on_saved_model_retrain(monkeypatch):
-    saved_model = _raw(
-        {
-            "id": "object",
-            "savedModelType": "DSS_MANAGED",
-            "activeVersion": "v3",
-            "miniTask": {
-                "backendType": "PY_MEMORY",
-                "predictionType": "BINARY_CLASSIFICATION",
-                "containerSelection": {"containerMode": "NONE"},
-            },
-        }
-    )
-    _install(monkeypatch, _FakeProject(saved_model=saved_model))
-
-    result = _set_container("saved_model", "EXPLICIT_CONTAINER", "training-gpu")
-
-    assert result == {
-        "project_key": "PROJ",
-        "object_type": "saved_model",
-        "object_id": "object",
-        "container_selection": {
-            "containerMode": "EXPLICIT_CONTAINER",
-            "containerConf": "training-gpu",
-        },
-    }
-    assert saved_model.state["activeVersion"] == "v3"
-    assert saved_model.save_calls == 1
-
-
 def test_set_container_on_webapp_backend(monkeypatch):
     webapp = _raw(
         {
@@ -485,11 +451,12 @@ def test_reject_invalid_container_selection(
     assert recipe.save_calls == 0
 
 
-def test_reject_unknown_object_type(monkeypatch):
+@pytest.mark.parametrize("object_type", ["scenario", "saved_model"])
+def test_reject_unknown_object_type(monkeypatch, object_type):
     recipe = _install_code_recipe(monkeypatch)
 
     with pytest.raises(ValueError, match="object_type"):
-        _set_container("scenario", "NONE")
+        _set_container(object_type, "NONE")
 
     assert recipe.save_calls == 0
 
@@ -497,7 +464,6 @@ def test_reject_unknown_object_type(monkeypatch):
 @pytest.mark.parametrize(
     ("object_type", "state"),
     [
-        ("saved_model", {"savedModelType": "MLFLOW_PYFUNC", "miniTask": {}}),
         ("webapp", {"type": "STANDARD", "params": {}}),
         ("knowledge_bank", {"vectorStoreType": "CHROMA"}),
         ("agent_tool", {"type": "DatasetRowLookup", "params": {}}),

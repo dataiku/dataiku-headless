@@ -52,7 +52,7 @@ empty managed folder, and select container execution for an existing object (see
 | Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `run_recipe` |
 | Flow & zones | `get_flow_graph`, `list_flow_zones`, `get_flow_object_metadata` | — |
 | ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | `set_container_exec_config` (single-ML-task analyses) |
-| Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | `set_container_exec_config` (retrain placement) |
+| Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
 | Agents | `list_agents`, `get_agent_settings`, `list_agent_versions`, `list_agent_tools`, `get_agent_tool_settings` | `set_container_exec_config` (agent tools) |
 | Agent reviews | `list_agent_reviews`, `get_agent_review`, `list_agent_review_tests`, `list_agent_review_runs`, `get_agent_review_run_results` | — |
 | Scenarios | `list_scenarios`, `get_scenario_settings`, `get_scenario_run_history`, `list_messaging_channels` | `run_scenario` |
@@ -82,7 +82,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
-| Container execution placement | `list_saved_models`, `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, saved-model retrain, WebApp backend, Knowledge Bank, or agent tool runs in |
+| Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |

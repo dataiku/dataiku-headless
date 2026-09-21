@@ -30,9 +30,7 @@ from .utils.serialization import compact_json
 from .utils.validation import require_allowed_value, require_non_empty_string
 
 ContainerMode = Literal["INHERIT", "NONE", "EXPLICIT_CONTAINER"]
-ObjectType = Literal[
-    "recipe", "ml_task", "saved_model", "webapp", "knowledge_bank", "agent_tool"
-]
+ObjectType = Literal["recipe", "ml_task", "webapp", "knowledge_bank", "agent_tool"]
 ObjectId = Annotated[
     str,
     Field(
@@ -68,8 +66,6 @@ def _resolve_handle(project, object_type: str, object_id: str) -> tuple:
         analysis = project.get_analysis(object_id)
         mltask_id = require_single_ml_task(analysis)["mlTaskId"]
         return analysis.get_ml_task(mltask_id), {"mltask_id": mltask_id}
-    if object_type == "saved_model":
-        return project.get_saved_model(object_id), {}
     if object_type == "webapp":
         return project.get_webapp(object_id), {}
     if object_type == "knowledge_bank":
@@ -134,9 +130,6 @@ def _locate_selection(object_type: str, settings) -> dict:
     raw = settings.get_raw()
     if object_type == "ml_task":
         return _require_selection(raw.get("containerSelection"), "ML task")
-    if object_type == "saved_model":
-        mini_task = raw.get("miniTask") or {}
-        return _require_selection(mini_task.get("containerSelection"), "saved model")
     if object_type == "webapp":
         infra = (raw.get("params") or {}).get("infra") or {}
         return _require_selection(infra.get("containerSelection"), "WebApp")
