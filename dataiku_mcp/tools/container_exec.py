@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Literal, get_args
 
 from fastmcp import Context
@@ -89,13 +90,13 @@ def _recipe_selection(settings) -> dict:
     Dataiku stores it in a different place per recipe family, so collect every
     candidate and refuse an ambiguous recipe rather than writing to a location
     Dataiku may not read. A recipe whose payload is code rather than JSON
-    raises on the payload read and simply contributes no candidate.
+    simply contributes no candidate.
     """
     candidates: dict[str, dict] = {}
     params = settings.get_recipe_params() or {}
     try:
         payload = settings.get_json_payload() or {}
-    except Exception:
+    except json.JSONDecodeError:
         payload = {}
 
     for location, selection in (

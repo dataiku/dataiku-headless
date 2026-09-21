@@ -68,7 +68,9 @@ class _FakeRecipeSettings:
     def get_json_payload(self) -> dict:
         payload = self.state.get("payload")
         if payload == "NOT_JSON":
-            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+            raise json.JSONDecodeError("Expecting value", "", 0)
+        if payload == "UNAVAILABLE":
+            raise RuntimeError("Dataiku is unavailable")
         return payload or {}
 
     def save(self) -> None:
@@ -256,6 +258,15 @@ def test_non_json_payload_reports_no_override(monkeypatch):
     recipe = _install_recipe(monkeypatch, {"type": "sync", "payload": "NOT_JSON"})
 
     with pytest.raises(ValueError, match="does not expose"):
+        _set_container("recipe", "NONE")
+
+    assert recipe.save_calls == 0
+
+
+def test_payload_read_failure_propagates(monkeypatch):
+    recipe = _install_recipe(monkeypatch, {"type": "sync", "payload": "UNAVAILABLE"})
+
+    with pytest.raises(RuntimeError, match="Dataiku is unavailable"):
         _set_container("recipe", "NONE")
 
     assert recipe.save_calls == 0
