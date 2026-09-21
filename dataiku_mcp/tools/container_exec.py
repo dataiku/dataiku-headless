@@ -23,8 +23,8 @@ from pydantic import Field
 
 from .. import mcp
 from .machine_learning.shared.common import require_single_ml_task
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.serialization import compact_json
 from .utils.validation import require_allowed_value, require_non_empty_string
 
