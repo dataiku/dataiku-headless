@@ -13,6 +13,18 @@ Read [`CODING_STANDARDS_AND_STRUCTURE.md`](CODING_STANDARDS_AND_STRUCTURE.md)
 before changing code. It documents the repository structure, implementation
 conventions, validation requirements, and pull request checklist.
 
+## Large changes
+
+Keep changes concise. For a major architectural change, or one that adds or
+changes more than roughly 500 lines of implementation code, open a GitHub RFC
+before requesting review. The RFC should discuss the technical design and its
+justification, then be linked from the pull request.
+
+Documentation, tests, generated lockfiles, and mechanical formatting changes do
+not by themselves trigger this expectation. Maintainers may apply the
+`rfc-required` label to a pull request and defer review until the RFC is
+discussed.
+
 ## Opening a pull request
 
 1. Fork the repository and create a focused branch from `main`.
