@@ -53,6 +53,8 @@ The tool automatically synchronizes the underlying `useBuiltinEnv` flag with `mo
 
 `container` controls user-code workloads. `containerForVisualRecipesWorkloads` controls visual-recipe workloads. Patch either or both with the same shape.
 
+These are project-wide defaults, so every inheriting object moves with them. To place one specific recipe, ML task, WebApp backend, Knowledge Bank, or agent tool, use `../container-execution.md` instead. A saved-model retrain uses its training recipe's `params.containerSelection`.
+
 Before using `EXPLICIT_CONTAINER`, call `list_container_exec_configs` and copy the returned `name` exactly into `containerConf`. This list tool requires global administrator rights; if it is unavailable, ask the user for the exact name instead of guessing.
 
 | Mode | Fields |

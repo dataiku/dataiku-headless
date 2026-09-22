@@ -31,8 +31,9 @@ Choose the framework that matches the requested application and existing project
 2. Use `get_webapp_settings` to inspect a selected WebApp's type and configuration.
 3. Use `get_webapp_state` only when diagnosing availability, startup, or backend runtime issues.
 4. Inspect referenced datasets, folders, models, APIs, code environments, and project-library files when they affect the requested change.
-5. Route WebApp creation, updates, backend restarts, and backend stops through `./cobuild.md`.
-6. Re-check backend state after a Cobuild backend action when application availability or backend behavior is relevant.
+5. If the request only changes where the backend runs, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
+6. Route all other WebApp creation, updates, backend restarts, and backend stops through `./cobuild.md`.
+7. Re-check backend state after a Cobuild backend action when application availability or backend behavior is relevant.
 
 ## Supporting Context
 

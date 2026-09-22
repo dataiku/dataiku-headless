@@ -131,7 +131,7 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 ## Capability reference
 
@@ -234,6 +234,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
 │   │   ├── insights.py        # Insight inspection tools, especially chart insights
 │   │   ├── connections.py     # Dataiku connection discovery/test tools
+│   │   ├── container_exec.py  # Container execution placement write, by object type
 │   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
 │   │   ├── data_collections.py  # Data Collection listing/inspection tools
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
@@ -273,6 +274,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
 │           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
+│           ├── container-execution.md  # Container execution placement for one existing object
 │           ├── jobs.md             # Dataiku job tracking, waiting, aborting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
