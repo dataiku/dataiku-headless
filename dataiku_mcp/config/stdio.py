@@ -108,6 +108,22 @@ def get_settings_path() -> Path:
 
 
 def _load_instance_from_env_vars() -> DSSInstance | None:
+    # Undocumented override for loading Dataiku instance when running in a Code Studio
+    if os.environ.get("DKU_IS_CODE_STUDIO"):
+        try:
+            backend_url = f"{os.environ['DKU_BACKEND_PROTOCOL']}://{os.environ['DKU_BACKEND_HOST']}:{os.environ['DKU_BACKEND_PORT']}"
+            instance = StdioDSSInstanceConfig(
+                url=backend_url,
+                api_key=os.environ.get("DKU_API_TICKET", ""),
+            )
+        except ValidationError as err:
+            raise ValueError(f"Invalid stdio environment settings in Code Studio: {err}") from None
+        return instance.to_instance(
+            os.environ.get("DKU_INSTANCE_NAME", "dss-code-studio"),
+            source="environment",
+        )
+
+    # Documented logic for loading a Dataiku instance from env vars
     if not os.environ.get("DKU_DSS_URL"):
         return None
 
