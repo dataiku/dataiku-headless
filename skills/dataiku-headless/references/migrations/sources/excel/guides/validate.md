@@ -4,7 +4,7 @@ Read this when selecting a parity anchor, proving parity, or judging completion.
 
 ## Validating the Migration
 
-Read `<bundle_dir>/migration_v<n>/validation_plan.md`. If any check fails, repeat the build and re-validate.
+Read the run directory's `validation_plan.md`. If a check fails, fix its cause, then recheck the affected outputs.
 
 Parity tiers:
 - Real expected data: full row x column parity.

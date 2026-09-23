@@ -46,6 +46,6 @@ Cobuild's completion report is not evidence. After the turn:
 
 1. `get_webapp_settings` and compare each tab against the local filled files. Require equality up to leading/trailing whitespace; any other drift gets one repair turn per drifted tab: "Replace the entire <tab> tab content with exactly:" plus the block. Re-read and re-compare after repair.
 2. `get_webapp_state` until the backend is running. A `ModuleNotFoundError: flask` failure means the inherited code environment lacks Flask: have Cobuild set the webapp's code environment selection to the Dataiku builtin env and restart.
-3. A running backend with drift-free tabs is the delivery proof. Record the webapp id, backend state, tab-comparison verdict, and the view URL (`.../webapps/<id>_<kebab-case-name>/view`) in `<bundle_dir>/migration_v<n>/webapp_evidence.md`, and list the webapp in the documentation evidence.
+3. A running backend with drift-free tabs is the delivery proof. Record the webapp id, backend state, tab-comparison verdict, and the view URL (`.../webapps/<id>_<kebab-case-name>/view`) in the run directory's `webapp_evidence.md`, and list the webapp in the documentation evidence.
 
 The webapp reads only delivered terminal datasets. If a tab needs a dataset that validation did not cover, the sheet list is wrong — fix CONFIG, not the flow.
