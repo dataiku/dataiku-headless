@@ -1,116 +1,229 @@
 ---
 name: migrations
-description: Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows. Use when user supplies a source bundle and asks to migrate, rebuild, port, or recreate its logic in Dataiku.
+description: Translate third-party workflow logic into runnable Dataiku flows. Shared migration workflow and validation contract for source guides.
 ---
-
 
 # Migrations
 
-Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
+Follow Plan → Build → Validate → Document and Cleanup. Read [SKILL.md](../SKILL.md)
+for permissions and [Cobuild](cobuild.md) before delegation. Source guides add
+parsing, semantics and deliverables; a caller may add operator gates and run
+records. Load shared guidance once and source details only when relevant.
 
-A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase. The loaded Source Subskill may add deliverables and phase steps of its own; they are binding.
+## Source and workspace
 
-## Phase 1: Plan
+Use a caller-supplied source guide when present; otherwise load
+[Excel](migrations/sources/excel/excel.md) for Excel. Keep the active guide's
+deliverables, including the Excel guide's per-sheet datasets and overview webapp.
+For other sources without a guide, inspect the supplied logic best-effort and
+report gaps; never invent a source-guide path.
 
-The purpose of this phase is to inspect the project to be migrated (i.e. the `source bundle`), and to generate a migration, validation, and documentation and cleanup plan.
+Use the caller's workspace convention or, by default,
+`<bundle_dir>/migration_v<n>/`, with the first unused number. Resolve this once
+and use that run directory for every plan and evidence file below. Resume in the
+existing run directory; a new attempt gets a new number.
 
-1. Resolve the source bundle path from user message. Create a working directory `<bundle_dir>/migration_v<n>/`, where `<n>` starts at `1` and increases if present.
-2. Determine the source platform (e.g. Alteryx, Excel, SAS, etc.) from the user message and source bundle. Load `./migrations/sources/<source platform>/<source platform>.md` in full. For unknown platforms, proceed best-effort.
-3. Review the source bundle and write a Migration Plan to `<bundle_dir>/migration_v<n>/migration_plan.md`. The Migration Plan should include:
-  - Business Intent:
-    * Read the instructions/notes/readme sheets, step annotations, comments, object descriptions from the bundle.
-    * Summarize the business intent of the source bundle.
-  - Input Data Sources:
-    * List of the input data sources.
-    * Explain the role of each source in accomplishing the Business Intent.
-  - Dataiku Migration Plan (discover and read the needed Dataiku guides, starting with `../SKILL.md`):
-    * Translate the source bundle logic into a plan for a Dataiku Flow. The migrated flow must use only visual recipe families unless the user explicitly requests a code-based transformation. Do not choose a Code recipe because it seems easier, faster, more reliable, or more expressive. If the user did not explicitly ask for code, keep searching for a visual-recipe implementation.
-    * The migrated Dataiku Flow **must** start from the same input datasets as the source bundle; it is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
-    * The requested final output dataset must be produced in Dataiku from those migrated source datasets through one or more Dataiku recipes; uploading a precomputed final output dataset is not a valid migration.
-    * Time semantics: source now-functions remain `now()` in delivery; use a temporary as-of pin for historical parity, then restore and re-verify live behavior.
-4. Create a Validation Plan for the migrated project and write it to `<bundle_dir>/migration_v<n>/validation_plan.md`. The Validation Plan should (at least) include:
-  - Check that the input datasets of the Dataiku Flow match the input datasets of the source bundle.
-  - That the migrated Dataiku Flow accurately reproduces the business logic and transformation contained within the Source Bundle.
-  - That the Flow outputs are sensible, match the expected outputs, and are all present.
-5. Write a Documentation and Cleanup Plan to `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md`. The plan must distinguish migration-created assets from pre-existing project assets and cover:
-  - Flow Zones: zone every migration-created Flow asset by stage or functional area, renaming the undeletable default zone for the first stage.
-  - Descriptions: the project's short and long descriptions; a description for every migration-created dataset, recipe, and zone, including intermediate assets; renaming generated `compute_<output>` recipes to names that state the transformation.
-  - Wiki: a human-readable Project Wiki containing the migration plan, validation plan and results, and a final-output column dictionary. Keep column documentation out of datasets because it drifts through downstream recipe schemas.
-  - Cleanup: the cleanup required by the Cleanup safety rule (see Migration Notes), and a rebuild scenario covering every final output.
-6. If the source bundle has more than 20 source steps or unresolved `needs-human-input` questions, pause and surface the inventory, plans, and open questions. Otherwise print the plans and continue; unattended runs never stop.
+## Migration invariants
 
-## Phase 2: Build
+- **Visual only unless explicitly authorized.** Code recipes require user approval
+  for that transformation. Difficulty, speed or a Cobuild refusal is not an
+  exception. Use [native recipe capabilities](recipes.md) and applicable
+  source-guide compositions first; medians, quantiles and modes can compose from
+  Window ranking and TopN. Correct unrequested code as a failed unit.
+- **Original logical inputs, equivalent grain.** Upload original source inputs,
+  never locally cleaned, filtered, joined, aggregated, ranked or final substitutes.
+  Implement derived logic inside Dataiku. Cached outputs are parity references,
+  never inputs to delivered transformations. Preserve the supported input domain;
+  sample values, sizes and iteration counts are not implementation bounds.
+- **Resolve source authority.** Classify non-obvious constructs as `derivable`
+  (implement the rule), `hand-authored` (preserve values and document), or
+  `needs-human-input` (ask, never guess). Approximations or reduced domains require
+  explicit approval even when fixtures match. Missing source-engine access or
+  reference values limits parity evidence, not the ability to implement logic.
+- **Keep the processing engine.** Choose a writable target connection; Sync source
+  landings onto it before processing and keep intermediates there. Include the
+  connection in briefs. Where push-down matters, verify recipe engines and correct
+  demotions, including those caused by one non-translatable Prepare step.
+- **Consolidate equivalent operations.** Preserve semantics and required/reused
+  outputs, not source step boundaries. Fold compatible filters, computed columns,
+  core actions and output controls into native recipes. Keep a split for an actual
+  correctness, output, engine or performance constraint. Recipe counts describe
+  the design; no compression ratio is an acceptance threshold.
+- **Preserve source names and time semantics.** Keep dataset names/case and ordered
+  columns. A collapsed chain takes its last source output's name; a necessary
+  new intermediate uses the nearest source name plus a suffix. Recipe names state
+  the transformation in the delivery language. Document engine-required renames.
+  Source now-functions stay live: restore temporary historical as-of pins and
+  re-verify live behavior.
+- **Protect valid work.** Clean up migration-created failed, superseded, orphaned
+  and temporary parity assets after verifying replacement and deletion impacts.
+  Preserve valid inputs and completed units of blocked branches. Pre-existing
+  assets and approved deliverables need explicit deletion approval. Follow
+  Cobuild's exact-turn confirmation protocol; never expand cleanup scope.
 
-Create the Dataiku project. If no project key is specified in the user message, create the project using a sensible project key.
-Read the Migration Plan from `<bundle_dir>/migration_v<n>/migration_plan.md` and build the Dataiku project via Cobuild (`./cobuild.md`).
+## Plan
 
-Execute the build as a sequence of coherent, independently verifiable units of work — typically one recipe, or one bounded group of related assets, per Cobuild turn. After each unit, inspect and verify the result before instructing the next; never send one monolithic instruction covering the whole flow.
+Inspect the selected instance, target project if existing, candidate connections
+and source bundle before writes. Resolve the requested project key; for a new
+project without a specified key, choose a sensible unused key. Do not create a
+project for a planning check.
+Use `test_connection` only to diagnose connectivity. Source helpers are optional:
+inspect purpose/dependencies, select only those needed and adapt them to the bundle.
 
-The Build phase must create the Dataiku flow that performs the transformation logic. A locally computed final result that is only uploaded into Dataiku does not satisfy this phase.
+Inventory the active source steps, inputs, outputs and business intent before
+designing. Read notes, comments, annotations and descriptions. Identify physical
+input leaves, shared intermediates and terminal outputs. Select the canonical
+production implementation when alternatives exist, record the others as skipped
+and present that choice before building. Keep the inventory in the migration plan
+unless another consumer needs a separate `inventory.md`.
 
-## Phase 3: Validate
+| Working file | Required content |
+|---|---|
+| `migration_plan.md` | Business purpose; source inventory; input/output contracts; source steps → units/recipe families; target engine, grain, ordered schemas, native methods, decisions, open questions and required surfaces |
+| `validation_plan.md` | Input lineage; business logic; every output's ordered schema/types, cardinality and boundary checks; reference provenance/scope, parity method/tolerances; parameter/time probes and restoration |
+| `documentation_and_cleanup_plan.md` | Migration-owned versus pre-existing assets; project/object descriptions, stage zones, wiki and column dictionary; cleanup impacts; required orchestration and delivery evidence |
 
-Read the Validation Plan from `<bundle_dir>/migration_v<n>/validation_plan.md`. Use the Validation Plan to check that the migration was successfull.
-If any part of the validation fails, repeat the Build and then re-validate. Loop as many times as necessary until the Validation Plan passes.
+Link shared contracts instead of copying them. Read a source's relevant construct
+guide before planning it. Record distinguishing checks and applicable native
+methods, not routine payload internals. Consult Cobuild read-only during Plan only
+for an unresolved capability question that could materially change scope, engine
+or recipe choice; a suggested answer is not execution evidence.
 
-Validation must confirm that the requested final output dataset is produced by a recipe chain rooted in the migrated source datasets.
+Inventory reference outputs during Plan, with generating source version, inputs,
+parameters and completeness. Keep expected values inline when small, otherwise in
+a local file per output with row count. Resolve conflicts with source configuration
+explicitly; do not tune logic to fit an inapplicable snapshot. When input rows are
+absent, a planned synthetic substitute stays at the logical leaves, is labeled in
+the wiki and supports only the stated structural/behavioral checks, never production
+parity. Never synthesize intermediates or precomputed answers.
 
-Validation must also confirm that the completed migrated flow contains no code recipes unless the user explicitly requested code.
+Create a scenario when source orchestration requires it or the operator requests
+a reusable rebuild; otherwise build outputs directly. Zones or an export alone do
+not require a scenario. Record required variables, ordering, build modes, partitions,
+history/existence rules, exports and schedule (delivered inactive).
 
-## Phase 4: Document and Cleanup
+Present inventory, plan, descriptive recipe counts and open questions once.
+Interactive runs obtain plan confirmation at the caller's gate; an inventory above
+20 steps alone does not add a checkpoint. Existing scoped authorization applies.
+Unattended runs record the plan and continue authorized work without a routine
+approval pause, but unresolved `needs-human-input` dependencies remain blocked.
+Do not build dependent units until required decisions are resolved.
 
-Read the Documentation and Cleanup Plan from `<bundle_dir>/migration_v<n>/documentation_and_cleanup_plan.md` and apply it via Cobuild, except for read-back and project settings:
+## Build
 
-- Displaying zone descriptions in the Flow is a project display setting that neither Cobuild nor the available tools can change; record in the documentation evidence that the user must enable it manually.
-- When setting descriptions, set the field Dataiku displays: dataset `description`; recipe and zone `shortDesc` (ask Cobuild for "short description"; their long `description` is not rendered).
-- Apply the planned cleanup under the Cleanup safety rule below. Create and run the rebuild scenario; its job result is the final build proof.
+Create or reuse only the authorized project; read `get_project_overview`. Reuse a
+matching Cobuild conversation or open one when needed. Bootstrap true source inputs
+through documented tools, then verify schema and raw cells. Delegate retyping and
+format changes. Preserve formatted identifiers and intentional strings; genuinely
+numeric sequence keys may stay numeric.
 
-Use read tools to enumerate every zone, dataset, and recipe, verify each displayed description is non-empty (`short_description` for zones and recipes; `description` for datasets), and write the inventory to `<bundle_dir>/migration_v<n>/documentation_evidence.md`. Completion claims require this inventory, validation evidence, and the scenario job result; never rely on the Cobuild report.
+Delegate one independently verifiable functional unit, possibly several related
+recipes, per turn. Include source step IDs, transformation, exact inputs/outputs,
+connection, grain, ordered columns/types, row-count or duplicate rules, applicable
+native method, distinguishing values/invariants and earlier objects out of scope.
+Request short replies naming changed objects, claimed counts and incomplete work.
+Native DSS read-back is evidence, not automatically accepted Cobuild edit grammar;
+follow the active guide's documented payload exceptions.
 
+Settle through [Cobuild](cobuild.md) and independently verify before dependent work.
+Retain exact conversation/turn IDs; recover status after interruption and never
+resend a pending write. When a host yields a running exec cell, wait on it first,
+then poll any returned `queued`/`in_progress` turn. Prefer supported waits up to
+60 seconds, with independent work between waits. A local timeout is not failure;
+continue until an outcome or actual blocker, not a promise to check later. Follow
+[jobs](jobs.md) and run IDs for pending builds/scenarios.
 
-# Migration Notes
+Select evidence for the contract, batch independent reads, and reuse it while unchanged:
 
-## Visual-only rule
+- `get_dataset_sample`: ordered schema and actual values, not full-table parity.
+- `get_dataset_info`: additional metadata/connection only when needed.
+- `get_dataset_profile`: count/null/distribution checks; exact counts require a
+  sufficient bound and `truncated: false`. Cached `get_dataset_metrics` is not
+  fresh count proof.
+- `get_flow_graph`: changed dependencies; `get_recipe_settings` or a read-only
+  Cobuild turn for relevant engine/settings checks.
+- Failed build: `list_jobs` then `get_job_log`. SUCCESS can hide discarded bad
+  rows (`failedRows`) or skipped recipes; read affected outputs and generated files.
 
-Unless the user explicitly requests a code-based transformation, migrations must be implemented with visual recipe families only. Code recipes are forbidden by default.
+A saved surface is not proof it works: apply the active source/feature guide's
+checks to dashboards, charts, apps and exports, including after later changes.
+Keep unit/object/count/turn/retry evidence in `build_log.md` or the plan, give
+concise progress and continue the next authorized unit in the same turn.
 
-Do not use Python, SQL, R, or other code recipes merely because the logic is awkward, stateful, easier to express in code, or difficult to reproduce visually. Difficulty is not an exception.
+On failure, distinguish source-contract mistakes, ingestion, edit rejection,
+engine failure and refusal using actual errors, logs and retained objects.
+Try a materially different applicable documented alternative on the same
+conversation. If none remains, report expected/actual, operation/error, retained
+work, alternatives and the needed decision. No unlimited retries, repeated rejected
+payloads, unrequested code, sample-sized unrolling or destructive restart.
+Attribute a limitation to DSS/version only with evidence.
 
-A statistic missing from a visual recipe's aggregate list is not yet a justification either: quantiles, medians, and modes compose from Window ranking and TopN recipes. Record a deviation only after the visual composition genuinely fails.
+Inspect the changed graph for redundancy or superseded nodes. Rewrite only actual
+candidates or requested optimization; record the decision and prove replacements
+before deletion. With no candidate, proceed without an additional exhaustive pass.
 
-If the user explicitly asks for code, a code recipe may be used only for the part the user asked to implement in code. Otherwise, the migration must remain fully visual. Visual recipe families are defined in `./recipes.md`.
+## Validate
 
-## Input-boundary invariant
+Reconcile inventory, recipe read-back, lineage and every required output with the
+approved validation plan. Outputs must derive from original logical inputs through
+Dataiku recipes, without unrequested code or cached-answer dependencies. Record
+genuine corrections to source authority; do not rewrite the contract to fit the
+build. Empty output is valid only when the source permits it; unreadable data is
+not a pass.
 
-A valid Dataiku migration must begin from the same logical source datasets as the original source bundle, at equivalent grain. The migration process may upload only those original source inputs. It is forbidden to upload locally derived substitutes for source inputs, and must not upload any cleaned, filtered, joined, aggregated, ranked, summarized, or final-result table as if it were a source dataset.
+Default to a local full export comparison for applicable references. Compare ordered
+names/types and every row/column at output entity/period grain, including duplicates
+and extra rows. Verify key uniqueness before keyed comparison; otherwise compare
+row multisets. Use contract-derived numeric/date normalization. Totals can hide
+offsetting errors: inspect per-entity signed differences. Partial references support
+only documented checks. Samples and self-written source reimplementations do not
+prove parity. Without a reference, check schemas, source invariants, boundaries and
+target execution and state that scope.
 
-If multiple upload attempts are made while establishing the correct source boundary, only the final intended source dataset may remain in the completed project; failed attempts must be cleaned up in Phase 4.
+Use in-Dataiku parity when requested as a deliverable, local disk/memory limits
+require it, or export loses a required distinction such as null versus empty string.
+Keep references separate from delivered logic; delete temporary parity assets after
+recording evidence. Synthetic runs need real-input revalidation before production
+parity claims. Record results/deviations in `validation_report.md`.
 
-Expected outputs may be uploaded only as parity reference datasets during validation, never wired into the delivered flow, and are deleted during cleanup.
+Correct failures and recheck affected descendants while evidence supports a next
+action. Reuse unaffected evidence only while relevant inputs/settings are unchanged.
+Unresolved required checks mean partial/blocked, never accepted or completed.
 
-## Dataiku execution requirement
+## Document and Cleanup
 
-A valid migration must implement the transformation logic inside Dataiku.
+Prepare required documentation and authorized cleanup before final acceptance.
+Do not repeat work merely to enter a phase. After any required scenario or final
+rebuild, settle jobs and re-read affected required outputs with applicable parity.
 
-The requested final output dataset must be produced in Dataiku from the migrated source datasets through one or more Dataiku recipes. It is not valid to compute the final result locally and upload that precomputed final dataset as the deliverable.
+- Describe business purpose in project short/long descriptions and wiki home.
+  Describe every migration-owned source, intermediate, recipe, zone and required
+  surface: grain, rule and use. Dataset field: `description`; recipe/zone field:
+  `shortDesc` (read responses: `short_description`). Project content describes
+  objects in the delivery language, without implementation-agent terminology.
+- Zone every migration-created Flow asset by stage/function. Reuse the undeletable
+  Default as the first stage with distinct zone colors; preserve existing project
+  organization. Default membership is implicit, so empty `items` proves nothing.
+  Enable zone descriptions through [project settings](projects/settings.md) and
+  verify the read-back.
+- Wiki: plans, source→recipe→output mapping, validation results, deviations,
+  final-output column dictionary and applicable rebuild runbook. Keep column
+  documentation here, not in propagated dataset schemas. Use native object links
+  such as `[clean_customers](recipe:clean_customers)`.
+- Perform cleanup under the invariants and Cobuild confirmation protocol. Prove
+  replacement schema/values and check impacts before deleting originals; record
+  deleted assets and keep the ownership inventory current.
 
-Source-boundary fidelity alone is not sufficient: the migrated project must contain the Dataiku flow that performs the transformation.
+Save `documentation_evidence.md` with enumerated ownership, displayed descriptions,
+zone placement, wiki and required surfaces. Completion requires that inventory,
+validation evidence and final execution evidence (including jobs for required
+scenarios), never the Cobuild report alone. Run any source-required finish check
+once for this state; do not precede it with a duplicate audit. Fix required failures;
+warnings warrant changes only for unmet contract obligations. Report inherited
+findings separately without claiming a clean project or expanding scope.
 
-## Gap resolution
-
-Classify every non-obvious source construct:
-
-- `derivable`: a function of its inputs (formula chains, lookups, query steps). Migrate it as Flow logic; never upload it as a source dataset.
-- `hand-authored`: manually entered or edited values with no recoverable rule. Preserve them as source data and document them; never re-derive them.
-- `needs-human-input`: answerable only by the workflow owner. Ask; do not guess.
-
-Carry unresolved items in the Migration Plan and surface them at the Phase 1 step 6 gate.
-
-## Cleanup safety rule
-
-Cleanup may delete migration-created failed attempts and orphaned assets created during the current migration. This cleanup is required.
-Do not delete assets that clearly pre-date the migration unless the user explicitly asks for that deletion.
-
-## Source Bundle helper scripts
-
-Source-parsing helpers sit in their Source Subskill's helpers directory: `sources/<kind>/helpers/*.py`. Planner-domain, source-bound, optional. Discover via `ls sources/<kind>/helpers/`; first docstring line states purpose · inputs → outputs · deps. Pick on demand, adapt to the bundle before running.
+A prose edit needs documentation read-back; a data/schema/storage change invalidates
+affected output/parity evidence; deletion needs dependency/surface checks. Use
+targeted checks after local fixes, not another full build by default. Follow any
+caller acceptance/closing gates; hand off project URL, evidence, delivered surfaces,
+deviations and unresolved limits.
