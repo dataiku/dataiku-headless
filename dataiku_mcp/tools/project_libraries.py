@@ -39,11 +39,7 @@ from ..auth import get_dss_client
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 LibraryPath = Annotated[
-    str,
-    Field(
-        description="Folder inside the project library; / is its root. "
-        "Python source lives under /python/ (R under /R/)."
-    ),
+    str, Field(description="Folder inside the project library; / is its root.")
 ]
 
 
@@ -572,10 +568,7 @@ async def write_project_library_file(
     path: Annotated[
         str,
         Field(
-            description="Destination path in the project library, e.g. "
-            "/python/my_module.py for Python source (R under /R/). Preserve "
-            "the file's relative structure under that folder; do not duplicate "
-            "the same module at / and /python/."
+            description="Destination path in the project library, e.g. /python/mod.py."
         ),
     ],
     filepath: Annotated[

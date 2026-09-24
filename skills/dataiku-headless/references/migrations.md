@@ -48,7 +48,7 @@ Execute the build as a sequence of coherent, independently verifiable units of w
 
 The Build phase must create the Dataiku flow that performs the transformation logic. A locally computed final result that is only uploaded into Dataiku does not satisfy this phase.
 
-When the migration carries Python or R source files, place them per `./project-libraries.md` (`/python/...`, `/R/...`) and ground each Cobuild prompt with that destination, so direct writes and Cobuild turns target the same path.
+Place migrated Python or R source per `./project-libraries.md`, and give Cobuild prompts that same destination path.
 
 ## Phase 3: Validate
 

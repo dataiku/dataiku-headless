@@ -56,7 +56,7 @@ Do not use this guide when:
 - For creation requests, describe the intended asset, inputs, outputs, and constraints clearly.
 - If Cobuild needs project context, mention the relevant datasets, recipes, folders, models, dashboards, or other assets directly by name.
 - For existing assets, include the configuration and constraints discovered through the relevant guide.
-- When the request touches project library source, state the conventional destination path (`/python/...` for Python, `/R/...` for R) so the turn targets the same path a direct write would.
+- When the request touches project library source, state the destination path chosen per `./project-libraries.md`.
 
 ## Preferred Tools
 
