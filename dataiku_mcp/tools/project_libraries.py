@@ -565,7 +565,12 @@ async def validate_project_library_file(
 )
 async def write_project_library_file(
     project_key: str,
-    path: Annotated[str, Field(description="Destination path in the project library.")],
+    path: Annotated[
+        str,
+        Field(
+            description="Destination path in the project library, e.g. /python/mod.py."
+        ),
+    ],
     filepath: Annotated[
         str, Field(description="Source path on the machine running this server.")
     ],
