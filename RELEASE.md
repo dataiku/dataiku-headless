@@ -18,11 +18,14 @@ artifacts:
 | GitHub release | The published, browsable release notes |
 
 The version number still matters even without an index: Commitizen keeps it in
-lockstep across `pyproject.toml` and the three plugin manifests, and the manifest
-version is how a harness notices there's a newer plugin to install. `bump.yml`
-verifies that lockstep held before it tags anything — a `version_files` entry
-whose version string stops matching is skipped *silently* by Commitizen, which
-would otherwise ship a release whose manifests still advertise the old version.
+lockstep across `pyproject.toml` and the plugin manifests (portable Agent Plugins
+`plugin.json`, plus the Claude Code and Codex compatibility manifests), and the
+manifest version is how a harness notices there's a newer plugin to install.
+`bump.yml` bumps locally first (`push: false`), verifies that lockstep held
+across all manifests (and that Agent Plugins `$schema` URLs were not rewritten),
+and only then pushes the bump commit and tags — a `version_files` entry whose
+version string stops matching is skipped *silently* by Commitizen, which would
+otherwise ship a release whose manifests still advertise the old version.
 
 ---
 

@@ -36,7 +36,7 @@ Do not enable both Dataiku MCP definitions in the same client. They expose the s
 
 The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
 
-Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install the included [Agent Plugins](https://agent-plugins.org/) v1.0.0 package from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -59,6 +59,8 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 ## Install with another agent
 
 `dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+
+Cursor expands `${CURSOR_PLUGIN_ROOT}` in the portable Agent Plugins `mcp.json`; it does not expand the standard `${PLUGIN_ROOT}` placeholder.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -285,6 +287,8 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   ├── launcher.sh             # Inactive legacy fallback retained for possible future use
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
+├── plugin.json                 # Agent Plugins v1.0.0 portable manifest
+├── mcp.json                    # Agent Plugins portable stdio MCP config
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
