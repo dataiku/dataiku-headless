@@ -16,7 +16,8 @@
 
 This repo ships as an Agent Plugins package (root ``plugin.json`` + ``mcp.json``
 + ``skills/``) while retaining harness-specific manifests under
-``.claude-plugin/`` and ``.codex-plugin/``. These tests pin the portable floor
+``.claude-plugin/``, ``.codex-plugin/``, and ``.cursor-plugin/``. These tests
+pin the portable floor
 and keep version fields in lockstep with ``[project].version``.
 """
 
@@ -51,7 +52,7 @@ PLUGIN_NAME_RE = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?
 
 # cwd forms allowed by Agent Plugins §7.2.1 (stdio).
 _CWD_RE = re.compile(
-    r"^(?:\./(?!\.\.)|\$\{(?:PLUGIN|CURSOR_PLUGIN)_ROOT\}(?:/|$)|\$\{PLUGIN_DATA\}(?:/|$))"
+    r"^(?:\./(?!\.\.)|\$\{PLUGIN_ROOT\}(?:/|$)|\$\{PLUGIN_DATA\}(?:/|$))"
 )
 
 
@@ -104,7 +105,7 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
         "--quiet",
         "--locked",
         "--script",
-        "${CURSOR_PLUGIN_ROOT}/runtime/run_mcp.py",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py",
         "--transport",
         "stdio",
     ]
@@ -149,10 +150,24 @@ def test_mcp_script_path_exists_in_package():
     config = _load_json(ROOT / "mcp.json")
     server = config["mcpServers"]["dataiku"]
     script_index = server["args"].index("--script") + 1
-    script_path = server["args"][script_index].removeprefix(
-        "${CURSOR_PLUGIN_ROOT}/"
-    )
+    script_path = server["args"][script_index].removeprefix("${PLUGIN_ROOT}/")
     assert (ROOT / script_path).is_file()
+
+
+def test_cursor_manifest_overrides_portable_mcp_config():
+    manifest = _load_json(ROOT / ".cursor-plugin" / "plugin.json")
+    server = manifest["mcpServers"]["dataiku"]
+
+    assert manifest["name"] == "dataiku-headless"
+    assert manifest["version"] == _project_version()
+    assert server["type"] == "stdio"
+    assert server["command"] == "uv"
+    assert server["args"][-3:] == [
+        "${CURSOR_PLUGIN_ROOT}/runtime/run_mcp.py",
+        "--transport",
+        "stdio",
+    ]
+    assert server["cwd"] == "${CURSOR_PLUGIN_ROOT}"
 
 
 def test_plugin_versions_match_project_version():
