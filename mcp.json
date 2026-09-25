@@ -9,11 +9,11 @@
         "--quiet",
         "--locked",
         "--script",
-        "${CURSOR_PLUGIN_ROOT}/runtime/run_mcp.py",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py",
         "--transport",
         "stdio"
       ],
-      "cwd": "${CURSOR_PLUGIN_ROOT}"
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }
