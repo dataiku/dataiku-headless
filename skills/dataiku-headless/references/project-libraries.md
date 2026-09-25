@@ -29,7 +29,7 @@ By default the tree has top-level `python/` and `R/` source folders. The `python
 
 1. Use `list_project_library` to discover the current tree and distinguish internal from external content when relevant. Read `/external-libraries.json` when a non-default source folder may apply.
 2. Use `read_project_library_file` and `search_project_library` to understand existing source before changing it. Before writing a module, check the listing for a file with the same name elsewhere in the tree.
-3. In stdio, when the user explicitly wants to add or replace a local source file, use `write_project_library_file` with a `/python/...` or `/R/...` destination, plus an `__init__.py` for any new Python subfolder. It is unavailable in Streamable HTTP.
+3. In stdio, when the user explicitly wants to add or replace a local source file, use `write_project_library_file`. Place Python under `/python/...` (or another configured `pythonPath`) and R under `/R/...`; place SQL templates, JSON fixtures, and other support files in an appropriate non-source path. Add an `__init__.py` only for each new Python package subfolder. It is unavailable in Streamable HTTP.
 4. Read the existing target before replacement. Use overwrite only with explicit user intent.
 5. Validate or re-read a written Python file with `validate_project_library_file` and `read_project_library_file`.
 6. When the user mentions a git-hosted library, repository, branch, tag, or commit, route external-library configuration through `./cobuild.md`.
