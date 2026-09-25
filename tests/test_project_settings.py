@@ -133,6 +133,33 @@ def test_update_project_settings_applies_merge_patch(monkeypatch):
     assert project.settings.save_calls == 1
 
 
+def test_update_project_settings_sets_cobuild_instructions(monkeypatch):
+    raw = {"settings": {"cobuildSettings": {"customPromptMode": "APPEND_TO_GLOBAL"}}}
+    project = _install_fake_project(monkeypatch, raw)
+    patch = {
+        "cobuildSettings": {
+            "customSystemPrompt": "Prefer visual recipes.",
+            "customPromptMode": "OVERRIDE_GLOBAL",
+        }
+    }
+
+    result = json.loads(
+        asyncio.run(projects.update_project_settings("PROJ", patch, FakeContext()))
+    )
+
+    assert result == patch
+    assert project.settings.save_calls == 1
+
+    with pytest.raises(ValueError, match="Allowed values"):
+        asyncio.run(
+            projects.update_project_settings(
+                "PROJ",
+                {"cobuildSettings": {"customPromptMode": "REPLACE"}},
+                FakeContext(),
+            )
+        )
+
+
 def test_update_project_settings_rejects_invalid_patch(monkeypatch):
     project = _install_fake_project(monkeypatch, {"settings": {}})
 
