@@ -9,8 +9,8 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 ## Shared Operating Rules
 
-1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md` and follow it before continuing.
-2. Ensure an instance is configured before any Dataiku work. If `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. Keep the reported `dataiku_version` in context for version-sensitive requests.
+1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
+2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -37,11 +37,12 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | User intent | Guide to read next |
 | --- | --- |
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
-| Inspect or update project settings, including Flow display, pipelines, default code envs, or container execution | `./references/projects/settings.md` |
+| Inspect or update project settings, including Flow display, pipelines, default code envs, project-level container execution defaults, or Cobuild project instructions | `./references/projects/settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
 | Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
+| Select which container one existing recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in | `./references/container-execution.md` |
 | Run an existing dataset or recipe, or track jobs, waits, and logs | `./references/jobs.md` |
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |

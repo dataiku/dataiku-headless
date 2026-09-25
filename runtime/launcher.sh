@@ -104,7 +104,7 @@ provision_venv() {
 # A uv on PATH can still be broken, so probe it before committing to it.
 if command -v uv >/dev/null 2>&1 && uv --version >/dev/null 2>&1; then
     log "starting via uv"
-    exec uv run --quiet "$SERVER"
+    exec uv run --quiet "$SERVER" --transport stdio
 fi
 
 # --- Tier 2: python venv ------------------------------------------------------
@@ -141,7 +141,7 @@ for candidate in $candidates; do
 
     if provision_venv "$resolved"; then
         log "starting via python venv"
-        exec "$VENV_PYTHON" "$SERVER"
+        exec "$VENV_PYTHON" "$SERVER" --transport stdio
     fi
     # This interpreter cannot host the server; try the next, then an npm runner.
 done
@@ -161,7 +161,7 @@ for runner in $NPM_RUNNERS; do
 
     if "$runner" $assume_yes "$NPM_UV_PACKAGE" --help >/dev/null 2>&1; then
         log "starting via $runner $NPM_UV_PACKAGE"
-        exec "$runner" $assume_yes "$NPM_UV_PACKAGE" run --quiet "$SERVER"
+        exec "$runner" $assume_yes "$NPM_UV_PACKAGE" run --quiet "$SERVER" --transport stdio
     fi
     log "$runner cannot run $NPM_UV_PACKAGE"
 done

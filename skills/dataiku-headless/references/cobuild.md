@@ -56,6 +56,7 @@ Do not use this guide when:
 - For creation requests, describe the intended asset, inputs, outputs, and constraints clearly.
 - If Cobuild needs project context, mention the relevant datasets, recipes, folders, models, dashboards, or other assets directly by name.
 - For existing assets, include the configuration and constraints discovered through the relevant guide.
+- When the request touches project library source, state the destination path chosen per `./project-libraries.md`.
 
 ## Preferred Tools
 
@@ -79,7 +80,7 @@ Do not use this guide when:
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
 - When `rejected=true`, `answers` must be empty.
-- Cobuild conversations can continue concurrently in the Dataiku UI and through MCP/API. A question or deletion confirmation is a single DSS-side action; the first channel to answer consumes it.
+- Cobuild conversations can continue concurrently in the Dataiku UI and through MCP/API. A question or deletion confirmation is a single Dataiku-side action; the first channel to answer consumes it.
 - If an MCP answer returns "No pending question/confirmation found," it may have been answered in the UI or invalidated server-side. Do not retry; inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 - Answer a question only when the user request or inspected context determines the answer. Otherwise, ask the user.
 - Honor `question.allow_multiple_answers` and `question.allow_custom_answer`; set `used_custom_answer=true` when supplying a custom free-text answer.

@@ -105,6 +105,8 @@ def test_portable_mcp_config_is_agent_plugins_v1_stdio():
         "--locked",
         "--script",
         "${PLUGIN_ROOT}/runtime/run_mcp.py",
+        "--transport",
+        "stdio",
     ]
 
     cwd = server.get("cwd")
@@ -146,7 +148,8 @@ def test_mcp_script_path_exists_in_package():
     """Portable mcp.json must point at the supported script entry point."""
     config = _load_json(ROOT / "mcp.json")
     server = config["mcpServers"]["dataiku"]
-    script_path = server["args"][-1].removeprefix("${PLUGIN_ROOT}/")
+    script_index = server["args"].index("--script") + 1
+    script_path = server["args"][script_index].removeprefix("${PLUGIN_ROOT}/")
     assert (ROOT / script_path).is_file()
 
 

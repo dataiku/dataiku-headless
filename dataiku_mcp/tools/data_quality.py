@@ -19,9 +19,9 @@ from typing import Annotated, Any
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..server import mcp
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.parsing import coerce_json_array as _coerce_json_array
 from .utils.serialization import compact_json, is_empty, omit_empty
 from .utils.validation import (

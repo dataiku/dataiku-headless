@@ -71,13 +71,13 @@ export DKU_API_KEY="your-api-key"
 - Give a fixed-value parameter a `Literal` so its allowed values ride in the schema, and drop the `require_allowed_value` check it replaces. Keep the check and describe the values in prose instead when it normalizes input (for example `.upper()`), since a `Literal` would reject values that work today, or when the value set is large enough that listing it in every catalog send costs more than a description.
 
 ## Cobuild Write-Routing Convention
-- This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead.
-- Do not add a new direct write tool for an in-project asset type. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
-- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets: `build_datasets`, `run_recipe`, `run_scenario`, and `abort_job`, which stops an existing job.
+- This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead. `set_container_exec_config` is the narrow, placement-only exception; all other changes stay with Cobuild.
+- Do not add a new direct write tool for an in-project asset type beyond the fixed exceptions below. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `abort_job`, which stops an existing job) and deterministic container execution placement for an existing object (`set_container_exec_config`).
 
 ## Fixed Tool Surface
 
-- The server is stdio-only: a single-user, single-credential local plugin the harness launches over stdio. There is no HTTP transport. A hosted/multi-user deployment (which would need per-request credential ownership and shared state) is out of scope for v1 — it belongs in its own project, not behind an env flag.
+- `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
@@ -98,10 +98,15 @@ PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m py_compile $(find dataiku_mcp 
 Run the MCP server locally to verify end-to-end:
 
 ```bash
-uv run --quiet --locked --script ./runtime/run_mcp.py   # exactly what every manifest runs
+uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio  # exactly what every manifest runs
 ```
 
 `uv` 0.12.0 or later is a runtime prerequisite for the plugin. **`runtime/run_mcp.py`** is the server entry point: its [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares pinned dependencies and `requires-python`, so uv creates an isolated cached environment without a project install. `dataiku_mcp` is imported from the working tree, so source edits take effect immediately, while local edits to dependencies do not.
+
+The launcher validates its arguments, loads the repository-root `.env` without
+overriding real environment variables, and only then imports `dataiku_mcp`.
+Direct package imports do not load `.env`; embedding callers own environment
+setup before import.
 
 **`runtime/launcher.sh`** is inactive legacy code retained for possible future fallback use. No manifest invokes it; do not re-enable it without explicitly reviewing the platform behavior and updating all manifests.
 
@@ -109,10 +114,10 @@ The inline metadata and its adjacent `runtime/run_mcp.py.lock` resolve independe
 
 The inline dependency list duplicates `[project].dependencies`; `tests/test_pep723_launcher.py` fails if the two drift apart.
 
-Inspect the MCP server interactively with MCP Inspector:
+Inspect the registered MCP server surface without starting a transport:
 
 ```bash
-uv run --with "mcp[cli]" mcp dev -m dataiku_mcp
+uv run fastmcp inspect dataiku_mcp/__init__.py:mcp --skip-env
 ```
 
 ## Commit Messages

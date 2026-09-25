@@ -1,0 +1,49 @@
+name: Bug report
+description: Report behavior that is incorrect or unexpected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, customer data, instance URLs, or identifiers
+        copied from a real Dataiku environment.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: >-
+        Provide the smallest reproducible example. Include relevant tool names,
+        inputs, and steps when applicable.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Plugin version, host, Dataiku version, operating system, and uv version,
+        if relevant.
+      placeholder: dataiku-headless version; host; Dataiku 15.0; OS; uv version
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: >-
+        Add relevant stderr, error output, or the smallest useful transcript
+        excerpt. Remove secrets and customer data before submitting.
+      render: text
+    validations:
+      required: false

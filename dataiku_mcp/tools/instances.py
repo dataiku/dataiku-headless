@@ -22,13 +22,11 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from .. import config, mcp
+from ..auth import get_dss_client
+from ..config import request, stdio
+from ..executors import run_blocking
+from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
-from .utils.async_executor import run_blocking
-from .utils.auth import (
-    get_current_instance_for_tool,
-    get_dss_client,
-)
 from .utils.serialization import columnar, compact_json, omit_empty
 
 InstanceName = Annotated[
@@ -43,12 +41,13 @@ InstanceName = Annotated[
         "destructiveHint": False,
         "openWorldHint": False,
     },
+    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def list_instances(ctx: Context) -> str:
     """See which Dataiku instances are configured and which one is active."""
-    instances = config.get_instances()
+    instances = request.get_instances()
     try:
-        current_instance_name = get_current_instance_for_tool().name
+        current_instance_name = request.get_pinned_instance().name
     except ValueError:
         current_instance_name = ""
 
@@ -74,11 +73,12 @@ async def list_instances(ctx: Context) -> str:
         "idempotentHint": True,
         "openWorldHint": False,
     },
+    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def switch_instance(name: InstanceName, ctx: Context) -> str:
     """Retarget every later tool call at a different configured instance."""
     await ctx.info(f"Switching to instance '{name}'...")
-    info = config.set_current_instance(name)
+    info = await run_blocking(request.set_current_instance, name)
     return compact_json(info)
 
 
@@ -90,11 +90,16 @@ async def switch_instance(name: InstanceName, ctx: Context) -> str:
         "idempotentHint": False,
         "openWorldHint": False,
     },
+    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def delete_instance(name: InstanceName, ctx: Context) -> str:
     """Forget a stored instance's local config; one set via DKU_DSS_URL cannot be deleted."""
+    if request.is_http_request():
+        raise ValueError(
+            "Instances are platform-managed in HTTP mode and cannot be deleted."
+        )
     await ctx.info(f"Deleting instance '{name}'...")
-    info = config.delete_instance_from_config(name)
+    info = await run_blocking(stdio.delete_instance_from_config, name)
     return compact_json(info)
 
 
@@ -110,7 +115,7 @@ async def get_current_instance(ctx: Context) -> str:
     """Confirm which instance is active, whether it can be reached, and its version."""
 
     # Strip api_key from return value
-    current_instance = asdict(get_current_instance_for_tool())
+    current_instance = asdict(request.get_pinned_instance())
     current_instance.pop("api_key", None)
     current_instance["connection_status"] = "failed"
     try:
@@ -136,9 +141,14 @@ async def get_current_instance(ctx: Context) -> str:
         "idempotentHint": False,
         "openWorldHint": False,
     },
+    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
+    if request.is_http_request():
+        raise ValueError(
+            "Instances are platform-managed in HTTP mode and cannot be configured."
+        )
     client_params = ctx.session.client_params
     elicitation_capability = (
         client_params.capabilities.elicitation if client_params else None

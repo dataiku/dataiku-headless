@@ -10,6 +10,9 @@ __pycache__/
 venv/
 .env
 .dataiku/config.json
+.dataiku/http.json
+.dataiku/stdio-config.json
+.dataiku/http-config.json
 
 # Local snapshot corpora (keep folder scaffold only)
 learning-dev-agent/recipe-snapshot-corpus/recipe_snapshots/*
@@ -27,6 +30,7 @@ tmp
 docs/*
 !docs/assets/
 !docs/capabilities.md
+!docs/http-deployment.md
 
 # Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
 test-data/
@@ -37,3 +41,7 @@ migration_token_diet.md
 sample_extracted/
 extract/
 *_extracted/
+
+# Default http plugin bundle location
+dataiku-headless-http/
+dataiku-headless-http.zip

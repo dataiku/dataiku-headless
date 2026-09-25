@@ -48,6 +48,8 @@ Execute the build as a sequence of coherent, independently verifiable units of w
 
 The Build phase must create the Dataiku flow that performs the transformation logic. A locally computed final result that is only uploaded into Dataiku does not satisfy this phase.
 
+Place migrated Python or R source per `./project-libraries.md`, and give Cobuild prompts that same destination path.
+
 ## Phase 3: Validate
 
 Read the Validation Plan from `<bundle_dir>/migration_v<n>/validation_plan.md`. Use the Validation Plan to check that the migration was successfull.

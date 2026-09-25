@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import dataikuapi
 
-from . import config
+from .config import request, stdio
 
 SESSION_LIFETIME_SECONDS = 10 * 60
 MAX_REQUEST_BYTES = 16 * 1024
@@ -317,8 +317,8 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                     raise ValueError(
                         "Test the connection successfully before saving. Test again after changing the URL, API key, or certificate setting."
                     )
-                result = config.add_instance_to_config(**values)
-                config.set_current_instance(result["name"])
+                result = stdio.add_instance_to_config(**values)
+                request.set_current_instance(result["name"])
             except (UnicodeDecodeError, ValueError, RuntimeError) as exc:
                 self._send_html(
                     400, _page(error=str(exc), values=locals().get("values"))
