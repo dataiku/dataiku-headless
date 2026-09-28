@@ -290,6 +290,8 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
+├── .cursor-plugin/
+│   └── plugin.json             # Cursor-native plugin manifest
 ├── .codex-plugin/
 │   └── plugin.json             # Codex presentation compatibility manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
