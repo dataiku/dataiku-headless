@@ -27,10 +27,11 @@ def _json(path: str) -> dict:
 
 def test_marketplace_plugin_uses_stdio():
     claude = _json(".claude-plugin/plugin.json")
-    bundled_mcp = _json(".mcp.json")
+    portable_mcp = _json("mcp.json")
 
     assert claude["mcpServers"]["dataiku"]["type"] == "stdio"
-    assert bundled_mcp["mcpServers"]["dataiku"]["args"][-2:] == [
+    assert portable_mcp["mcpServers"]["dataiku"]["type"] == "stdio"
+    assert portable_mcp["mcpServers"]["dataiku"]["args"][-2:] == [
         "--transport",
         "stdio",
     ]

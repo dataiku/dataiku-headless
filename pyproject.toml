@@ -42,7 +42,6 @@ include = [
     "plugin.json",
     ".claude-plugin",
     ".codex-plugin",
-    ".mcp.json",
     "mcp.json",
     "README.md",
     "pyproject.toml",

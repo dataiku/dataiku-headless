@@ -10,8 +10,6 @@
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
     "shortDescription": "Inspect and build Dataiku projects with Cobuild",

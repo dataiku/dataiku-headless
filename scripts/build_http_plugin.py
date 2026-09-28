@@ -33,7 +33,8 @@ COPY_PATHS = (
     "LICENSE",
     "skills",
     "docs/assets",
-    ".mcp.json",
+    "plugin.json",
+    "mcp.json",
     ".codex-plugin",
     ".claude-plugin",
 )
@@ -62,9 +63,13 @@ def write_json(path: Path, value: dict) -> None:
 
 def update_manifests(destination: Path, *, endpoint: str) -> None:
     """Apply the HTTP-specific differences to copied source manifests."""
-    mcp = read_json(destination / ".mcp.json")
-    mcp["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
-    write_json(destination / ".mcp.json", mcp)
+    plugin = read_json(destination / "plugin.json")
+    plugin["name"] = PLUGIN_NAME
+    write_json(destination / "plugin.json", plugin)
+
+    mcp = read_json(destination / "mcp.json")
+    mcp["mcpServers"]["dataiku"] = {"type": "streamable-http", "url": endpoint}
+    write_json(destination / "mcp.json", mcp)
 
     codex = read_json(destination / ".codex-plugin" / "plugin.json")
     codex["name"] = PLUGIN_NAME

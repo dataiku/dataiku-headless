@@ -60,8 +60,6 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 `dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
-Cursor expands `${CURSOR_PLUGIN_ROOT}` in the portable Agent Plugins `mcp.json`; it does not expand the standard `${PLUGIN_ROOT}` placeholder.
-
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
 > ```bash
@@ -293,8 +291,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest
-├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+│   └── plugin.json             # Codex presentation compatibility manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
