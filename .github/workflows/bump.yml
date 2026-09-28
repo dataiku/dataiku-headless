@@ -122,8 +122,9 @@ jobs:
           portable=$(jq -r '.version' plugin.json)
           claude=$(jq -r '.version' .claude-plugin/plugin.json)
           codex=$(jq -r '.version' .codex-plugin/plugin.json)
+          cursor=$(jq -r '.version' .cursor-plugin/plugin.json)
 
-          for pair in "portable:${portable}" "claude:${claude}" "codex:${codex}"; do
+          for pair in "portable:${portable}" "claude:${claude}" "codex:${codex}" "cursor:${cursor}"; do
             name=${pair%%:*}
             found=${pair#*:}
             if [ "${found}" != "${project}" ]; then

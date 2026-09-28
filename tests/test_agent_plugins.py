@@ -166,7 +166,8 @@ def test_plugin_versions_match_project_version():
     portable = _load_json(ROOT / "plugin.json")["version"]
     claude = _load_json(ROOT / ".claude-plugin" / "plugin.json")["version"]
     codex = _load_json(ROOT / ".codex-plugin" / "plugin.json")["version"]
-    assert portable == claude == codex == expected
+    cursor = _load_json(ROOT / ".cursor-plugin" / "plugin.json")["version"]
+    assert portable == claude == codex == cursor == expected
 
 
 def test_commitizen_version_selector_preserves_schema_urls():

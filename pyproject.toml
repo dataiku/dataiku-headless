@@ -79,6 +79,7 @@ version_files = [
     "plugin.json:\"version\":",
     ".claude-plugin/plugin.json:\"version\":",
     ".codex-plugin/plugin.json:\"version\":",
+    ".cursor-plugin/plugin.json:\"version\":",
 ]
 
 [dependency-groups]
