@@ -5,6 +5,9 @@
   <img alt="Dataiku" src="docs/assets/dataiku-lockup-black.svg" width="280">
 </picture>
 
+
+
+
 <h1><code>$&nbsp;dataiku-headless</code></h1>
 
 <p><strong>Dataiku Headless: Agentic Analytics, Data Science, and AI Development powered by Dataiku Cobuild</strong></p>
