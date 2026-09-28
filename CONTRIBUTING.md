@@ -37,5 +37,10 @@ pull request, such as `fix: handle failed plugin installation`. In the pull
 request description, summarize the behavior changed and list the checks you ran,
 including any checks you could not run and why.
 
+Before a pull request can be merged, you must sign the
+[Contributor License Agreement](.github/cla/CLA.md). The CLA Assistant bot
+comments on your first pull request with the exact comment to post; signing
+once covers all later contributions. Bot accounts are exempt.
+
 Never include credentials, customer data, instance URLs, exports, local
 configuration, or identifiers copied from a real Dataiku environment.
