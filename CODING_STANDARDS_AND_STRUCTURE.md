@@ -129,7 +129,14 @@ uv run cz check --rev-range origin/main..HEAD  # validate your branch's messages
 uv run cz bump --dry-run                       # preview the next version (writes nothing)
 ```
 
-Commit *types* decide the version bump, so they are load-bearing: `feat:` cuts a minor, `fix:` a patch, and `docs:`/`chore:`/`ci:`/`refactor:`/`test:` cut nothing. You don't run `cz bump` yourself — `.github/workflows/bump.yml` does it on `main`, bumping `[project].version` (and the plugin manifests), updating `CHANGELOG.md`, tagging `vX.Y.Z`, and publishing the GitHub release. Nothing is published to PyPI. See `RELEASE.md` for the full picture.
+Commit *types* decide the version bump: `feat:` cuts a minor, `fix:` a patch,
+and `docs:`/`chore:`/`ci:`/`refactor:`/`test:` cut nothing. Batch PRs on `main`,
+then manually dispatch `.github/workflows/bump.yml` with `operation=prepare`.
+Commitizen prepares the version and changelog on a release PR. After review,
+merge, and successful main CI, dispatch `operation=publish` with that PR number
+to tag its exact merged commit and publish the GitHub release. No workflow
+pushes version changes directly to `main`. Nothing is published to PyPI.
+See `RELEASE.md` for setup and recovery instructions.
 
 ## PR Checklist
 - [ ] Changes are limited to intended scope

@@ -1,181 +1,108 @@
 # Releasing `dataiku-headless`
 
-Releases are automated with [Commitizen](https://commitizen-tools.github.io/commitizen/)
-and GitHub Actions. In the normal case you don't run anything by hand: merge
-[Conventional Commits](https://www.conventionalcommits.org/) to `main` and the
-version bump, tag, changelog entry, and GitHub release happen on their own.
+Batch normal PRs on `main`, then use **Bump version** (`bump.yml`) when the batch
+is ready. The workflow retains Commitizen's version calculation and changelog
+generation, but releases are manually initiated and version changes go through
+a reviewed PR. Ordinary pushes and merges never publish a release.
 
-**Nothing is published to a package index.** `dataiku-headless` is not on PyPI
-and isn't planned to be. It's consumed as a harness plugin (Claude Code, Codex,
-Cortex Code, Cursor) or as a git checkout, so a release here is exactly three
-artifacts:
+Nothing is published to PyPI. Each release has a changelog entry, a GitHub
+release, and two tags on the same commit:
 
-| Artifact | Why it exists |
-| --- | --- |
-| `vX.Y.Z` git tag | Fixed point to check out, diff against, and report bugs against |
-| `dataiku-headless--vX.Y.Z` git tag | The plugin release, in the form `claude plugin tag` produces — the commit a harness resolves a plugin install to |
-| `CHANGELOG.md` entry | Human-readable history, generated from commit types |
-| GitHub release | The published, browsable release notes |
-
-The version number still matters even without an index: Commitizen keeps it in
-lockstep across `pyproject.toml` and the three plugin manifests, and the manifest
-version is how a harness notices there's a newer plugin to install. `bump.yml`
-verifies that lockstep held before it tags anything — a `version_files` entry
-whose version string stops matching is skipped *silently* by Commitizen, which
-would otherwise ship a release whose manifests still advertise the old version.
-
----
-
-## The pipeline at a glance
-
-```
- PR merged to main
-    │
-    ▼
- bump.yml ── commitizen
-    • derives the next version from the conventional commits
-    • updates [project].version + the plugin manifests (version_files)
-    • updates CHANGELOG.md, commits "bump: X → Y"
-    • creates and pushes tag  vX.Y.Z
-    • verifies the plugin manifests carry the new version
-    • creates and pushes tag  dataiku-headless--vX.Y.Z
-    • creates the GitHub release, notes = the new CHANGELOG section
-```
-
-`ci.yml` (pre-commit hooks + pytest on Python 3.10–3.14) runs on every push and
-PR and is the gate before anything merges to `main`.
-
-Before Commitizen can create a version, `bump.yml` also verifies the PEP 723
-script lockfile is valid and refreshes it in the disposable runner. If the
-latest allowed transitive dependency resolution differs from
-`runtime/run_mcp.py.lock`, the workflow fails before changing the version or
-creating tags. Regenerate the lock, run the normal checks, and commit it in a
-PR; direct dependencies remain deliberately pinned in `runtime/run_mcp.py`.
-
-### Workflow files
-
-| File | Trigger | Does |
-| --- | --- | --- |
-| `.github/workflows/ci.yml` | push / PR to `main` | Pre-commit hooks + pytest matrix (3.10–3.14) |
-| `.github/workflows/bump.yml` | push to `main`, manual dispatch | Commitizen bump + changelog + `vX.Y.Z` and `dataiku-headless--vX.Y.Z` tags + GitHub release |
-
----
+- `vX.Y.Z`: the project version tag used by Commitizen.
+- `dataiku-headless--vX.Y.Z`: the plugin release tag.
 
 ## One-time setup
 
-### 1. Enable bumping
+The workflow uses the built-in `GITHUB_TOKEN`; no PAT or branch-protection
+bypass is required. Keep the required reviews and CI checks on `main`.
 
-`bump.yml` is currently gated on the repository variable **`RELEASE_ENABLED`**
-being `true` (*Settings → Secrets and variables → Actions → Variables*). While
-it's unset or `false` the job **skips** — pushes to `main` finish green but no
-version is cut.
+In **Settings → Actions → General → Workflow permissions**, enable **Allow
+GitHub Actions to create and approve pull requests**. An organization policy
+may require an administrator to enable this. The workflow only creates PRs;
+it does not approve or merge them.
 
-This gate is temporary; it exists so merges during the PR-backlog cleanup don't
-each cut a version. Once `main` is known good, drop the `RELEASE_ENABLED` clause
-from the job's `if:` and delete the variable.
+PRs created using `GITHUB_TOKEN` require a person with write access to select
+**Approve workflows to run** in the PR before its CI runs. See
+[GitHub's token documentation](https://docs.github.com/en/actions/concepts/security/github_token).
 
-### 2. Seed the first tag
+The old `RELEASE_ENABLED` repository variable is no longer used. It can remain
+`false` or be removed after this workflow is merged. Manual dispatch is the
+release control.
 
-The repo has **no tags**. Commitizen derives the next version by diffing against
-the last tag, so seed the baseline once at the current version:
+## Prepare a batch
 
-```bash
-git tag v0.2.0        # match [project].version in pyproject.toml
-git push origin v0.2.0
-```
+1. Merge the feature and fix PRs intended for this release into `main`.
+2. Run **Actions → Bump version → Run workflow**, selecting branch `main` and
+   operation **prepare**, or run:
 
-Without this, the first bump has no base to diff from.
+   ```bash
+   gh workflow run bump.yml --ref main -f operation=prepare
+   ```
 
-### 3. Nothing else
+3. Follow the release PR link in the workflow summary. Approve its workflow
+   runs, review the generated changelog and versions, and merge after CI passes.
+   Squash merging with the generated `bump:` title is recommended.
 
-No secrets, no deployment environments, no tokens to rotate. `bump.yml` runs on
-the default `GITHUB_TOKEN` with `contents: write`. (Earlier revisions needed a
-`RELEASE_PAT` so the pushed tag would trigger a publish workflow — refs pushed
-with `GITHUB_TOKEN` don't start new workflow runs. With publishing gone there's
-no downstream workflow to trigger, so the PAT was removed. If you ever add a
-tag-triggered workflow, you'll need to reintroduce it.)
+Commitizen chooses the next version from commits since the previous version
+tag: `fix:` produces a patch and `feat:` a minor; breaking changes produce a
+minor while `major_version_zero` is enabled. A batch containing only
+non-releasing commits such as `docs:` or `chore:` is a successful no-op.
 
----
+Preparation checks the existing release baseline, refuses a second open
+`release/*` PR, and preserves the existing runtime-lock freshness gate. It bumps
+locally with `push: false`, updates `uv.lock`, and verifies every plugin manifest
+against `pyproject.toml` and Commitizen's configured version files before
+pushing a `release/X.Y.Z` branch. No release tags leave the runner at this stage.
 
-## Cutting a release (the default path)
+The freshness gate runs `uv lock --script runtime/run_mcp.py --upgrade` in the
+runner. If this changes the script lock, update and test that lock in a normal
+PR before trying preparation again. Publishing validates the reviewed lock
+without resolving newer dependencies.
 
-1. **Land work with Conventional Commits.** The commit *types* decide the bump:
+## Publish the reviewed release
 
-   | Commit | Result (while `0.x`, `major_version_zero`) |
-   | --- | --- |
-   | `fix: ...` | patch → `0.2.0` → `0.2.1` |
-   | `feat: ...` | minor → `0.2.0` → `0.3.0` |
-   | `feat!: ...` / `BREAKING CHANGE:` | minor while `0.x` (would be major at `1.x`) |
-   | `docs:`, `chore:`, `ci:`, `refactor:`, `test:` | no release |
-
-2. **Merge to `main`.** `ci.yml` must pass first.
-
-3. **`bump.yml` runs automatically.** If there are releasable commits it bumps
-   the version, updates `CHANGELOG.md`, commits `bump: X → Y`, pushes the
-   `vX.Y.Z` tag, and publishes the GitHub release. Pushes with nothing to release
-   are a no-op (they finish green).
-
-That's it. Nothing is run locally.
-
-> **Note:** the bump commit is pushed with `GITHUB_TOKEN`, so it does not
-> retrigger `ci.yml` or `bump.yml`. That's intended — it's a version-only commit
-> over an already-green tree.
-
-### Forcing a bump manually
-
-To trigger a bump without a new push (e.g. after enabling `RELEASE_ENABLED`),
-run the **Bump version** workflow from *Actions → Bump version → Run workflow*,
-or:
+After the release PR is merged and **CI on its main-branch merge commit** passes,
+run the workflow on `main` with operation **publish** and that PR's number:
 
 ```bash
-gh workflow run bump.yml
+gh workflow run bump.yml --ref main -f operation=publish -f release_pr=123
 ```
 
-### Pre-releases
+Replace `123` with the actual release PR number. Publishing verifies that the
+PR came from this repository's `release/X.Y.Z` branch and merged into `main`.
+It checks successful main CI, checks out the exact merge SHA, and validates
+versions, lockfiles, and release notes before pushing either tag. Later commits
+on `main` are not included. If main changed while the release PR was being
+reviewed, review the resulting merge contents and changelog before publishing.
 
-There is no pre-release path. Pre-releases only earned their keep when there was
-an index to publish to (`pip install --pre`) — without one, "install the
-pre-release" and "check out the tag or branch" are the same action. To try
-unreleased work, point your harness at a checkout of the branch.
+Both tags are pushed atomically. An existing tag must already resolve to the
+same SHA; it is never moved. The GitHub release uses the matching changelog
+section. GitHub determines whether it is the latest release, so a retry of an
+older release does not explicitly promote it above a newer release.
 
----
+After publication, delete the release branch if GitHub has not already done so.
 
-## Versioning notes
+## Recovery and troubleshooting
 
-- **Version scheme** is [PEP 440](https://peps.python.org/pep-0440/); the source
-  of truth is `[project].version` in `pyproject.toml`. Commitizen keeps the
-  plugin manifests listed in `[tool.commitizen].version_files` in lockstep with
-  it.
-- **Tag format** is `v$version` (e.g. `v0.3.0`).
-- **`0.x` versions**: `major_version_zero = true`, so breaking changes bump the
-  *minor*, not the major, until you deliberately release `1.0.0`.
-- **Tags are mutable here.** Nothing has been uploaded to an immutable index, so
-  a bad release can be fixed by deleting the tag and release and re-cutting —
-  unlike a PyPI upload, which can never be replaced.
-
----
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
+| Situation | Action |
 | --- | --- |
-| `bump.yml` skipped on a merge to `main` | Either `RELEASE_ENABLED` isn't `true`, or the head commit starts with `bump:`. Check the job's `if:` conditions in the run summary. |
-| `bump.yml` fails: *"No tag matching configuration"* | No baseline tag. Do the [seed the first tag](#2-seed-the-first-tag) step. |
-| `bump.yml` ran green but cut no version | No releasable commits since the last tag (only `docs:`/`chore:`/`ci:`/…). Expected — `no_raise: "3,21"` makes that a no-op. |
-| The tag was created but no GitHub release appeared | The release step only runs when the tag actually changed during the run. Check the *Detect whether a bump happened* step's output. |
-| A release was cut in error | Delete the GitHub release and the tag (`git push --delete origin vX.Y.Z`), revert the `bump:` commit, then re-cut. Nothing external needs undoing. |
-| Want to skip a release for a `feat`/`fix` merge | You can't selectively skip once merged; commit non-releasing types (`chore:`, `docs:`) or squash accordingly before merging. |
+| Run skipped | Dispatch from `main`; other refs cannot prepare or publish. |
+| No new version | The batch has no releasable conventional commits. |
+| Existing release PR | Finish it, or close it before preparing another batch. |
+| Current project version has no tag | Publish the already-merged release PR before preparing another version. |
+| Branch pushed but PR creation failed | Enable Actions PR creation, then open a PR from the existing `release/X.Y.Z` branch manually. Do not force-push over it. |
+| Generated PR CI is waiting | Select **Approve workflows to run** on the PR. |
+| Publish fails on CI | Wait for main CI on the release merge commit, or resolve its failure, then retry. |
+| Tags exist but release creation failed | Re-run publish with the same PR number. Matching tags are reused. |
+| Tag points elsewhere | Investigate; the workflow refuses to overwrite published history. |
+| Existing GitHub release | A retry leaves it unchanged. If it is a draft, review and publish the draft explicitly. |
 
----
+Correct a bad published release with a new patch version. Do not delete or move
+release tags. No pre-release or maintenance-branch publishing path is provided
+by this workflow.
 
-## Quick reference
+For a read-only local preview:
 
 ```bash
-# Normal release: just merge conventional commits to main. Nothing to run.
-
-# Force a bump:
-gh workflow run bump.yml
-
-# Preview the next version locally (no changes written):
 uv run cz bump --dry-run
 ```
