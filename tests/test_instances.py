@@ -17,6 +17,8 @@
 import asyncio
 import json
 
+import pytest
+
 from dataiku_mcp.config import request
 from dataiku_mcp.config.models import DSSInstance
 from dataiku_mcp.tools import instances
@@ -105,3 +107,35 @@ def test_get_current_instance_reports_failed_connection(monkeypatch):
     assert result["connection_status"] == "failed"
     assert "dataiku_version" not in result
     assert client.info_calls == 0
+
+
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+@pytest.mark.parametrize("connected", [False, True])
+def test_get_current_instance_never_returns_credentials(
+    monkeypatch, credential, connected
+):
+    secret = "do-not-return-this-credential"
+    instance = DSSInstance(
+        name="dataiku",
+        url="https://dev.example.com",
+        no_check_certificate=False,
+        source="code-studio-environment" if credential == "api_ticket" else "config",
+        **{credential: secret},
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+
+    def get_client():
+        if not connected:
+            raise ConnectionError("connection failed")
+        return _FakeClient({"dssVersion": "14.7.2"})
+
+    monkeypatch.setattr(instances, "get_dss_client", get_client)
+    response = asyncio.run(instances.get_current_instance(FakeContext()))
+    result = json.loads(response)
+
+    assert "api_key" not in result
+    assert "api_ticket" not in result
+    assert secret not in response
+    assert result["name"] == instance.name
+    assert result["source"] == instance.source
+    assert result["connection_status"] == ("connected" if connected else "failed")

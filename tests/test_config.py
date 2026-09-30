@@ -480,11 +480,11 @@ def test_code_studio_environment_uses_ticket(
     stdio.initialize_config()
 
     instance = stdio.get_current_instance()
-    assert instance.name == (instance_name or "dss-code-studio")
+    assert instance.name == "dataiku"
     assert instance.url == "https://studio.example.com:443"
     assert instance.api_key is None
     assert instance.api_ticket == "studio-ticket"
-    assert instance.source == "environment"
+    assert instance.source == "code-studio-environment"
 
 
 @pytest.mark.parametrize("ticket", [None, ""])

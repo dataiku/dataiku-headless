@@ -124,8 +124,8 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
                 f"Invalid stdio environment settings in Code Studio: {err}"
             ) from None
         return instance.to_instance(
-            os.environ.get("DKU_INSTANCE_NAME", "dss-code-studio"),
-            source="environment",
+            name="dataiku",
+            source="code-studio-environment",
         )
 
     # Documented logic for loading a Dataiku instance from env vars
@@ -144,7 +144,7 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
     except ValidationError as err:
         raise ValueError(f"Invalid stdio environment settings: {err}") from None
     return instance.to_instance(
-        os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
+        name=os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
         source="environment",
     )
 
