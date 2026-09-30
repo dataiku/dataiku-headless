@@ -48,7 +48,7 @@ Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Co
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
-![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v1/headless_install_setup_codex.gif)
+![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
 
 Once connected, you can build in Dataiku.
 
