@@ -11,6 +11,9 @@
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
+  "privacyPolicyUrl": "https://www.dataiku.com/legal/privacy",
+  "supportUrl": "https://support.dataiku.com",
+  "termsOfServiceUrl": "https://www.dataiku.com/legal",
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
