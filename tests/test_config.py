@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from dataiku_mcp.config import request, stdio
 from dataiku_mcp.config.models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
@@ -36,6 +37,11 @@ def isolated_config(tmp_path, monkeypatch):
         "DKU_INSTANCE_NAME",
         "DKU_NO_CHECK_CERTIFICATE",
         "DKU_CONFIG_FILE",
+        "DKU_IS_CODE_STUDIO",
+        "DKU_API_TICKET",
+        "DKU_BACKEND_PROTOCOL",
+        "DKU_BACKEND_HOST",
+        "DKU_BACKEND_PORT",
     ):
         monkeypatch.delenv(variable, raising=False)
 
@@ -334,6 +340,73 @@ def test_stdio_config_example_is_valid(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("from_document", [False, True])
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"api_key": "key"},
+        {"api_ticket": "ticket"},
+        {"api_key": "key", "api_ticket": None},
+        {"api_key": None, "api_ticket": "ticket"},
+    ],
+)
+def test_stdio_credentials_accept_exactly_one(credentials, from_document):
+    document = {"url": "https://dev.example.com", **credentials}
+    config = (
+        StdioDSSInstanceConfig.model_validate(document)
+        if from_document
+        else StdioDSSInstanceConfig(**document)
+    )
+    instance = config.to_instance("dev")
+
+    assert instance.api_key == credentials.get("api_key")
+    assert instance.api_ticket == credentials.get("api_ticket")
+    stdio._save_config(StdioConfig(dss_instances={"dev": config}))
+    saved = json.loads(stdio.get_settings_path().read_text())["dss_instances"]["dev"]
+    assert saved == {key: value for key, value in document.items() if value is not None}
+    assert stdio._load_config().dss_instances["dev"] == config
+
+
+@pytest.mark.parametrize("from_document", [False, True])
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {},
+        {"api_key": None, "api_ticket": None},
+        {"api_key": "secret-key", "api_ticket": "secret-ticket"},
+        {"api_key": ""},
+        {"api_ticket": ""},
+        {"api_key": "secret-key", "api_ticket": ""},
+        {"api_ticket": "secret-ticket", "api_key": ""},
+        {"api_key": ["secret-key"]},
+        {"api_ticket": ["secret-ticket"]},
+        {"api_key": 123},
+        {"api_ticket": 123},
+    ],
+)
+def test_stdio_credentials_reject_invalid_combinations(credentials, from_document):
+    document = {"url": "https://dev.example.com", **credentials}
+    with pytest.raises(ValidationError) as exc_info:
+        if from_document:
+            StdioDSSInstanceConfig.model_validate(document)
+        else:
+            StdioDSSInstanceConfig(**document)
+
+    assert "secret-key" not in str(exc_info.value)
+    assert "secret-ticket" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+def test_stdio_credentials_are_hidden_from_representations(credential):
+    secret = "do-not-print-this-credential"
+    config = StdioDSSInstanceConfig(
+        url="https://dev.example.com", **{credential: secret}
+    )
+
+    assert secret not in repr(config)
+    assert secret not in repr(config.to_instance("dev"))
+
+
 def test_stdio_instance_config_converts_to_runtime_instance():
     config = StdioDSSInstanceConfig(
         url="https://dev.example.com",
@@ -384,6 +457,47 @@ def test_stdio_environment_uses_validated_instance(monkeypatch):
     assert instance.url == "https://dev.example.com"
     assert instance.api_key == "api-key"
     assert instance.source == "environment"
+
+
+@pytest.fixture
+def code_studio_environment(monkeypatch):
+    monkeypatch.setenv("DKU_IS_CODE_STUDIO", "1")
+    monkeypatch.setenv("DKU_BACKEND_PROTOCOL", "https")
+    monkeypatch.setenv("DKU_BACKEND_HOST", "studio.example.com")
+    monkeypatch.setenv("DKU_BACKEND_PORT", "443")
+    # Ordinary API-key environment settings must not override Code Studio.
+    monkeypatch.setenv("DKU_DSS_URL", "https://other.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "other-key")
+
+
+@pytest.mark.parametrize("instance_name", [None, "custom-studio"])
+def test_code_studio_environment_uses_ticket(
+    monkeypatch, code_studio_environment, instance_name
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    if instance_name is not None:
+        monkeypatch.setenv("DKU_INSTANCE_NAME", instance_name)
+    stdio.initialize_config()
+
+    instance = stdio.get_current_instance()
+    assert instance.name == (instance_name or "dss-code-studio")
+    assert instance.url == "https://studio.example.com:443"
+    assert instance.api_key is None
+    assert instance.api_ticket == "studio-ticket"
+    assert instance.source == "environment"
+
+
+@pytest.mark.parametrize("ticket", [None, ""])
+def test_code_studio_environment_requires_ticket(
+    monkeypatch, code_studio_environment, ticket
+):
+    if ticket is not None:
+        monkeypatch.setenv("DKU_API_TICKET", ticket)
+
+    with pytest.raises(
+        ValueError, match="Invalid stdio environment settings in Code Studio"
+    ):
+        stdio.initialize_config()
 
 
 def test_stdio_getters_use_the_startup_snapshot(monkeypatch):

@@ -30,9 +30,10 @@ from pydantic import (
 class DSSInstance:
     name: str
     url: str
-    api_key: str = field(repr=False)
     no_check_certificate: bool
     source: str
+    api_key: str | None = field(default=None, repr=False)
+    api_ticket: str | None = field(default=None, repr=False)
     description: str = ""
     delegated_audience: str = ""
     delegated_scope: str = ""
@@ -56,7 +57,14 @@ class _DSSInstanceConfig(_StrictConfigModel):
 
 
 class StdioDSSInstanceConfig(_DSSInstanceConfig):
-    api_key: NonEmptyString = Field(repr=False)
+    api_key: NonEmptyString | None = Field(default=None, repr=False)
+    api_ticket: NonEmptyString | None = Field(default=None, repr=False)
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> "StdioDSSInstanceConfig":
+        if (self.api_key is None) == (self.api_ticket is None):
+            raise ValueError("Exactly one of api_key or api_ticket must be provided")
+        return self
 
     def to_instance(
         self,
@@ -68,6 +76,7 @@ class StdioDSSInstanceConfig(_DSSInstanceConfig):
             name=name,
             url=self.url,
             api_key=self.api_key,
+            api_ticket=self.api_ticket,
             no_check_certificate=self.no_check_certificate,
             source=source,
             description=self.description,
@@ -162,7 +171,6 @@ class HTTPDSSInstanceConfig(_DSSInstanceConfig):
         return DSSInstance(
             name=name,
             url=self.url,
-            api_key="",
             no_check_certificate=self.no_check_certificate,
             source="http",
             description=self.description,

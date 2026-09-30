@@ -43,7 +43,12 @@ class _FakeClient:
 
 def _instance(name: str) -> DSSInstance:
     return DSSInstance(
-        name, f"https://{name}.example", API_KEY, False, "config", f"{name} desc"
+        name=name,
+        url=f"https://{name}.example",
+        api_key=API_KEY,
+        no_check_certificate=False,
+        source="config",
+        description=f"{name} desc",
     )
 
 
