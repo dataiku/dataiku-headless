@@ -14,12 +14,14 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
-    "shortDescription": "Inspect and build Dataiku projects with Cobuild",
+    "shortDescription": "Build AI and data apps",
     "longDescription": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
     "developerName": "Dataiku",
-    "category": "developer-tools",
+    "category": "Data & Analytics",
     "capabilities": ["Interactive", "Write"],
     "websiteURL": "https://github.com/dataiku/dataiku-headless",
+    "supportURL": "https://support.dataiku.com",
+    "privacyPolicyURL": "https://www.dataiku.com/legal/privacy",
     "defaultPrompt": [
       "Set up Dataiku Headless",
       "How many projects are in this Dataiku instance?"
