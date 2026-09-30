@@ -5,7 +5,7 @@
 - **plugins**: add Cursor-native manifest (#164)
 - **projects**: support Cobuild instructions in project settings (#162)
 - **coco**: added plugin.json for coco support (#160)
-- **tools**: execution overrides tool (#140)
+- **tools**: configure container execution settings (#140)
 
 ### Fix
 
