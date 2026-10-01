@@ -26,7 +26,6 @@ from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
-_LEGACY_SETTINGS_FILENAME = "config.json"
 
 logger = logging.getLogger("dataiku-mcp")
 
