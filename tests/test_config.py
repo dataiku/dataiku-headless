@@ -788,7 +788,6 @@ def test_certificate_file_is_removed_on_process_exit(localhost_certificate):
     )
     path = Path(result.stdout.strip())
     assert not path.exists()
-    assert not path.parent.exists()
 
 
 @pytest.mark.parametrize("certificate", [None, ""])

@@ -14,6 +14,7 @@
 
 """Local stdio configuration from environment variables and profile files."""
 
+import atexit
 import logging
 import os
 import ssl
@@ -36,7 +37,6 @@ _settings_path: Path | None = None
 _settings_lock = threading.Lock()
 _config: StdioConfig | None = None
 _environment_instances: list[DSSInstance] = []
-_certificate_directory: tempfile.TemporaryDirectory | None = None
 _current_instance: DSSInstance | None = None
 
 
@@ -112,7 +112,6 @@ def get_settings_path() -> Path:
 
 def _write_encrypted_rpc_certificate(certificate: str) -> str:
     """Keep a validated PEM certificate available until process shutdown."""
-    global _certificate_directory
     try:
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(
             cadata=certificate
@@ -121,15 +120,14 @@ def _write_encrypted_rpc_certificate(certificate: str) -> str:
         raise ValueError(
             "Invalid Code Studio DKU_SERVER_CERT: expected a PEM certificate"
         ) from None
-    if _certificate_directory is None:
-        _certificate_directory = tempfile.TemporaryDirectory(prefix="dataiku-rpc-")
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",
+        prefix="dataiku-rpc-",
         suffix=".pem",
-        dir=_certificate_directory.name,
         delete=False,
     ) as certificate_file:
+        atexit.register(Path(certificate_file.name).unlink, missing_ok=True)
         certificate_file.write(certificate)
         return certificate_file.name
 
@@ -170,7 +168,7 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
             )
             instance = StdioDSSInstanceConfig(
                 url=backend_url,
-                api_ticket=os.environ.get("DKU_API_TICKET"),
+                api_ticket=os.environ["DKU_API_TICKET"],
             )
         except KeyError as err:
             raise ValueError(
