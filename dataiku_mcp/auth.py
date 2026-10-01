@@ -48,29 +48,15 @@ def get_govern_client() -> dataikuapi.GovernClient:
     `DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY` win when set. Otherwise the
     active instance profile must carry a Govern URL and API key, entered
     through `configure_instance`.
-
-    Govern accepts only API keys, not delegated tokens. In HTTP mode the
-    environment key must be a Govern admin key: each call runs as the caller's
-    Dataiku login through the proxy-user header, so Govern applies that
-    user's permissions.
     """
-    connection = stdio.get_govern_connection_from_env()
-    extra_headers = None
     if request.is_http_request():
-        if connection is None:
-            raise ValueError(
-                "No Govern node is configured for HTTP mode. An administrator must "
-                "set DKU_GOVERN_URL and DKU_GOVERN_API_KEY (a Govern admin key) in "
-                "the MCP server environment."
-            )
-        login = get_dss_client().get_auth_info().get("associatedDSSUser")
-        if not login:
-            raise PermissionError(
-                "The Dataiku token is not tied to a Dataiku user, so the Govern "
-                "call cannot run as a user."
-            )
-        extra_headers = {"X-DKU-ProxyUser": login}
-    elif connection is None:
+        raise ValueError(
+            "The govern tool is available only in local stdio mode. A Govern "
+            "node accepts only API keys, not the delegated tokens that HTTP mode "
+            "uses."
+        )
+    connection = stdio.get_govern_connection_from_env()
+    if connection is None:
         current_instance = request.get_pinned_instance()
         connection = stdio.govern_connection_for_instance(current_instance)
         if not connection.url:
@@ -90,9 +76,7 @@ def get_govern_client() -> dataikuapi.GovernClient:
             f"The Govern node at {connection.url} has no API key. Set {source}."
         )
 
-    client = dataikuapi.GovernClient(
-        connection.url, connection.api_key, extra_headers=extra_headers
-    )
+    client = dataikuapi.GovernClient(connection.url, connection.api_key)
     client._session.verify = not connection.no_check_certificate
     return client
 
