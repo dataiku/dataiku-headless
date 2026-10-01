@@ -497,9 +497,12 @@ def test_code_studio_environment_requires_ticket(
     if ticket is not None:
         monkeypatch.setenv("DKU_API_TICKET", ticket)
 
-    with pytest.raises(
-        ValueError, match="Invalid stdio environment settings in Code Studio"
-    ):
+    message = (
+        "Missing Code Studio environment setting: DKU_API_TICKET"
+        if ticket is None
+        else "Invalid stdio environment settings in Code Studio"
+    )
+    with pytest.raises(ValueError, match=message):
         stdio.initialize_config()
 
 
