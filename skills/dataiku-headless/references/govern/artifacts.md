@@ -15,8 +15,9 @@ Blueprints and versions:
 Artifacts:
 
 - `search_artifacts` with `blueprint_ids`, `blueprint_version_ids`, `artifact_ids`,
-  `field_filters`, `archived`, and `sort`. Each hit nests the record under
-  `artifact`. The result carries `count` and `has_more`; when `has_more` is true,
+  `field_filters`, `archived`, and `sort`. Each hit holds the artifact `id`,
+  `name`, `blueprintVersionId`, and `status`; call `get_artifact` for its fields
+  and workflow. The result carries `count` and `has_more`; when `has_more` is true,
   raise `max_results` or narrow the filters before calling the inventory complete.
   A field filter is `{"condition_type": "CONTAINS", "condition": "churn"}` for the
   name, or adds `field_id` for one field.

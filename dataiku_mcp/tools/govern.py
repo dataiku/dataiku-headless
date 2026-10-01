@@ -41,6 +41,7 @@ from dataikuapi.govern.artifact_search import (
     GovernArtifactSearchSortName,
     GovernArtifactSearchSortWorkflow,
 )
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 
 from ..server import mcp
@@ -160,10 +161,20 @@ def _users_container(value: Any) -> dict[str, Any]:
 
 
 def _replace_raw(definition, new_raw: dict[str, Any]):
-    """Replace a mutable SDK definition in place so ``save()`` sends ``new_raw``."""
+    """Replace a mutable SDK definition in place so ``save()`` sends ``new_raw``.
+
+    Identity keys the caller omits are kept: the operation already names the
+    object, and Govern refuses a body whose ID does not match the URL.
+    """
     raw = definition.get_raw()
+    identity = {
+        key: raw[key]
+        for key in ("id", "blueprintId")
+        if key in raw and key not in new_raw
+    }
     raw.clear()
     raw.update(new_raw)
+    raw.update(identity)
     return definition
 
 
@@ -203,7 +214,7 @@ def _pages(client):
     "search_artifacts",
     domain="artifacts",
     kind="read",
-    description="Search artifacts with optional blueprint, version, artifact, field and archived filters.",
+    description="Search artifacts with optional blueprint, version, artifact, field and archived filters. Each hit holds id, name, blueprintVersionId and status; get_artifact returns fields and workflow.",
     sdk="GovernClient.new_artifact_search_request",
     params=(
         _p("blueprint_ids", "list", "Blueprint IDs to keep."),
@@ -293,7 +304,15 @@ def _search_artifacts(client, p):
             if len(hits) >= max_results:
                 has_more = True
                 break
-            hits.append(hit.get_raw())
+            # A raw hit embeds the whole blueprint version (about 20 KB).
+            artifact = hit.get_raw().get("artifact", {})
+            hits.append(
+                {
+                    key: artifact[key]
+                    for key in ("id", "name", "blueprintVersionId", "status")
+                    if key in artifact
+                }
+            )
         if has_more or len(batch) < page_size:
             break
     return {"count": len(hits), "has_more": has_more, "hits": hits}
@@ -1908,6 +1927,18 @@ async def govern(
     def _run():
         client = get_govern_client()
         _require_govern_node(client)
-        return spec.run(client, params)
+        try:
+            return spec.run(client, params)
+        except DataikuException as err:
+            # A proxy such as Dataiku Cloud's answers a 404 with an HTML page.
+            message = str(err).lower()
+            if "<!doctype html" in message or "<html" in message:
+                raise ValueError(
+                    f"Govern answered '{operation}' with an HTML error page, not an "
+                    "API error. The object most likely does not exist or this API "
+                    "key cannot see it; check its identifiers with a list or search "
+                    "operation."
+                ) from None
+            raise
 
     return compact_json(await run_blocking(_run))
