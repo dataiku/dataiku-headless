@@ -51,8 +51,9 @@ def get_govern_client() -> dataikuapi.GovernClient:
     """
     if request.is_http_request():
         raise ValueError(
-            "The govern tool is available only in local stdio mode. HTTP mode "
-            "has no per-user Govern credentials."
+            "The govern tool is available only in local stdio mode. A Govern "
+            "node accepts only API keys, not the delegated tokens that HTTP mode "
+            "uses."
         )
     connection = stdio.get_govern_connection_from_env()
     if connection is None:

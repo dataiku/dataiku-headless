@@ -37,6 +37,10 @@ node fields of the active instance profile, entered through `configure_instance`
 Environment variables win. `get_current_instance` shows `govern_url` and whether a
 Govern key is present; it never shows the key.
 
+The tool works only in local stdio mode. A Govern node accepts API keys, not the
+delegated tokens that the HTTP mode uses, so in HTTP mode the tool returns an
+error; report it and do not look for another way in.
+
 Start a Govern task with `get_instance_info`: it confirms the node type is
 `GOVERN` and reports the server version. Then `get_auth_info` tells which identity
 signs the work. A global API key has no user behind it: `get_own_user` fails and
