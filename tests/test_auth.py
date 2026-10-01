@@ -61,7 +61,11 @@ def test_client_uses_selected_authentication(
         "api_ticket": {"internal_ticket": "api-ticket"},
         "http": {"jwt_bearer_token": "delegated-token"},
     }
-    assert captured == {"url": instance.url, **expected[credential]}
+    assert captured == {
+        "url": instance.url,
+        "extra_headers": {"X-DKU-Client-Application": "dataiku-headless"},
+        **expected[credential],
+    }
     assert client._session.verify is not no_check_certificate
 
 
