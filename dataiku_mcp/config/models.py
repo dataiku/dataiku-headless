@@ -34,6 +34,7 @@ class DSSInstance:
     source: str
     api_key: str | None = field(default=None, repr=False)
     api_ticket: str | None = field(default=None, repr=False)
+    encrypted_rpc_cert_path: str | None = field(default=None, repr=False)
     description: str = ""
     delegated_audience: str = ""
     delegated_scope: str = ""
@@ -71,12 +72,14 @@ class StdioDSSInstanceConfig(_DSSInstanceConfig):
         name: str,
         *,
         source: str = "config",
+        encrypted_rpc_cert_path: str | None = None,
     ) -> DSSInstance:
         return DSSInstance(
             name=name,
             url=self.url,
             api_key=self.api_key,
             api_ticket=self.api_ticket,
+            encrypted_rpc_cert_path=encrypted_rpc_cert_path,
             no_check_certificate=self.no_check_certificate,
             source=source,
             description=self.description,

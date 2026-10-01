@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ssl
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from dataiku_mcp import auth
-from dataiku_mcp.config import request
+from dataiku_mcp.config import request, stdio
 from dataiku_mcp.config.models import DSSInstance
 
 
@@ -78,3 +82,76 @@ def test_client_ticket_uses_sdk_ticket_header(monkeypatch):
     assert client.api_key is None
     assert client._session.auth is None
     assert client._session.headers["X-DKU-APITicket"] == "studio-ticket"
+
+
+@pytest.mark.parametrize("disabled", [False, True])
+def test_client_reuses_certificate_path(monkeypatch, localhost_certificate, disabled):
+    pem, _, _ = localhost_certificate
+    path = stdio._write_encrypted_rpc_certificate(pem)
+    instance = DSSInstance(
+        name="studio",
+        url="https://localhost",
+        source="environment",
+        api_ticket="ticket",
+        no_check_certificate=disabled,
+        encrypted_rpc_cert_path=path,
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+    for _ in range(2):
+        client = auth.get_dss_client()
+        assert client._session.verify == (False if disabled else path)
+        client._session.close()
+
+
+@pytest.mark.parametrize("mode", ["trusted", "untrusted", "wrong_hostname"])
+def test_client_verifies_local_https(monkeypatch, localhost_certificate, mode):
+    pem, cert_path, key_path = localhost_certificate
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            assert self.headers["X-DKU-APITicket"] == "test-ticket"
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"verified")
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(cert_path), str(key_path))
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        hostname = "127.0.0.1" if mode == "wrong_hostname" else "localhost"
+        instance = DSSInstance(
+            name="studio",
+            url=f"https://{hostname}:{server.server_port}",
+            source="code-studio-environment",
+            no_check_certificate=False,
+            api_ticket="test-ticket",
+            encrypted_rpc_cert_path=(
+                None
+                if mode == "untrusted"
+                else stdio._write_encrypted_rpc_certificate(pem)
+            ),
+        )
+        monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+        monkeypatch.setattr(request, "is_http_request", lambda: False)
+        client = auth.get_dss_client()
+        # Keep the test independent of workstation proxies and CA overrides.
+        client._session.trust_env = False
+        with client._session:
+            if mode == "trusted":
+                response = client._session.get(instance.url, timeout=3)
+                assert response.status_code == 200
+                assert response.content == b"verified"
+            else:
+                with pytest.raises(requests.exceptions.SSLError):
+                    client._session.get(instance.url, timeout=3)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)

@@ -21,7 +21,8 @@
         "DKU_BACKEND_PROTOCOL",
         "DKU_BACKEND_HOST",
         "DKU_BACKEND_PORT",
-        "DKU_API_TICKET"
+        "DKU_API_TICKET",
+        "DKU_SERVER_CERT"
       ]
     }
   }

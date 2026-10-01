@@ -118,6 +118,7 @@ async def get_current_instance(ctx: Context) -> str:
     current_instance = asdict(request.get_pinned_instance())
     current_instance.pop("api_key", None)
     current_instance.pop("api_ticket", None)
+    current_instance.pop("encrypted_rpc_cert_path", None)
     current_instance["connection_status"] = "failed"
     try:
         client = get_dss_client()

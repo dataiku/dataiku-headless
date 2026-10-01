@@ -16,6 +16,8 @@
 
 import logging
 import os
+import ssl
+import tempfile
 import threading
 from pathlib import Path
 
@@ -33,7 +35,8 @@ logger = logging.getLogger("dataiku-mcp")
 _settings_path: Path | None = None
 _settings_lock = threading.Lock()
 _config: StdioConfig | None = None
-_environment_instance: DSSInstance | None = None
+_environment_instances: list[DSSInstance] = []
+_certificate_directory: tempfile.TemporaryDirectory | None = None
 _current_instance: DSSInstance | None = None
 
 
@@ -86,7 +89,7 @@ def _resolve_default_settings_path() -> Path:
 
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
-    global _config, _current_instance, _environment_instance, _settings_path
+    global _config, _current_instance, _environment_instances, _settings_path
     if "DKU_CONFIG_FILE" in os.environ:
         raise ValueError(
             "DKU_CONFIG_FILE is deprecated. Use --settings-path to select the "
@@ -97,7 +100,7 @@ def set_settings_path(path: Path | None) -> Path:
     else:
         _settings_path = _resolve_default_settings_path()
     _config = None
-    _environment_instance = None
+    _environment_instances = []
     _current_instance = None
     return _settings_path
 
@@ -107,9 +110,59 @@ def get_settings_path() -> Path:
     return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
-def _load_instance_from_env_vars() -> DSSInstance | None:
-    # Code Studio supplies an internal API ticket instead of an API key.
+def _write_encrypted_rpc_certificate(certificate: str) -> str:
+    """Keep a validated PEM certificate available until process shutdown."""
+    global _certificate_directory
+    try:
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(
+            cadata=certificate
+        )
+    except (ssl.SSLError, ValueError):
+        raise ValueError(
+            "Invalid Code Studio DKU_SERVER_CERT: expected a PEM certificate"
+        ) from None
+    if _certificate_directory is None:
+        _certificate_directory = tempfile.TemporaryDirectory(prefix="dataiku-rpc-")
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        suffix=".pem",
+        dir=_certificate_directory.name,
+        delete=False,
+    ) as certificate_file:
+        certificate_file.write(certificate)
+        return certificate_file.name
+
+
+def _load_instances_from_env_vars() -> list[DSSInstance]:
+    """Load the explicit target first, followed by the hosting Code Studio DSS."""
+    instances = []
+    if os.environ.get("DKU_DSS_URL"):
+        no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
+        try:
+            instance = StdioDSSInstanceConfig(
+                url=os.environ["DKU_DSS_URL"],
+                api_key=os.environ.get("DKU_API_KEY", ""),
+                no_check_certificate=(
+                    bool(no_check_certificate)
+                    and no_check_certificate.lower() != "false"
+                ),
+            )
+        except ValidationError as err:
+            raise ValueError(f"Invalid stdio environment settings: {err}") from None
+        instances.append(
+            instance.to_instance(
+                name=os.environ.get("DKU_INSTANCE_NAME", "dataiku-from-env"),
+                source="environment",
+            )
+        )
+
     if os.environ.get("DKU_IS_CODE_STUDIO"):
+        if any(instance.name == "dataiku-from-code-studio" for instance in instances):
+            raise ValueError(
+                "Duplicate environment instance name 'dataiku-from-code-studio': change "
+                "DKU_INSTANCE_NAME to distinguish the explicit instance from the Code Studio instance."
+            )
         try:
             backend_url = (
                 f"{os.environ['DKU_BACKEND_PROTOCOL']}://"
@@ -119,34 +172,26 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
                 url=backend_url,
                 api_ticket=os.environ.get("DKU_API_TICKET"),
             )
+        except KeyError as err:
+            raise ValueError(
+                f"Missing Code Studio environment setting: {err.args[0]}"
+            ) from None
         except ValidationError as err:
             raise ValueError(
                 f"Invalid stdio environment settings in Code Studio: {err}"
             ) from None
-        return instance.to_instance(
-            name="dataiku",
-            source="code-studio-environment",
+        certificate = os.environ.get("DKU_SERVER_CERT")
+        certificate_path = (
+            _write_encrypted_rpc_certificate(certificate) if certificate else None
         )
-
-    # Documented logic for loading a Dataiku instance from env vars
-    if not os.environ.get("DKU_DSS_URL"):
-        return None
-
-    no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
-    try:
-        instance = StdioDSSInstanceConfig(
-            url=os.environ["DKU_DSS_URL"],
-            api_key=os.environ.get("DKU_API_KEY", ""),
-            no_check_certificate=(
-                bool(no_check_certificate) and no_check_certificate.lower() != "false"
-            ),
+        instances.append(
+            instance.to_instance(
+                name="dataiku-from-code-studio",
+                source="code-studio-environment",
+                encrypted_rpc_cert_path=certificate_path,
+            )
         )
-    except ValidationError as err:
-        raise ValueError(f"Invalid stdio environment settings: {err}") from None
-    return instance.to_instance(
-        name=os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
-        source="environment",
-    )
+    return instances
 
 
 def _load_config() -> StdioConfig:
@@ -176,11 +221,13 @@ def _get_config() -> StdioConfig:
 
 def initialize_config() -> None:
     """Load and cache stdio profiles and the active instance."""
-    global _config, _current_instance, _environment_instance
-    _environment_instance = _load_instance_from_env_vars()
+    global _config, _current_instance, _environment_instances
+    # Resolve the path before loading environment state: path selection resets caches.
+    get_settings_path()
+    _environment_instances = _load_instances_from_env_vars()
     _config = _load_config()
-    if _environment_instance:
-        _current_instance = _environment_instance
+    if _environment_instances:
+        _current_instance = _environment_instances[0]
     elif _config.default_instance:
         _current_instance = _config.dss_instances[_config.default_instance].to_instance(
             _config.default_instance
@@ -190,14 +237,12 @@ def initialize_config() -> None:
 
 
 def get_instances() -> dict[str, DSSInstance]:
-    """Return cached instances, with the environment instance taking precedence."""
+    """Return cached instances, with environment instances taking precedence."""
     instances = {
         name: instance.to_instance(name)
         for name, instance in _get_config().dss_instances.items()
     }
-    if _environment_instance:
-        return instances | {_environment_instance.name: _environment_instance}
-    return instances
+    return instances | {instance.name: instance for instance in _environment_instances}
 
 
 def get_current_instance() -> DSSInstance | None:

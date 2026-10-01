@@ -44,9 +44,16 @@ export DKU_API_KEY="your-api-key"
   keyword arguments when constructing runtime instances.
 - When `DKU_IS_CODE_STUDIO` is non-empty, environment loading uses
   `DKU_API_TICKET` and builds the URL from `DKU_BACKEND_PROTOCOL`,
-  `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. This takes precedence over the
-  ordinary `DKU_DSS_URL` / `DKU_API_KEY` environment configuration; a missing or
-  empty ticket fails validation rather than falling back to an API key.
+  `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. Load the explicit
+  `DKU_DSS_URL` / `DKU_API_KEY` instance first and the Code Studio instance second;
+  both remain switchable. Reject duplicate environment names. Missing or invalid
+  credentials fail validation rather than silently discarding an instance.
+- Store raw PEM `DKU_SERVER_CERT` in a private process-owned temporary file and
+  carry its path as runtime-only `encrypted_rpc_cert_path`. Keep files alive
+  across configuration resets for pinned requests and clients, and clean up at
+  process shutdown. Never return certificate paths in tool responses or persist
+  them in profiles. Client verification uses the path or the normal trust store;
+  only explicit environment instances honor `DKU_NO_CHECK_CERTIFICATE`.
 - Client construction maps `api_key` to the SDK's `api_key` parameter and
   `api_ticket` to `internal_ticket`. HTTP requests continue to use delegated
   `jwt_bearer_token` authentication and do not use the stdio credential rule.

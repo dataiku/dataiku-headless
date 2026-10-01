@@ -46,7 +46,11 @@ def get_dss_client() -> dataikuapi.DSSClient:
             current_instance.url,
             api_key=current_instance.api_key,
         )
-    client._session.verify = not current_instance.no_check_certificate
+    client._session.verify = (
+        False
+        if current_instance.no_check_certificate
+        else current_instance.encrypted_rpc_cert_path or True
+    )
     return client
 
 

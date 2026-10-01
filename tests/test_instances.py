@@ -120,6 +120,7 @@ def test_get_current_instance_never_returns_credentials(
         url="https://dev.example.com",
         no_check_certificate=False,
         source="code-studio-environment" if credential == "api_ticket" else "config",
+        encrypted_rpc_cert_path="/private/test-certificate.pem",
         **{credential: secret},
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
@@ -135,6 +136,8 @@ def test_get_current_instance_never_returns_credentials(
 
     assert "api_key" not in result
     assert "api_ticket" not in result
+    assert "encrypted_rpc_cert_path" not in result
+    assert instance.encrypted_rpc_cert_path not in response
     assert secret not in response
     assert result["name"] == instance.name
     assert result["source"] == instance.source
