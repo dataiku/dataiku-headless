@@ -41,17 +41,25 @@ def _json(path: Path) -> dict:
 def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     output = tmp_path / "dataiku-headless-http"
     endpoint = "https://mcp.customer.example/mcp"
-    source_mcp = (ROOT / ".mcp.json").read_text(encoding="utf-8")
+    source_plugin = _json(ROOT / "plugin.json")
+    source_mcp = _json(ROOT / "mcp.json")
     source_codex = _json(ROOT / ".codex-plugin" / "plugin.json")
     source_claude = _json(ROOT / ".claude-plugin" / "plugin.json")
 
     result = _run("--url", endpoint, "--output", str(output))
 
     assert result.returncode == 0, result.stderr
-    assert _json(output / ".mcp.json")["mcpServers"]["dataiku"] == {
-        "type": "http",
+    rendered_plugin = _json(output / "plugin.json")
+    rendered_mcp = _json(output / "mcp.json")
+    assert rendered_plugin["name"] == "dataiku-headless-http"
+    assert rendered_plugin["version"] == source_plugin["version"]
+    assert rendered_plugin["$schema"] == source_plugin["$schema"]
+    assert rendered_mcp["mcpServers"]["dataiku"] == {
+        "type": "streamable-http",
         "url": endpoint,
     }
+    assert rendered_mcp["$schema"] == source_mcp["$schema"]
+    assert not (output / ".mcp.json").exists()
     assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"][
         "dataiku"
     ] == {"type": "http", "url": endpoint}
@@ -66,6 +74,8 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     rendered_claude = _json(output / ".claude-plugin" / "plugin.json")
     assert rendered_codex["version"] == source_codex["version"]
     assert rendered_codex["description"] == source_codex["description"]
+    assert "skills" not in rendered_codex
+    assert "mcpServers" not in rendered_codex
     assert rendered_claude["version"] == source_claude["version"]
     assert rendered_claude["description"] == source_claude["description"]
 
@@ -89,7 +99,7 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     assert "API key" not in setup
     assert "Never call `configure_instance` or `delete_instance`" in setup
     assert not (output / "skills" / "dataiku-headless-setup" / "references").exists()
-    assert (ROOT / ".mcp.json").read_text(encoding="utf-8") == source_mcp
+    assert _json(ROOT / "mcp.json") == source_mcp
 
 
 def test_renders_zip_with_one_plugin_root(tmp_path):
@@ -108,7 +118,9 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert archive.is_file()
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
-        assert "dataiku-headless-http/.mcp.json" in bundle.namelist()
+        assert "dataiku-headless-http/plugin.json" in bundle.namelist()
+        assert "dataiku-headless-http/mcp.json" in bundle.namelist()
+        assert "dataiku-headless-http/.mcp.json" not in bundle.namelist()
         assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
             bundle.namelist()
         )

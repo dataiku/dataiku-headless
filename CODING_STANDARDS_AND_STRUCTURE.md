@@ -32,6 +32,7 @@ export DKU_API_KEY="your-api-key"
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
 | Project/dataset/folder/recipe/ML skills | `skills/**/SKILL.md` |
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
+| Portable Agent Plugins package | root `plugin.json` + `mcp.json` (keep harness manifests in sync for MCP launch) |
 
 ## Error Handling
 - Prefer simple, readable tool handlers: keep top-level control flow short, avoid repeated Dataiku lookups, and use local helpers only when they improve clarity.

@@ -10,8 +10,6 @@
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
     "shortDescription": "Build AI and data apps",
