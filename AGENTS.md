@@ -28,7 +28,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - Plugin launch configuration: `.mcp.json`, `.claude-plugin/plugin.json`, and `.codex-plugin/plugin.json`.
 - User-facing installation and architecture overview: `README.md`.
 - Release behavior: `RELEASE.md` and `.github/workflows/bump.yml`.
-- CI behavior: `.github/workflows/ci.yml` and `.github/workflows/pr-title.yml`.
+- CI behavior: `.github/workflows/ci.yml`, `.github/workflows/pr-title.yml`, and `.github/workflows/cla.yml`.
 
 Do not copy volatile inventories, versions, or command details into this file when a source above can be referenced instead.
 

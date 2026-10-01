@@ -43,6 +43,12 @@ _SUPPORTED_PROJECT_SETTINGS = {
     "container.containerConf": str,
     "containerForVisualRecipesWorkloads.containerMode": _CONTAINER_MODES,
     "containerForVisualRecipesWorkloads.containerConf": str,
+    "cobuildSettings.customSystemPrompt": str,
+    "cobuildSettings.customPromptMode": {
+        "USE_GLOBAL",
+        "APPEND_TO_GLOBAL",
+        "OVERRIDE_GLOBAL",
+    },
     **{
         path: bool
         for path in (

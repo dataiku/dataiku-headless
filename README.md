@@ -48,7 +48,7 @@ Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Co
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
-![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v1/headless_install_setup_codex.gif)
+![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
 
 Once connected, you can build in Dataiku.
 
@@ -304,6 +304,8 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
+├── .cursor-plugin/
+│   └── plugin.json             # Cursor-native plugin manifest
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest
 ├── .mcp.json                   # Bundled Codex/ChatGPT MCP config

@@ -1,3 +1,16 @@
+## v0.7.0 (2026-09-30)
+
+### Feat
+
+- **plugins**: add Cursor-native manifest (#164)
+- **projects**: support Cobuild instructions in project settings (#162)
+- **coco**: added plugin.json for coco support (#160)
+- **tools**: configure container execution settings (#140)
+
+### Fix
+
+- **libraries**: place Python source under /python/ by convention (#161)
+
 ## v0.6.0 (2026-09-21)
 
 ### Feat
