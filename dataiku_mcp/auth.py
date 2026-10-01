@@ -35,9 +35,14 @@ def get_dss_client() -> dataikuapi.DSSClient:
         client = dataikuapi.DSSClient(
             current_instance.url,
             jwt_bearer_token=request.get_http_dss_token(),
+            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
         )
     else:
-        client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
+        client = dataikuapi.DSSClient(
+            current_instance.url,
+            current_instance.api_key,
+            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+        )
     client._session.verify = not current_instance.no_check_certificate
     return client
 
