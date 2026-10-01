@@ -1,0 +1,27 @@
+name: Usage question
+description: Ask for help using or configuring dataiku-headless.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, customer data, instance URLs, or identifiers
+        copied from a real Dataiku environment.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you blocked?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        Share what you tried, relevant versions, and sanitized error output, if
+        useful.
+    validations:
+      required: false

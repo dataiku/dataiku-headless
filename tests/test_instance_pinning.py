@@ -18,7 +18,9 @@ import asyncio
 
 from fastmcp import Client
 
-from dataiku_mcp import config, mcp
+from dataiku_mcp import mcp
+from dataiku_mcp.config import request, stdio
+from dataiku_mcp.config.models import DSSInstance
 from dataiku_mcp.tools import projects
 
 
@@ -36,20 +38,20 @@ class _FakeClient:
 
 
 def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
-    instance_a = config.DSSInstance(
+    instance_a = DSSInstance(
         "instance-a", "https://a.example", "key-a", False, "config"
     )
-    instance_b = config.DSSInstance(
+    instance_b = DSSInstance(
         "instance-b", "https://b.example", "key-b", False, "config"
     )
     observed_instances = []
     fake_client = _FakeClient()
 
-    monkeypatch.setattr(config, "_current_instance", instance_a)
+    monkeypatch.setattr(stdio, "_current_instance", instance_a)
 
     def get_client():
-        config._current_instance = instance_b
-        observed_instances.append(config.get_current_instance().name)
+        stdio._current_instance = instance_b
+        observed_instances.append(request.get_pinned_instance().name)
         return fake_client
 
     monkeypatch.setattr(projects, "get_dss_client", get_client)
@@ -65,4 +67,4 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
 
     assert not result.is_error
     assert observed_instances == ["instance-a"]
-    assert config.get_current_instance() == instance_b
+    assert stdio.get_current_instance() == instance_b

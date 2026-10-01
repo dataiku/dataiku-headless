@@ -1,0 +1,32 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "path": "/mcp",
+    "public_url": "https://mcp.example"
+  },
+  "auth": {
+    "provider": "generic_oidc",
+    "issuer": "https://idp.example/oauth2/mcp",
+    "jwks_uri": "https://idp.example/oauth2/mcp/keys",
+    "required_audience": "dataiku-mcp",
+    "required_scope": "mcp.access",
+    "interactive_login": {
+      "client_id": "dataiku-mcp",
+      "client_secret": "replace-with-secret"
+    },
+    "delegation": {
+      "token_endpoint": "https://idp.example/oauth2/token",
+      "client_id": "dataiku-mcp-exchange",
+      "client_secret": "replace-with-exchange-secret"
+    }
+  },
+  "dss_instances": {
+    "prod": {
+      "url": "https://dataiku.example",
+      "delegated_audience": "dataiku-prod",
+      "delegated_scope": "dataiku.api"
+    }
+  },
+  "user_selections": {}
+}

@@ -23,9 +23,20 @@
 
 ## About Dataiku Headless
 
-Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more. Connect a Dataiku Govern node too, and it can inspect and manage governed artifacts, blueprints, and signoffs through one `govern` tool.
+Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install it from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Dataiku Headless supports two connection modes:
+
+| Mode | MCP server | Authentication | Installation |
+| --- | --- | --- | --- |
+| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
+| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
+
+Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
+
+The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
+
+Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -37,7 +48,7 @@ Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Co
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
-![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v1/headless_install_setup_codex.gif)
+![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
 
 Once connected, you can build in Dataiku.
 
@@ -101,7 +112,7 @@ Add the following to your `.mcp.json` from a checkout of this repository:
   "mcp": {
     "dataiku": {
       "type": "local",
-      "command": ["uv", "run", "--quiet", "--locked", "--script", "./runtime/run_mcp.py"],
+      "command": ["uv", "run", "--quiet", "--locked", "--script", "./runtime/run_mcp.py", "--transport", "stdio"],
       "enabled": true
     }
   }
@@ -120,7 +131,7 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 ## Capability reference
 
@@ -128,33 +139,30 @@ For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
 
-Dataiku Govern is reached through a single `govern` tool: a fixed catalog of
-operations over the public Govern Python SDK, listed by the tool itself. The Govern
-node has its own URL and API key, entered on the `configure_instance` page or through
-`DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY`. See the
-[Govern guide](skills/dataiku-headless/references/govern.md).
-
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, Cobuild conversations, and Dataiku Govern.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication (env API key or `.dataiku/config.json`)
+- Server-side authentication for the local stdio plugin (env API key or `.dataiku/stdio-config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
-Tools do not accept API keys as arguments — authentication is resolved server-side from environment variables or a config file.
+In local stdio mode, tools do not accept API keys as arguments — authentication is
+resolved server-side from environment variables or a config file.
+
+For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
 
 ## Agent Skills
 
 `skills` exposes two prompt-based entrypoints: `dataiku-headless-setup` for first-time installation, runtime recovery, and instance configuration; and `dataiku-headless` for Dataiku work. The main entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
 
-The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, migrations, and Govern.
+The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
-## Onboarding and authentication
+## Stdio onboarding and authentication
 
-The onboarding flow is the same:
+The onboarding flow is:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
@@ -165,13 +173,20 @@ The API key never appears in MCP tool arguments.
 
 ### Where configuration lives
 
-The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. The server selects its configuration file once at startup, in this order:
+The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. Use `--settings-path PATH` to select an explicit path; otherwise, the server selects its configuration file once at startup in this order:
 
-1. The explicit `DKU_CONFIG_FILE` path, when set.
-2. An existing `./.dataiku/config.json` in the server's working directory.
-3. `~/.dataiku/config.json` otherwise.
+1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
+2. `~/.dataiku/stdio-config.json` otherwise.
 
-All reads, additions, and deletions use that same resolved path for the server process. See [`.dataiku/config.json.example`](.dataiku/config.json.example) for the file shape.
+On upgrade, a valid legacy `config.json` at either location is migrated automatically
+to `stdio-config.json` (the working-directory location takes precedence). Existing
+canonical files are used without inspecting a sibling `config.json`; invalid legacy
+files are left untouched and ignored. `DKU_CONFIG_FILE` is no longer supported;
+replace it with `--settings-path PATH` in the launcher configuration.
+
+The server loads environment and profile settings at startup. Profile additions and
+deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
+or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
 Environment variables are an explicit override:
 
@@ -183,10 +198,14 @@ DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
 ```
-`.env` only fills in variables not already set in your shell or launcher — a real environment variable of the same name always wins, even if it's empty.
+The canonical `runtime/run_mcp.py` launcher reads this file after validating its
+arguments and before importing the MCP package. `.env` only fills in variables
+not already set in your shell or launcher—a real environment variable of the
+same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
+not read `.env`; embedding callers must prepare their environment first.
 
 **Connect to multiple instances:**
-Put instance info in the resolved configuration file. See `.dataiku/config.json.example` for the expected shape.
+Put instance info in the resolved configuration file. See `.dataiku/stdio-config.json.example` for the expected shape.
 
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
@@ -199,7 +218,7 @@ Auth resolution order:
 Every install path above has your harness launch the server itself. Run it standalone only if you're testing it directly — from a clone of this repo:
 
 ```bash
-uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugin manifests use
+uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```
 
 ## Project Structure
@@ -207,12 +226,15 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 ```text
 .
 ├── dataiku_mcp/
+│   ├── auth.py                # Dataiku client creation and HTTP token exchange
+│   ├── executors.py           # Shared blocking and Cobuild executors
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
 │   │   ├── cobuild.py         # Cobuild conversation tools (start/send/confirm/list)
 │   │   ├── insights.py        # Insight inspection tools, especially chart insights
 │   │   ├── connections.py     # Dataiku connection discovery/test tools
+│   │   ├── container_exec.py  # Container execution placement write, by object type
 │   │   ├── cross_project_sharing.py  # Cross-project sharing inspection tools
 │   │   ├── data_collections.py  # Data Collection listing/inspection tools
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
@@ -220,7 +242,6 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
-│   │   ├── govern.py          # Single `govern` tool: fixed operation catalog over the Govern Python SDK
 │   │   ├── instances.py       # Multi-instance switching tools
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
@@ -238,11 +259,11 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Shared runtime utilities
-│   ├── config.py              # Instance/profile loading from config file + env vars
-│   ├── config_mcp.py          # MCP configuration
+│   │   └── utils/             # Tool validation and response-shaping utilities
+│   ├── config/                # Models, stdio/HTTP configuration, and request routing
+│   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
-│   └── __init__.py
+│   └── __init__.py            # Public API and tool-registration composition root
 ├── skills/
 │   └── dataiku-headless/
 │       ├── SKILL.md                # Single `dataiku-headless` entry skill: route, inspect, delegate, verify
@@ -253,11 +274,11 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │           ├── projects.md         # Project discovery, metadata, variables, and flow orientation
 │           ├── datasets.md         # Dataset inspection/profiling + Uploaded Files direct-write exception
 │           ├── recipes.md          # Recipe inspection and recipe-family routing
+│           ├── container-execution.md  # Container execution placement for one existing object
 │           ├── jobs.md             # Dataiku job tracking, waiting, aborting, and log inspection
 │           ├── connections.md      # Connection discovery and capability inspection
 │           ├── machine-learning.md # ML analysis, trained-model, and saved-model inspection
 │           ├── agents.md           # Agent and agent-tool inspection
-│           ├── govern.md           # Govern entry guide; govern/ holds the artifact, blueprint, signoff, and supporting-object guides
 │           ├── ...                 # Additional references for dashboards, insights, scenarios, wikis, migrations, and more
 │           └── recipes/            # Nested recipe-family and shared recipe references
 ├── runtime/
@@ -265,8 +286,10 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 │   ├── run_mcp.py              # Server entry point: PEP 723 script pinning the runtime deps inline
 │   └── run_mcp.py.lock         # Committed, full dependency resolution for the entry point
 ├── .claude-plugin/
-│   ├── plugin.json             # Claude Code plugin manifest (skills + unconfigured stdio MCP)
+│   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
+├── .cursor-plugin/
+│   └── plugin.json             # Cursor-native plugin manifest
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest
 ├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
@@ -276,7 +299,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py   # same command the plugi
 
 ## Contributing
 
-See `CODING_STANDARDS_AND_STRUCTURE.md` for local setup, coding standards, guardrails, and the PR checklist, and `RELEASE.md` for how versions and releases are cut.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; `RELEASE.md` covers how versions and releases are cut.
 
 ## License
 

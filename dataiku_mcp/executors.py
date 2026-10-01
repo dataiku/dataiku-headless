@@ -12,16 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Async executor for running blocking Dataiku API calls."""
+"""Shared executors for blocking Dataiku and Cobuild operations."""
 
 import asyncio
 import contextvars
+import os
 from concurrent.futures import ThreadPoolExecutor
 
-from ...config_mcp import DKU_MCP_MAX_COBUILD_WORKERS, DKU_MCP_MAX_WORKERS
-
-_executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_WORKERS)
-_cobuild_executor = ThreadPoolExecutor(max_workers=DKU_MCP_MAX_COBUILD_WORKERS)
+_executor = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("DKU_MCP_MAX_WORKERS", "4"))
+)
+# Bounds parallel blocking Cobuild calls; additional retained turns queue locally.
+_cobuild_executor = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("DKU_MCP_MAX_COBUILD_WORKERS", "4"))
+)
 
 
 async def run_blocking(func, *args, **kwargs):

@@ -19,6 +19,7 @@ import json
 
 import pytest
 
+from dataiku_mcp.config import request
 from dataiku_mcp.tools import datasets
 from dataiku_mcp.tools.datasets import _serialize_csv_value
 from tests.utils.fakes import FakeContext
@@ -28,13 +29,15 @@ class _FakeProject:
     def __init__(self, *, has_existing_dataset: bool):
         self.has_existing_dataset = has_existing_dataset
         self.create_called = False
+        self.created_dataset = None
 
     def list_datasets(self) -> list[dict]:
         return [{"name": "existing"}] if self.has_existing_dataset else []
 
     def create_upload_dataset(self, dataset_name: str, connection: str):
         self.create_called = True
-        return _CreatedDataset()
+        self.created_dataset = _CreatedDataset()
+        return self.created_dataset
 
 
 class _Settings:
@@ -78,9 +81,9 @@ def test_invalid_upload_file_does_not_create_a_dataset(monkeypatch, tmp_path):
             datasets.create_upload_dataset(
                 "PROJECT",
                 "new-dataset",
-                str(tmp_path / "missing.csv"),
                 FakeContext(),
-                connection="upload-connection",
+                "upload-connection",
+                filepath=str(tmp_path / "missing.csv"),
             )
         )
 
@@ -98,9 +101,9 @@ def test_existing_dataset_is_not_replaced(monkeypatch, tmp_path):
             datasets.create_upload_dataset(
                 "PROJECT",
                 "existing",
-                str(source_file),
                 FakeContext(),
-                connection="upload-connection",
+                "upload-connection",
+                filepath=str(source_file),
             )
         )
 
@@ -118,9 +121,9 @@ def test_new_upload_dataset_is_created_from_the_source_file(monkeypatch, tmp_pat
             datasets.create_upload_dataset(
                 "PROJECT",
                 "new-dataset",
-                str(source_file),
                 FakeContext(),
-                connection="upload-connection",
+                "upload-connection",
+                filepath=str(source_file),
             )
         )
     )
@@ -131,6 +134,159 @@ def test_new_upload_dataset_is_created_from_the_source_file(monkeypatch, tmp_pat
         "column_count": 1,
         "columns": {"columns": ["name", "type"], "rows": [["value", "bigint"]]},
     }
+
+
+def test_upload_dataset_accepts_bounded_rows(monkeypatch):
+    project = _FakeProject(has_existing_dataset=False)
+    monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
+
+    result = json.loads(
+        asyncio.run(
+            datasets.create_upload_dataset(
+                "PROJECT",
+                "new-dataset",
+                FakeContext(),
+                "upload-connection",
+                columns=["name", "active", "count", "missing"],
+                rows=[["Ada", True, 3, None]],
+            )
+        )
+    )
+
+    assert project.created_dataset.uploaded == (
+        "new-dataset.csv",
+        b"name,active,count,missing\r\nAda,true,3,\r\n",
+    )
+    assert result["filename"] == "new-dataset.csv"
+
+
+@pytest.mark.parametrize(
+    ("columns", "rows", "message"),
+    [
+        ([], [], "'columns' must be a non-empty list"),
+        (["value"], [["one", "two"]], r"'rows\[0\]' must contain exactly 1 values"),
+        (["value"], [[{"not": "scalar"}]], "Upload rows only support scalar"),
+    ],
+)
+def test_upload_dataset_validates_rows_before_creating_dataset(
+    monkeypatch, columns, rows, message
+):
+    project = _FakeProject(has_existing_dataset=False)
+    monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
+
+    with pytest.raises(ValueError, match=message):
+        asyncio.run(
+            datasets.create_upload_dataset(
+                "PROJECT",
+                "new-dataset",
+                FakeContext(),
+                "upload-connection",
+                columns=columns,
+                rows=rows,
+            )
+        )
+
+    assert project.create_called is False
+
+
+def test_upload_dataset_rejects_more_than_maximum_rows(monkeypatch):
+    project = _FakeProject(has_existing_dataset=False)
+    monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
+
+    with pytest.raises(ValueError, match="at most 10000 rows"):
+        asyncio.run(
+            datasets.create_upload_dataset(
+                "PROJECT",
+                "new-dataset",
+                FakeContext(),
+                "upload-connection",
+                columns=["value"],
+                rows=[["value"]] * 10_001,
+            )
+        )
+
+    assert project.create_called is False
+
+
+def test_upload_dataset_removes_temporary_file_when_row_validation_fails(monkeypatch):
+    created_paths = []
+    named_temporary_file = datasets.tempfile.NamedTemporaryFile
+
+    def track_temporary_file(*args, **kwargs):
+        temporary_file = named_temporary_file(*args, **kwargs)
+        created_paths.append(temporary_file.name)
+        return temporary_file
+
+    monkeypatch.setattr(datasets.tempfile, "NamedTemporaryFile", track_temporary_file)
+
+    with pytest.raises(ValueError, match=r"'rows\[0\]' must contain exactly 1 values"):
+        datasets._write_upload_rows_to_temp_csv("dataset", ["value"], [["one", "two"]])
+
+    assert created_paths
+    assert all(not datasets.os.path.exists(path) for path in created_paths)
+
+
+def test_http_upload_dataset_rejects_filepath_before_file_access(monkeypatch):
+    token = request.bind_http_identity("https://idp.example", "alice")
+    monkeypatch.setattr(
+        datasets,
+        "_create_uploaded_dataset_from_file",
+        lambda **kwargs: pytest.fail("local file helper must not run"),
+    )
+    try:
+        with pytest.raises(ValueError, match="filepath.*unavailable in HTTP mode"):
+            asyncio.run(
+                datasets.create_upload_dataset(
+                    "PROJECT",
+                    "new-dataset",
+                    FakeContext(),
+                    "upload-connection",
+                    filepath="/server/secret.csv",
+                )
+            )
+    finally:
+        request.reset_http_identity(token)
+
+
+def test_http_upload_dataset_accepts_rows(monkeypatch):
+    project = _FakeProject(has_existing_dataset=False)
+    monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
+    token = request.bind_http_identity("https://idp.example", "alice")
+    try:
+        asyncio.run(
+            datasets.create_upload_dataset(
+                "PROJECT",
+                "new-dataset",
+                FakeContext(),
+                "upload-connection",
+                columns=["value"],
+                rows=[["safe"]],
+            )
+        )
+    finally:
+        request.reset_http_identity(token)
+
+    assert project.created_dataset.uploaded == ("new-dataset.csv", b"value\r\nsafe\r\n")
+
+
+def test_http_export_dataset_rejects_before_path_resolution(monkeypatch):
+    token = request.bind_http_identity("https://idp.example", "alice")
+    monkeypatch.setattr(
+        datasets.os.path,
+        "realpath",
+        lambda path: pytest.fail("path resolution must not run"),
+    )
+    try:
+        with pytest.raises(
+            ValueError, match="export_dataset is unavailable in HTTP mode"
+        ):
+            asyncio.run(
+                datasets.export_dataset(
+                    "PROJECT", "dataset", "/server/output.csv", FakeContext()
+                )
+            )
+    finally:
+        request.reset_http_identity(token)
 
 
 @pytest.mark.parametrize(

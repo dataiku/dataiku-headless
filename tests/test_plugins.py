@@ -29,6 +29,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dataiku_mcp.config import request
 from dataiku_mcp.tools import plugins as tools
 from tests.utils.fakes import FakeContext, incrementing_monotonic
 
@@ -262,6 +263,28 @@ def _plugin_directory(tmp_path, plugin_id="my-plugin"):
 
 def _members(payload):
     return sorted(zipfile.ZipFile(io.BytesIO(payload)).namelist())
+
+
+@pytest.mark.parametrize(
+    ("source", "plugin_id", "local_path"),
+    [("store", "my-plugin", None), ("local_path", None, "/server/plugin.zip")],
+)
+def test_update_plugin_is_unavailable_in_http_mode(source, plugin_id, local_path):
+    token = request.bind_http_identity("https://idp.example", "alice")
+    try:
+        with pytest.raises(
+            ValueError, match="update_plugin is unavailable in HTTP mode"
+        ):
+            asyncio.run(
+                tools.update_plugin(
+                    source,
+                    FakeContext(),
+                    plugin_id=plugin_id,
+                    local_path=local_path,
+                )
+            )
+    finally:
+        request.reset_http_identity(token)
 
 
 # --------------------------------------------------------------------------- #

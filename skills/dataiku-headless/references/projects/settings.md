@@ -1,6 +1,6 @@
 ---
 name: project-settings
-description: Inspect and update Dataiku project settings. Use for Flow display and pipeline options, project default Python or R code environments, and container execution defaults.
+description: Inspect and update Dataiku project settings. Use for Flow display and pipeline options, project default Python or R code environments, container execution defaults, and Cobuild project instructions.
 ---
 
 # Project Settings
@@ -53,6 +53,8 @@ The tool automatically synchronizes the underlying `useBuiltinEnv` flag with `mo
 
 `container` controls user-code workloads. `containerForVisualRecipesWorkloads` controls visual-recipe workloads. Patch either or both with the same shape.
 
+These are project-wide defaults, so every inheriting object moves with them. To place one specific recipe, ML task, WebApp backend, Knowledge Bank, or agent tool, use `../container-execution.md` instead. A saved-model retrain uses its training recipe's `params.containerSelection`.
+
 Before using `EXPLICIT_CONTAINER`, call `list_container_exec_configs` and copy the returned `name` exactly into `containerConf`. This list tool requires global administrator rights; if it is unavailable, ask the user for the exact name instead of guessing.
 
 | Mode | Fields |
@@ -60,6 +62,17 @@ Before using `EXPLICIT_CONTAINER`, call `list_container_exec_configs` and copy t
 | Inherit the instance default | `{"containerMode":"INHERIT","containerConf":null}` |
 | Run without a container | `{"containerMode":"NONE","containerConf":null}` |
 | Select a configuration | `{"containerMode":"EXPLICIT_CONTAINER","containerConf":"CONFIG_NAME"}` |
+
+## Cobuild Instructions
+
+`cobuildSettings` holds the project's custom instructions for Cobuild, the same fields as the project's Cobuild settings page. Cobuild adds them to its system prompt.
+
+| Setting | Accepted values | Behavior |
+| --- | --- | --- |
+| `cobuildSettings.customSystemPrompt` | Non-empty Markdown string | The project's instructions. Use `null` to remove them. |
+| `cobuildSettings.customPromptMode` | `USE_GLOBAL`, `APPEND_TO_GLOBAL`, `OVERRIDE_GLOBAL` | `USE_GLOBAL` ignores the project instructions and uses only the instance-wide ones. `APPEND_TO_GLOBAL` (default) places the project instructions before the instance-wide ones. `OVERRIDE_GLOBAL` uses only the project instructions. |
+
+An administrator can prevent projects from overriding the instance-wide instructions. `OVERRIDE_GLOBAL` then behaves like `APPEND_TO_GLOBAL`.
 
 ## Example Patch
 

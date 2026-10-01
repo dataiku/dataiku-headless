@@ -1,0 +1,50 @@
+name: Request for comments (RFC)
+description: Ask for feedback on a major architectural change or design choice.
+title: "[RFC]: "
+labels: [RFC]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, customer data, instance URLs, or identifiers
+        copied from a real Dataiku environment.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: The problem this RFC addresses and why it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Proposed change
+      description: The technical design and its justification.
+    validations:
+      required: true
+
+  - type: textarea
+    id: feedback_period
+    attributes:
+      label: Feedback period
+      description: The period for feedback, usually at least one week.
+    validations:
+      required: false
+
+  - type: textarea
+    id: cc_list
+    attributes:
+      label: CC list
+      description: People whose feedback would be useful.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Alternatives, rollout notes, related issues, or anything else useful.
+    validations:
+      required: false
