@@ -1,0 +1,23 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "path": "/mcp",
+    "public_url": "https://mcp.example"
+  },
+  "auth": {
+    "provider": "entra",
+    "tenant_id": "replace-with-tenant-id",
+    "client_id": "replace-with-mcp-app-client-id",
+    "client_secret": "replace-with-secret",
+    "required_scope": "mcp.access",
+    "interactive_login": true
+  },
+  "dss_instances": {
+    "prod": {
+      "url": "https://dataiku.example",
+      "delegated_scope": "api://replace-with-dataiku-app-client-id/dataiku.access"
+    }
+  },
+  "user_selections": {}
+}

@@ -18,7 +18,9 @@ Use the surrounding flow's storage context when it is clear. Otherwise, ask the 
 
 ## Creation
 
-Use `create_upload_dataset` with a local file path visible to the MCP server process.
+In stdio, use `create_upload_dataset` with a local file path visible to the MCP
+server process. In Streamable HTTP, pass `columns` and `rows` directly instead; the
+server accepts at most 10,000 rows and never reads a host-local path.
 
 ## Validation After Upload
 

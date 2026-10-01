@@ -23,9 +23,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking
-from .utils.auth import get_dss_client
+from ..config import request
+from ..server import mcp
+from ..auth import get_dss_client
+from ..executors import run_blocking
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
 from .utils.serialization import columnar, compact_json, is_empty
@@ -33,11 +34,70 @@ from .utils.validation import require_non_empty_string as _require_non_empty_str
 from .utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
+_MAX_UPLOAD_ROWS = 10_000
 _CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+UploadCell = str | int | float | bool | None
 
 ColumnSubset = Annotated[
     list[str] | None, Field(description="Every column when omitted.")
 ]
+
+
+def _serialize_upload_cell(value: UploadCell) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    raise ValueError(
+        "Upload rows only support scalar values: string, number, boolean, or null."
+    )
+
+
+def _validate_upload_columns(columns: list[str]) -> list[str]:
+    if not isinstance(columns, list) or not columns:
+        raise ValueError("'columns' must be a non-empty list")
+    return [
+        _require_non_empty_string(column_name, f"columns[{index}]")
+        for index, column_name in enumerate(columns)
+    ]
+
+
+def _write_upload_rows_to_temp_csv(
+    dataset_name: str,
+    columns: list[str],
+    rows: list[list[UploadCell]],
+) -> tuple[str, str]:
+    if not isinstance(rows, list):
+        raise ValueError("'rows' must be a list")
+    if len(rows) > _MAX_UPLOAD_ROWS:
+        raise ValueError(f"'rows' must contain at most {_MAX_UPLOAD_ROWS} rows")
+    cleaned_columns = _validate_upload_columns(columns)
+    temporary_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", newline="", encoding="utf-8", suffix=".csv", delete=False
+        ) as temp_file:
+            temporary_path = temp_file.name
+            writer = csv.writer(temp_file)
+            writer.writerow(cleaned_columns)
+            expected_row_length = len(cleaned_columns)
+            for row_index, row in enumerate(rows):
+                if not isinstance(row, list) or len(row) != expected_row_length:
+                    raise ValueError(
+                        f"'rows[{row_index}]' must contain exactly {expected_row_length} values"
+                    )
+                writer.writerow([_serialize_upload_cell(value) for value in row])
+    except BaseException:
+        if temporary_path is not None:
+            os.unlink(temporary_path)
+        raise
+    assert temporary_path is not None
+    return temporary_path, f"{dataset_name}.csv"
 
 
 def _create_uploaded_dataset_from_file(
@@ -176,36 +236,82 @@ def _resolve_export_columns(
 async def create_upload_dataset(
     project_key: str,
     dataset_name: str,
-    filepath: Annotated[
-        str, Field(description="Path on the machine running this server.")
-    ],
     ctx: Context,
     connection: Annotated[
         str, Field(description="Dataiku connection that accepts uploaded files.")
     ],
+    filepath: Annotated[
+        str | None,
+        Field(description="Stdio-only path on the machine running this server."),
+    ] = None,
+    columns: Annotated[
+        list[str] | None,
+        Field(description="Column names for a bounded row upload."),
+    ] = None,
+    rows: Annotated[
+        list[list[UploadCell]] | None,
+        Field(description=f"Rows to upload; capped at {_MAX_UPLOAD_ROWS}."),
+    ] = None,
     filename: Annotated[
         str, Field(description="Name recorded in Dataiku; defaults to the file's own.")
     ] = "",
     include_schema: bool = True,
 ) -> str:
-    """Create a dataset from a local file, to get user-supplied data into a project."""
+    """Create a dataset from a stdio-local file or bounded tabular rows."""
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
-    filepath = _require_non_empty_string(filepath, "filepath")
     connection = _require_non_empty_string(connection, "connection")
     if filename:
         filename = _require_non_empty_string(filename, "filename")
-    await ctx.info(f"Creating upload dataset '{dataset_name}' in {project_key}...")
+
+    has_filepath = filepath is not None
+    has_rows = rows is not None or columns is not None
+    if has_filepath and has_rows:
+        raise ValueError("Provide either 'filepath' or 'columns' and 'rows', not both.")
+    if not has_filepath and not has_rows:
+        raise ValueError("Provide either 'filepath' or both 'columns' and 'rows'.")
+    if has_rows and (columns is None or rows is None):
+        raise ValueError("'columns' and 'rows' must be provided together.")
+    if request.is_http_request() and has_filepath:
+        raise ValueError(
+            "'filepath' is unavailable in HTTP mode. Provide 'columns' and 'rows'."
+        )
+    if has_filepath:
+        filepath = _require_non_empty_string(filepath, "filepath")
+
+    source = "rows" if has_rows else "local file"
+    await ctx.info(
+        f"Creating upload dataset '{dataset_name}' from {source} in {project_key}..."
+    )
 
     def _run():
-        return _create_uploaded_dataset_from_file(
-            project_key=project_key,
-            dataset_name=dataset_name,
-            filepath=filepath,
-            connection=connection,
-            filename=filename,
-            include_schema=include_schema,
-        )
+        temporary_path = None
+        if has_rows:
+            temporary_path, default_filename = _write_upload_rows_to_temp_csv(
+                dataset_name=dataset_name,
+                columns=columns,
+                rows=rows,
+            )
+            source_path = temporary_path
+            effective_filename = filename or default_filename
+        else:
+            source_path = filepath
+            effective_filename = filename
+        try:
+            return _create_uploaded_dataset_from_file(
+                project_key=project_key,
+                dataset_name=dataset_name,
+                filepath=source_path,
+                connection=connection,
+                filename=effective_filename,
+                include_schema=include_schema,
+            )
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
 
     return compact_json(await run_blocking(_run))
 
@@ -355,6 +461,10 @@ async def export_dataset(
     ] = False,
 ) -> str:
     """Write a dataset's rows to a local CSV file, when every row is needed offline."""
+    if request.is_http_request():
+        raise ValueError(
+            "export_dataset is unavailable in HTTP mode because it writes to the MCP host filesystem."
+        )
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")

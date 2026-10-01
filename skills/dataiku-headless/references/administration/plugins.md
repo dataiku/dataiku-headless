@@ -28,7 +28,7 @@ for that plugin by name; someone is working in it.
    "the SharePoint plugin" or "Answers" resolve without knowing the id.
 2. Use `search_mode="exact"` with `include_details=true` to inspect one plugin before
    changing it. Details cost one settings read per row, so pair them with `search`.
-3. Update an installed plugin with `update_plugin`, or remove it with `delete_plugin`.
+3. In stdio, update an installed plugin with `update_plugin`, or remove it with `delete_plugin`. `update_plugin` is unavailable in Streamable HTTP because plugin sources can be local server paths.
 4. `code_env_name: null` means no environment is bound; it does not tell you whether
    one is required. Check requirements and perform initial setup in the Dataiku UI.
 5. After any change, re-read the plugin and report `needs_restart` when it is true.

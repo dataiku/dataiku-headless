@@ -1,7 +1,7 @@
 {
   "name": "dataiku-headless",
   "displayName": "Dataiku Headless",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
   "author": {
     "name": "Dataiku",
@@ -11,11 +11,14 @@
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
+  "privacyPolicyUrl": "https://www.dataiku.com/legal/privacy",
+  "supportUrl": "https://support.dataiku.com",
+  "termsOfServiceUrl": "https://www.dataiku.com/legal",
   "mcpServers": {
     "dataiku": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--quiet", "--locked", "--script", "${CLAUDE_PLUGIN_ROOT}/runtime/run_mcp.py"]
+      "args": ["run", "--quiet", "--locked", "--script", "${CLAUDE_PLUGIN_ROOT}/runtime/run_mcp.py", "--transport", "stdio"]
     }
   }
 }

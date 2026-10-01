@@ -31,10 +31,11 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from .. import mcp
-from .utils.async_executor import run_blocking
+from ..config import request
+from ..server import mcp
+from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.auth import get_dss_client
+from ..auth import get_dss_client
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
 LibraryPath = Annotated[
@@ -564,7 +565,12 @@ async def validate_project_library_file(
 )
 async def write_project_library_file(
     project_key: str,
-    path: Annotated[str, Field(description="Destination path in the project library.")],
+    path: Annotated[
+        str,
+        Field(
+            description="Destination path in the project library, e.g. /python/mod.py."
+        ),
+    ],
     filepath: Annotated[
         str, Field(description="Source path on the machine running this server.")
     ],
@@ -574,6 +580,10 @@ async def write_project_library_file(
     ] = False,
 ) -> str:
     """Upload a local file into a project's library, optionally replacing it."""
+    if request.is_http_request():
+        raise ValueError(
+            "write_project_library_file is unavailable in HTTP mode because it reads the MCP host filesystem."
+        )
     project_key = _require_non_empty_string(project_key, "project_key")
     path = _normalize_library_path(path)
     filepath = _require_non_empty_string(filepath, "filepath")
