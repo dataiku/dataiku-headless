@@ -22,7 +22,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .files import read_json_object, write_json_atomic
-from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
+from .models import DSSInstance, InstanceType, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
@@ -111,14 +111,21 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
     if not os.environ.get("DKU_DSS_URL"):
         return None
 
+    if "DKU_INSTANCE_TYPE" not in os.environ:
+        raise ValueError("DKU_INSTANCE_TYPE is required when DKU_DSS_URL is set.")
+
     no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
     try:
-        instance = StdioDSSInstanceConfig(
-            url=os.environ["DKU_DSS_URL"],
-            api_key=os.environ.get("DKU_API_KEY", ""),
-            no_check_certificate=(
-                bool(no_check_certificate) and no_check_certificate.lower() != "false"
-            ),
+        instance = StdioDSSInstanceConfig.model_validate(
+            {
+                "url": os.environ["DKU_DSS_URL"],
+                "api_key": os.environ.get("DKU_API_KEY", ""),
+                "instance_type": os.environ["DKU_INSTANCE_TYPE"],
+                "no_check_certificate": (
+                    bool(no_check_certificate)
+                    and no_check_certificate.lower() != "false"
+                ),
+            }
         )
     except ValidationError as err:
         raise ValueError(f"Invalid stdio environment settings: {err}") from None
@@ -194,6 +201,7 @@ def add_instance_to_config(
     api_key: str,
     *,
     description: str = "",
+    instance_type: InstanceType,
     no_check_certificate: bool = False,
     set_default: bool = False,
 ) -> dict:
@@ -204,6 +212,7 @@ def add_instance_to_config(
             url=url,
             api_key=api_key,
             description=description,
+            instance_type=instance_type,
             no_check_certificate=no_check_certificate,
         )
         config = _load_config()
@@ -216,6 +225,7 @@ def add_instance_to_config(
             "name": name,
             "url": url,
             "description": description,
+            "instance_type": instance.instance_type,
             "path": str(get_settings_path()),
             "default_instance": config.default_instance,
         }

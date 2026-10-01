@@ -140,4 +140,5 @@ def set_current_instance(name: str) -> dict:
         "name": selected.name,
         "url": selected.url,
         "description": selected.description,
+        "instance_type": selected.instance_type,
     }

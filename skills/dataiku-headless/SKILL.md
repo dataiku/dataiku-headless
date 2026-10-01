@@ -10,7 +10,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
-2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests.
+2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. The required `instance_type` is configured metadata, not API verification or a guarantee of client support.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.

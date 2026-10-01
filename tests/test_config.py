@@ -20,7 +20,12 @@ from pathlib import Path
 import pytest
 
 from dataiku_mcp.config import request, stdio
-from dataiku_mcp.config.models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
+from dataiku_mcp.config.models import (
+    DSSInstance,
+    HTTPDSSInstanceConfig,
+    StdioConfig,
+    StdioDSSInstanceConfig,
+)
 from dataiku_mcp.tools import instances as instance_tools
 
 
@@ -34,6 +39,7 @@ def isolated_config(tmp_path, monkeypatch):
         "DKU_DSS_URL",
         "DKU_API_KEY",
         "DKU_INSTANCE_NAME",
+        "DKU_INSTANCE_TYPE",
         "DKU_NO_CHECK_CERTIFICATE",
         "DKU_CONFIG_FILE",
     ):
@@ -45,6 +51,7 @@ def add_instance(name: str, *, set_default: bool = False) -> None:
         name,
         f"https://{name}.example.com",
         f"{name}-api-key",
+        instance_type="design",
         set_default=set_default,
     )
 
@@ -89,7 +96,11 @@ def test_stdio_config_migrates_legacy_cwd_settings(tmp_path, monkeypatch, caplog
             {
                 "default_instance": "dev",
                 "dss_instances": {
-                    "dev": {"url": "https://dev.example.com", "api_key": "api-key"}
+                    "dev": {
+                        "url": "https://dev.example.com",
+                        "api_key": "api-key",
+                        "instance_type": "automation",
+                    }
                 },
             }
         )
@@ -105,6 +116,10 @@ def test_stdio_config_migrates_legacy_cwd_settings(tmp_path, monkeypatch, caplog
 
     assert not legacy_path.exists()
     assert stdio._load_config().default_instance == "dev"
+    assert (
+        json.loads(canonical_path.read_text())["dss_instances"]["dev"]["instance_type"]
+        == "automation"
+    )
     assert "Migrated legacy stdio configuration" in caplog.text
     assert "api-key" not in caplog.text
 
@@ -205,6 +220,52 @@ def test_stdio_getters_require_initialization():
         stdio.get_instances()
 
 
+def test_stdio_config_requires_explicit_type_without_rewriting_file():
+    path = stdio.get_settings_path()
+    path.write_text(
+        json.dumps(
+            {
+                "dss_instances": {
+                    "dev": {"url": "https://dev.example.com", "api_key": "secret-key"}
+                }
+            }
+        )
+    )
+    original = path.read_bytes()
+
+    with pytest.raises(ValueError, match="instance_type") as error:
+        stdio.initialize_config()
+    assert path.read_bytes() == original
+    assert "secret-key" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "config_model", [StdioDSSInstanceConfig, HTTPDSSInstanceConfig]
+)
+def test_instance_models_require_explicit_types(config_model):
+    fields = {"url": "https://typed.example"}
+    if config_model is StdioDSSInstanceConfig:
+        fields["api_key"] = "secret"
+    else:
+        fields["delegated_scope"] = "dss.api"
+    with pytest.raises(ValueError, match="instance_type"):
+        config_model.model_validate(fields)
+
+
+def test_runtime_instance_requires_explicit_type():
+    with pytest.raises(TypeError, match="instance_type"):
+        DSSInstance("typed", "https://typed.example", "secret", False, "config")
+
+
+def test_environment_requires_explicit_type_without_inheriting_profile(monkeypatch):
+    add_instance("typed", set_default=True)
+    monkeypatch.setenv("DKU_INSTANCE_NAME", "typed")
+    monkeypatch.setenv("DKU_DSS_URL", "https://typed.example")
+    monkeypatch.setenv("DKU_API_KEY", "secret-key")
+    with pytest.raises(ValueError, match="DKU_INSTANCE_TYPE is required"):
+        stdio.initialize_config()
+
+
 def test_setting_stdio_path_invalidates_cached_state():
     add_instance("dev", set_default=True)
     stdio.initialize_config()
@@ -256,6 +317,8 @@ def test_stdio_config_rejects_unknown_instance_fields(unknown_field):
                 "dss_instances": {
                     "dev": {
                         "url": "https://dev.example.com",
+                        "api_key": "api-key",
+                        "instance_type": "design",
                         unknown_field: "unexpected",
                     }
                 }
@@ -283,7 +346,7 @@ def test_stdio_config_rejects_unknown_instance_fields(unknown_field):
 )
 def test_stdio_config_rejects_invalid_instance_fields(instance):
     stdio.get_settings_path().write_text(
-        json.dumps({"dss_instances": {"dev": instance}})
+        json.dumps({"dss_instances": {"dev": {"instance_type": "design", **instance}}})
     )
 
     with pytest.raises(ValueError, match="Invalid stdio settings"):
@@ -308,6 +371,7 @@ def test_stdio_config_validation_errors_do_not_expose_api_keys():
                     "dev": {
                         "url": "https://dev.example.com",
                         "api_key": [secret],
+                        "instance_type": "design",
                     }
                 }
             }
@@ -330,6 +394,7 @@ def test_stdio_config_example_is_valid(monkeypatch):
     assert config.dss_instances["dev"] == StdioDSSInstanceConfig(
         url="https://dev.dataiku.com",
         api_key="your-dev-api-key",
+        instance_type="design",
         no_check_certificate=False,
     )
 
@@ -338,6 +403,7 @@ def test_stdio_instance_config_converts_to_runtime_instance():
     config = StdioDSSInstanceConfig(
         url="https://dev.example.com",
         api_key="api-key",
+        instance_type="design",
         no_check_certificate=True,
         description="Development",
     )
@@ -348,6 +414,7 @@ def test_stdio_instance_config_converts_to_runtime_instance():
         api_key="api-key",
         no_check_certificate=True,
         source="config",
+        instance_type="design",
         description="Development",
     )
 
@@ -359,14 +426,91 @@ def test_runtime_instance_repr_hides_api_key():
         api_key="do-not-print-this-api-key",
         no_check_certificate=False,
         source="config",
+        instance_type="design",
     )
 
     assert "do-not-print-this-api-key" not in repr(instance)
+    assert instance.instance_type == "design"
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "agent-management"]
+)
+def test_stdio_instance_type_survives_save_load_and_selection(
+    monkeypatch, instance_type
+):
+    def unexpected_client(*args, **kwargs):
+        pytest.fail("Instance configuration must not construct a DSS client")
+
+    monkeypatch.setattr("dataikuapi.DSSClient", unexpected_client)
+    result = stdio.add_instance_to_config(
+        "typed", "https://typed.example", "secret", instance_type=instance_type
+    )
+    stdio.initialize_config()
+    selected = request.set_current_instance("typed")
+    saved = json.loads(stdio.get_settings_path().read_text())
+
+    assert result["instance_type"] == instance_type
+    assert selected["instance_type"] == instance_type
+    assert stdio.get_instances()["typed"].instance_type == instance_type
+    assert stdio.get_current_instance().instance_type == instance_type
+    assert saved["dss_instances"]["typed"]["instance_type"] == instance_type
+
+
+@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design", None, 1])
+def test_stdio_config_rejects_invalid_instance_types(instance_type):
+    stdio.get_settings_path().write_text(
+        json.dumps(
+            {
+                "dss_instances": {
+                    "typed": {
+                        "url": "https://typed.example",
+                        "api_key": "secret-key",
+                        "instance_type": instance_type,
+                    }
+                }
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="instance_type") as error:
+        stdio.initialize_config()
+    assert "secret-key" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "agent-management"]
+)
+def test_environment_instance_type_overrides_profile(monkeypatch, instance_type):
+    stdio.add_instance_to_config(
+        "typed", "https://profile.example", "profile-key", instance_type="deployer"
+    )
+    monkeypatch.setenv("DKU_INSTANCE_NAME", "typed")
+    monkeypatch.setenv("DKU_DSS_URL", "https://environment.example")
+    monkeypatch.setenv("DKU_API_KEY", "environment-key")
+    monkeypatch.setenv("DKU_INSTANCE_TYPE", instance_type)
+    stdio.initialize_config()
+
+    instance = stdio.get_instances()["typed"]
+    assert instance.source == "environment"
+    assert instance.instance_type == instance_type
+    assert stdio.get_current_instance() == instance
+
+
+@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design"])
+def test_environment_rejects_invalid_instance_type(monkeypatch, instance_type):
+    monkeypatch.setenv("DKU_DSS_URL", "https://typed.example")
+    monkeypatch.setenv("DKU_API_KEY", "secret-key")
+    monkeypatch.setenv("DKU_INSTANCE_TYPE", instance_type)
+
+    with pytest.raises(ValueError, match="Invalid stdio environment settings") as error:
+        stdio.initialize_config()
+    assert "secret-key" not in str(error.value)
 
 
 @pytest.mark.parametrize("api_key", [None, ""])
 def test_stdio_environment_requires_api_key(monkeypatch, api_key):
     monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
+    monkeypatch.setenv("DKU_INSTANCE_TYPE", "design")
     if api_key is not None:
         monkeypatch.setenv("DKU_API_KEY", api_key)
 
@@ -376,6 +520,7 @@ def test_stdio_environment_requires_api_key(monkeypatch, api_key):
 
 def test_stdio_environment_uses_validated_instance(monkeypatch):
     monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
+    monkeypatch.setenv("DKU_INSTANCE_TYPE", "design")
     monkeypatch.setenv("DKU_API_KEY", "api-key")
     stdio.initialize_config()
 
@@ -390,6 +535,7 @@ def test_stdio_getters_use_the_startup_snapshot(monkeypatch):
     add_instance("dev", set_default=True)
     stdio.initialize_config()
     monkeypatch.setenv("DKU_DSS_URL", "https://environment.example.com")
+    monkeypatch.setenv("DKU_INSTANCE_TYPE", "design")
     monkeypatch.setenv("DKU_API_KEY", "environment-key")
     stdio.get_settings_path().write_text(
         json.dumps(
@@ -399,6 +545,7 @@ def test_stdio_getters_use_the_startup_snapshot(monkeypatch):
                     "changed": {
                         "url": "https://changed.example.com",
                         "api_key": "changed-key",
+                        "instance_type": "design",
                     }
                 },
             }
@@ -427,6 +574,7 @@ def test_stdio_mutation_failure_leaves_cached_state_unchanged(monkeypatch):
             "prod",
             "https://prod.example.com",
             "prod-key",
+            instance_type="design",
         )
 
     assert set(stdio.get_instances()) == {"dev"}
@@ -466,6 +614,7 @@ def test_stdio_config_save_excludes_runtime_fields():
         "dev",
         "https://dev.example.com",
         "api-key",
+        instance_type="design",
         description="Development",
         no_check_certificate=True,
         set_default=True,
@@ -479,6 +628,7 @@ def test_stdio_config_save_excludes_runtime_fields():
         "no_check_certificate": True,
         "description": "Development",
         "api_key": "api-key",
+        "instance_type": "design",
     }
     assert "name" not in instance
     assert "source" not in instance

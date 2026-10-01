@@ -2,11 +2,13 @@
   "default_instance": "dev",
   "dss_instances": {
     "dev": {
+      "instance_type": "design",
       "url": "https://dev.dataiku.com",
       "api_key": "your-dev-api-key",
       "no_check_certificate": false
     },
     "prod": {
+      "instance_type": "automation",
       "url": "https://prod.dataiku.com",
       "api_key": "your-prod-api-key",
       "no_check_certificate": false

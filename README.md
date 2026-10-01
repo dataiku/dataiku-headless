@@ -166,7 +166,7 @@ The onboarding flow is:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
-3. Enter an instance name, Dataiku URL, and personal API key.
+3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
 The API key never appears in MCP tool arguments.
@@ -188,12 +188,26 @@ The server loads environment and profile settings at startup. Profile additions 
 deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
 or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
+Profiles require an explicit `instance_type`: `design`, `automation`, `deployer`, or
+`agent-management`. Choose the type on the setup page or set it in a JSON profile.
+Environment credentials require `DKU_INSTANCE_TYPE` whenever `DKU_DSS_URL` is set.
+Missing, empty, or unsupported values are rejected for setup submissions,
+environment settings, and configuration profiles. An environment instance keeps
+its own type and takes precedence over a profile with the same name.
+
+Instance tools report this configured type. It is operator-supplied metadata for
+future routing; it is not discovered or verified through the API and does not change
+client selection, connection testing, or tool availability. Choosing Agent Management
+does not add client support. Configuration changes require a restart unless saved
+through the setup page.
+
 Environment variables are an explicit override:
 
 **.env file:**
 Copy `.env.example` to `.env` and fill in your values:
 ```bash
 DKU_DSS_URL=https://your-instance.dataiku.com
+DKU_INSTANCE_TYPE=design
 DKU_API_KEY=your-api-key
 DKU_MCP_MAX_WORKERS=4
 DKU_NO_CHECK_CERTIFICATE=false
@@ -210,7 +224,7 @@ Put instance info in the resolved configuration file. See `.dataiku/stdio-config
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
 Auth resolution order:
-1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
+1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, `DKU_INSTANCE_TYPE`, and optional `DKU_NO_CHECK_CERTIFICATE`
 2. The resolved configuration file, using its `default_instance`
 
 ## Run

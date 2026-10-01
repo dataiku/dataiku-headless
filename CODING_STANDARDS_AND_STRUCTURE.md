@@ -20,6 +20,7 @@ Set environment variables:
 
 ```bash
 export DKU_DSS_URL="https://your-instance.dataiku.com"
+export DKU_INSTANCE_TYPE="design"
 export DKU_API_KEY="your-api-key"
 ```
 

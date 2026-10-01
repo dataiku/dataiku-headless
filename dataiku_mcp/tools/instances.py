@@ -60,9 +60,12 @@ async def list_instances(ctx: Context) -> str:
                 "url": inst.url,
                 "description": inst.description,
                 "active": name == current_instance_name,
+                "instance_type": inst.instance_type,
             }
         )
-    return compact_json(columnar(result, ["name", "url", "description", "active"]))
+    return compact_json(
+        columnar(result, ["name", "url", "description", "active", "instance_type"])
+    )
 
 
 @mcp.tool(

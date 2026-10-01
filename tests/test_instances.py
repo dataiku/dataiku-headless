@@ -16,6 +16,9 @@
 
 import asyncio
 import json
+from dataclasses import replace
+
+import pytest
 
 from dataiku_mcp.config import request
 from dataiku_mcp.config.models import DSSInstance
@@ -43,7 +46,13 @@ class _FakeClient:
 
 def _instance(name: str) -> DSSInstance:
     return DSSInstance(
-        name, f"https://{name}.example", API_KEY, False, "config", f"{name} desc"
+        name,
+        f"https://{name}.example",
+        API_KEY,
+        False,
+        "config",
+        "design",
+        f"{name} desc",
     )
 
 
@@ -56,6 +65,40 @@ def _install(monkeypatch, instance_names: list[str], client: _FakeClient, active
 def _current(monkeypatch, client: _FakeClient) -> dict:
     _install(monkeypatch, ["primary"], client, "primary")
     return json.loads(asyncio.run(instances.get_current_instance(FakeContext())))
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "agent-management"]
+)
+def test_instance_tools_report_configured_type(monkeypatch, instance_type):
+    configured = replace(_instance("primary"), instance_type=instance_type)
+    monkeypatch.setattr(request, "get_instances", lambda: {"primary": configured})
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: configured)
+
+    def unexpected_client():
+        pytest.fail("Listing and switching must not construct a DSS client")
+
+    monkeypatch.setattr(instances, "get_dss_client", unexpected_client)
+    monkeypatch.setattr(
+        "dataiku_mcp.config.stdio.set_current_instance", lambda inst: None
+    )
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+    listing = asyncio.run(instances.list_instances(FakeContext()))
+    switching = asyncio.run(instances.switch_instance("primary", FakeContext()))
+    table = json.loads(listing)
+    assert table["columns"] == ["name", "url", "description", "active", "instance_type"]
+    assert table["rows"][0][-1] == instance_type
+    assert json.loads(switching)["instance_type"] == instance_type
+
+    # API information is observational; it must not replace the configured type.
+    client = _FakeClient({"dssVersion": "14.7.2", "nodeType": "AUTOMATION"})
+    monkeypatch.setattr(instances, "get_dss_client", lambda: client)
+    current = asyncio.run(instances.get_current_instance(FakeContext()))
+    assert json.loads(current)["instance_type"] == instance_type
+    assert client.info_calls == 1
+    for response in (listing, switching, current):
+        assert API_KEY not in response
+        assert "api_key" not in response
 
 
 def test_get_current_instance_reports_the_dataiku_version(monkeypatch):
@@ -86,6 +129,7 @@ def test_get_current_instance_omits_the_dataiku_version_without_credentials(
     assert "dataiku_version" not in result
     assert result["connection_status"] == "failed"
     assert result["name"] == "primary"
+    assert result["instance_type"] == "design"
 
 
 def test_get_current_instance_reports_failed_connection(monkeypatch):
