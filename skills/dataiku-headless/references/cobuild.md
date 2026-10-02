@@ -17,6 +17,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
+- Cobuild availability = instance+user gate. `get_cobuild_status` checks it with no side effects (Dataiku 14.7.5 and 15.0.2 onward); `enabled=false` carries Dataiku's `reason`. `enabled=true` covers those credentials; LLM backend and project permissions stay unproven.
 - Every Cobuild payload carries `project_url`, the Dataiku UI URL of the conversation's project on the instance that conversation is pinned to. Dataiku exposes no per-conversation URL: Cobuild opens as a panel inside the project, so `project_url` points at the project and the user opens Cobuild from there.
 
 ## When To Use This Skill
@@ -62,6 +63,7 @@ Do not use this guide when:
 
 | Goal | Tool |
 | --- | --- |
+| Check Cobuild availability | `get_cobuild_status` |
 | Start a new Cobuild conversation for a project | `start_cobuild_conversation` |
 | Continue a Cobuild conversation | `send_cobuild_message` |
 | Approve or cancel a Cobuild delete confirmation request | `answer_cobuild_confirmation` |
