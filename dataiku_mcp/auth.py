@@ -15,13 +15,14 @@
 """Authentication and Dataiku client creation."""
 
 import logging
+import os
 from urllib.parse import urlparse
 
 import dataikuapi
 import requests
 from dataikuapi.utils import DataikuException
 
-from .config import http, request, stdio
+from .config import http, request
 from .executors import run_blocking
 
 logger = logging.getLogger("dataiku-mcp")
@@ -43,41 +44,25 @@ def get_dss_client() -> dataikuapi.DSSClient:
 
 
 def get_govern_client() -> dataikuapi.GovernClient:
-    """Get a Govern API client from the environment or the active instance.
-
-    `DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY` win when set. Otherwise the
-    active instance profile must carry a Govern URL and API key, entered
-    through `configure_instance`.
-    """
+    """Get a Govern API client from `DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY`."""
     if request.is_http_request():
         raise ValueError(
             "The govern tool is available only in local stdio mode. A Govern "
             "node accepts only API keys, not the delegated tokens that HTTP mode "
             "uses."
         )
-    connection = stdio.get_govern_connection_from_env()
-    if connection is None:
-        current_instance = request.get_pinned_instance()
-        connection = stdio.govern_connection_for_instance(current_instance)
-        if not connection.url:
-            raise ValueError(
-                f"Dataiku instance '{current_instance.name}' has no Govern node "
-                "configured. Set DKU_GOVERN_URL and DKU_GOVERN_API_KEY in the MCP "
-                "server environment, or run configure_instance and fill the "
-                "Govern node fields."
-            )
-    if not connection.api_key:
-        source = (
-            "DKU_GOVERN_API_KEY"
-            if connection.source == "environment"
-            else f"the Govern API key of instance '{connection.instance_name}'"
-        )
+    url = os.environ.get("DKU_GOVERN_URL", "").strip()
+    api_key = os.environ.get("DKU_GOVERN_API_KEY", "").strip()
+    if not url or not api_key:
         raise ValueError(
-            f"The Govern node at {connection.url} has no API key. Set {source}."
+            "No Govern node is configured. Set DKU_GOVERN_URL and "
+            "DKU_GOVERN_API_KEY in the MCP server environment."
         )
-
-    client = dataikuapi.GovernClient(connection.url, connection.api_key)
-    client._session.verify = not connection.no_check_certificate
+    no_check_certificate = os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "").strip()
+    client = dataikuapi.GovernClient(url, api_key)
+    client._session.verify = not (
+        bool(no_check_certificate) and no_check_certificate.lower() != "false"
+    )
     return client
 
 

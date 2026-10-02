@@ -72,6 +72,7 @@ class GovernParam:
     kind: str  # string, boolean, integer, object, list, any
     description: str
     required: bool = False
+    path: bool = False  # the SDK puts the value into the URL path
 
 
 @dataclass(frozen=True)
@@ -105,38 +106,50 @@ def _register(
     return decorator
 
 
-def _p(name: str, kind: str, description: str, required: bool = False) -> GovernParam:
-    return GovernParam(name, kind, description, required)
+def _p(
+    name: str, kind: str, description: str, required: bool = False, path: bool = False
+) -> GovernParam:
+    return GovernParam(name, kind, description, required, path)
 
 
-ARTIFACT_ID = _p("artifact_id", "string", "Artifact ID, for example ar.42.", True)
-STEP_ID = _p("step_id", "string", "Workflow step ID that carries the signoff.", True)
+ARTIFACT_ID = _p(
+    "artifact_id", "string", "Artifact ID, for example ar.42.", True, path=True
+)
+STEP_ID = _p(
+    "step_id", "string", "Workflow step ID that carries the signoff.", True, path=True
+)
 BLUEPRINT_ID = _p(
     "blueprint_id",
     "string",
     "Blueprint ID, for example bp.system.govern_project.",
     True,
+    path=True,
 )
 VERSION_ID = _p(
-    "version_id", "string", "Blueprint version ID, for example bv.system.default.", True
+    "version_id",
+    "string",
+    "Blueprint version ID, for example bv.system.default.",
+    True,
+    path=True,
 )
-ROLE_ID = _p("role_id", "string", "Role ID, for example ro.reviewer.", True)
+ROLE_ID = _p("role_id", "string", "Role ID, for example ro.reviewer.", True, path=True)
 CUSTOM_PAGE_ID = _p(
-    "custom_page_id", "string", "Custom page ID, for example cp.1.", True
+    "custom_page_id", "string", "Custom page ID, for example cp.1.", True, path=True
 )
 TIME_SERIES_ID = _p(
-    "time_series_id", "string", "Time series ID, for example ts.7.", True
+    "time_series_id", "string", "Time series ID, for example ts.7.", True, path=True
 )
 UPLOADED_FILE_ID = _p(
-    "uploaded_file_id", "string", "Uploaded file ID, for example uf.3.", True
+    "uploaded_file_id", "string", "Uploaded file ID, for example uf.3.", True, path=True
 )
-LOGIN = _p("login", "string", "User login.", True)
-GROUP_NAME = _p("name", "string", "Group name.", True)
+LOGIN = _p("login", "string", "User login.", True, path=True)
+GROUP_NAME = _p("name", "string", "Group name.", True, path=True)
 NEW_IDENTIFIER = _p(
     "new_identifier",
     "string",
     "Bare identifier for the new object; the server adds the type prefix.",
     True,
+    path=True,
 )
 USERS_CONTAINER = _p(
     "users_container",
@@ -211,6 +224,28 @@ def _pages(client):
 # ---------------------------------------------------------------------------
 
 
+_SEARCH_ID_FILTERS = ("blueprint_ids", "blueprint_version_ids", "artifact_ids")
+_FIELD_FILTER_KEYS = {
+    "condition_type",
+    "condition",
+    "field_id",
+    "negate",
+    "case_sensitive",
+}
+_SORT_KEYS = {"type", "direction", "fields"}
+_SORT_FIELD_KEYS = {"blueprint_id", "field_id"}
+
+
+def _require_known_keys(value: Any, allowed: set[str], label: str) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"Each {label} must be an object")
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError(
+            f"Unknown keys in {label}: {unknown}. Allowed: {sorted(allowed)}"
+        )
+
+
 @_register(
     "search_artifacts",
     domain="artifacts",
@@ -241,6 +276,9 @@ def _pages(client):
     ),
 )
 def _search_artifacts(client, p):
+    # An empty ID list matches nothing; dropping the filter would match everything.
+    if any(p.get(key) == [] for key in _SEARCH_ID_FILTERS):
+        return {"count": 0, "has_more": False, "hits": []}
     filters = []
     if p.get("blueprint_ids"):
         filters.append(GovernArtifactFilterBlueprints(list(p["blueprint_ids"])))
@@ -253,6 +291,7 @@ def _search_artifacts(client, p):
     for field_filter in p.get("field_filters") or []:
         if not isinstance(field_filter, dict) or not field_filter.get("condition_type"):
             raise ValueError("Each field_filters entry needs a condition_type")
+        _require_known_keys(field_filter, _FIELD_FILTER_KEYS, "field_filters entry")
         filters.append(
             GovernArtifactFilterFieldValue(
                 field_filter["condition_type"],
@@ -268,6 +307,7 @@ def _search_artifacts(client, p):
     sort = None
     sort_spec = p.get("sort")
     if sort_spec:
+        _require_known_keys(sort_spec, _SORT_KEYS, "sort")
         sort_type = sort_spec.get("type", "name")
         direction = sort_spec.get("direction", "ASC")
         if sort_type == "name":
@@ -275,10 +315,13 @@ def _search_artifacts(client, p):
         elif sort_type == "workflow":
             sort = GovernArtifactSearchSortWorkflow(direction)
         elif sort_type == "field":
+            for field in sort_spec.get("fields") or []:
+                _require_known_keys(field, _SORT_FIELD_KEYS, "sort.fields entry")
+            # The SDK puts these into the request body as given, so build them.
             fields = [
                 GovernArtifactSearchSortFieldDefinition(
                     field["blueprint_id"], field["field_id"]
-                )
+                ).build()
                 for field in sort_spec.get("fields") or []
             ]
             if not fields:
@@ -287,8 +330,8 @@ def _search_artifacts(client, p):
         else:
             raise ValueError("sort.type must be name, workflow or field")
 
-    page_size = int(p.get("page_size") or 20)
-    max_results = int(p.get("max_results") or 100)
+    page_size = int(p["page_size"]) if p.get("page_size") is not None else 20
+    max_results = int(p["max_results"]) if p.get("max_results") is not None else 100
     if page_size <= 0 or max_results <= 0:
         raise ValueError("page_size and max_results must be positive")
 
@@ -536,7 +579,7 @@ def _list_signoff_feedbacks(client, p):
     return [item.get_raw() for item in _signoff(client, p).list_feedbacks()]
 
 
-FEEDBACK_ID = _p("feedback_id", "string", "Feedback response ID.", True)
+FEEDBACK_ID = _p("feedback_id", "string", "Feedback response ID.", True, path=True)
 FEEDBACK_STATUS = _p(
     "status", "string", "Feedback status: APPROVED, MINOR_ISSUE or MAJOR_ISSUE.", True
 )
@@ -1438,7 +1481,7 @@ def _get_time_series_values(client, p):
 def _push_time_series_values(client, p):
     datapoints = list(p["datapoints"])
     client.get_time_series(p["time_series_id"]).push_values(
-        datapoints, upsert=bool(p.get("upsert", True))
+        datapoints, upsert=p.get("upsert") is not False
     )
     return {"time_series_id": p["time_series_id"], "pushed": len(datapoints)}
 
@@ -1510,7 +1553,7 @@ def _get_uploaded_file(client, p):
 @_register(
     "download_uploaded_file",
     domain="files",
-    kind="read",
+    kind="write",
     description="Download an uploaded file to a local path; never overwrites unless overwrite is true.",
     sdk="GovernUploadedFile.download",
     params=(
@@ -1542,7 +1585,8 @@ def _download_uploaded_file(client, p):
         ) as handle:
             temporary_path = handle.name
             while True:
-                chunk = stream.read(_CHUNK_SIZE)
+                # The raw stream keeps any gzip encoding unless asked to decode.
+                chunk = stream.read(_CHUNK_SIZE, decode_content=True)
                 if not chunk:
                     break
                 handle.write(chunk)
@@ -1632,7 +1676,12 @@ def _get_user(client, p):
             "LOCAL (default), LDAP, or another identity source.",
         ),
         _p("groups", "list", "Group names."),
-        _p("profile", "string", "User profile; leave empty for the server default."),
+        _p(
+            "profile",
+            "string",
+            "User profile. When omitted, the SDK sends DATA_SCIENTIST; the tool does "
+            "not check it against the license.",
+        ),
         _p("email", "string", "Email address."),
     ),
 )
@@ -1827,7 +1876,14 @@ def _validate_params(
         if not _KIND_CHECKS[param.kind](value):
             raise ValueError(f"Param '{name}' must be a {param.kind}")
         if param.kind == "string" and param.required:
-            require_non_empty_string(value, name)
+            value = require_non_empty_string(value, name)
+        if param.path:
+            if value in (".", "..") or any(char in value for char in "/\\?#%"):
+                raise ValueError(
+                    f"Param '{name}' must be a plain identifier, without '/', '\\', "
+                    "'?', '#' or '%'"
+                )
+            params[name] = value
 
 
 def _operation_summary(operation_id: str, operation: GovernOperation) -> dict[str, Any]:
@@ -1870,8 +1926,8 @@ _verified_hosts: set[str] = set()
 def _require_govern_node(client) -> None:
     """Check once per host that the URL targets a GOVERN node.
 
-    `/instance-info` is permission-gated, so an unreadable answer is not an
-    error; the node type is then trusted as configured.
+    Only a confirmed GOVERN answer is cached. When `/instance-info` fails, the
+    check runs again on the next call and the operation reports its own error.
     """
     host = getattr(client, "host", "")
     if host in _verified_hosts:
@@ -1879,12 +1935,11 @@ def _require_govern_node(client) -> None:
     try:
         node_type = client.get_instance_info().node_type
     except Exception:
-        _verified_hosts.add(host)
         return
     if node_type != "GOVERN":
         raise ValueError(
             f"The configured Govern URL {host} points to a {node_type} node, not a "
-            "Govern node. Check DKU_GOVERN_URL or the Govern URL of the active instance."
+            "Govern node. Check DKU_GOVERN_URL."
         )
     _verified_hosts.add(host)
 

@@ -22,12 +22,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .files import read_json_object, write_json_atomic
-from .models import (
-    DSSInstance,
-    GovernConnection,
-    StdioConfig,
-    StdioDSSInstanceConfig,
-)
+from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
@@ -112,26 +107,17 @@ def get_settings_path() -> Path:
     return _settings_path if _settings_path is not None else set_settings_path(None)
 
 
-def _parse_no_check_certificate(value: str) -> bool:
-    value = value.strip()
-    return bool(value) and value.lower() != "false"
-
-
 def _load_instance_from_env_vars() -> DSSInstance | None:
     if not os.environ.get("DKU_DSS_URL"):
         return None
 
+    no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
     try:
         instance = StdioDSSInstanceConfig(
             url=os.environ["DKU_DSS_URL"],
             api_key=os.environ.get("DKU_API_KEY", ""),
-            no_check_certificate=_parse_no_check_certificate(
-                os.environ.get("DKU_NO_CHECK_CERTIFICATE", "")
-            ),
-            govern_url=os.environ.get("DKU_GOVERN_URL", ""),
-            govern_api_key=os.environ.get("DKU_GOVERN_API_KEY", ""),
-            govern_no_check_certificate=_parse_no_check_certificate(
-                os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "")
+            no_check_certificate=(
+                bool(no_check_certificate) and no_check_certificate.lower() != "false"
             ),
         )
     except ValidationError as err:
@@ -139,36 +125,6 @@ def _load_instance_from_env_vars() -> DSSInstance | None:
     return instance.to_instance(
         os.environ.get("DKU_INSTANCE_NAME", "dss-env"),
         source="environment",
-    )
-
-
-def get_govern_connection_from_env() -> GovernConnection | None:
-    """Return the Govern node defined by `DKU_GOVERN_URL`, or None.
-
-    Environment variables win over the active instance profile so a CI job or
-    a quick test can target a Govern node without editing the config file.
-    """
-    govern_url = os.environ.get("DKU_GOVERN_URL", "").strip()
-    if not govern_url:
-        return None
-    return GovernConnection(
-        url=govern_url,
-        api_key=os.environ.get("DKU_GOVERN_API_KEY", ""),
-        no_check_certificate=_parse_no_check_certificate(
-            os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "")
-        ),
-        source="environment",
-    )
-
-
-def govern_connection_for_instance(instance: DSSInstance) -> GovernConnection:
-    """Return the Govern node stored on an instance profile (URL may be empty)."""
-    return GovernConnection(
-        url=instance.govern_url,
-        api_key=instance.govern_api_key,
-        no_check_certificate=instance.govern_no_check_certificate,
-        source=instance.source,
-        instance_name=instance.name,
     )
 
 
@@ -240,9 +196,6 @@ def add_instance_to_config(
     description: str = "",
     no_check_certificate: bool = False,
     set_default: bool = False,
-    govern_url: str = "",
-    govern_api_key: str = "",
-    govern_no_check_certificate: bool = False,
 ) -> dict:
     """Add an instance to the resolved local profile file."""
     global _config
@@ -252,9 +205,6 @@ def add_instance_to_config(
             api_key=api_key,
             description=description,
             no_check_certificate=no_check_certificate,
-            govern_url=govern_url,
-            govern_api_key=govern_api_key,
-            govern_no_check_certificate=govern_no_check_certificate,
         )
         config = _load_config()
         config.dss_instances[name] = instance
@@ -266,7 +216,6 @@ def add_instance_to_config(
             "name": name,
             "url": url,
             "description": description,
-            "govern_url": govern_url,
             "path": str(get_settings_path()),
             "default_instance": config.default_instance,
         }

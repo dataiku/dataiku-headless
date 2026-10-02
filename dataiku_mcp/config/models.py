@@ -36,20 +36,6 @@ class DSSInstance:
     description: str = ""
     delegated_audience: str = ""
     delegated_scope: str = ""
-    govern_url: str = ""
-    govern_api_key: str = field(default="", repr=False)
-    govern_no_check_certificate: bool = False
-
-
-@dataclass(frozen=True)
-class GovernConnection:
-    """Resolved Govern node credentials for the govern tool."""
-
-    url: str
-    api_key: str = field(repr=False)
-    no_check_certificate: bool
-    source: str
-    instance_name: str = ""
 
 
 NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
@@ -71,9 +57,6 @@ class _DSSInstanceConfig(_StrictConfigModel):
 
 class StdioDSSInstanceConfig(_DSSInstanceConfig):
     api_key: NonEmptyString = Field(repr=False)
-    govern_url: str = ""
-    govern_api_key: str = Field(default="", repr=False)
-    govern_no_check_certificate: bool = False
 
     def to_instance(
         self,
@@ -88,9 +71,6 @@ class StdioDSSInstanceConfig(_DSSInstanceConfig):
             no_check_certificate=self.no_check_certificate,
             source=source,
             description=self.description,
-            govern_url=self.govern_url,
-            govern_api_key=self.govern_api_key,
-            govern_no_check_certificate=self.govern_no_check_certificate,
         )
 
 
