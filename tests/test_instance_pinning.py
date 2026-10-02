@@ -39,19 +39,19 @@ class _FakeClient:
 
 def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
     instance_a = DSSInstance(
-        "instance-a",
-        "https://a.example",
-        "key-a",
-        False,
-        "config",
+        name="instance-a",
+        url="https://a.example",
+        api_key="key-a",
+        no_check_certificate=False,
+        source="config",
         instance_type="automation",
     )
     instance_b = DSSInstance(
-        "instance-b",
-        "https://b.example",
-        "key-b",
-        False,
-        "config",
+        name="instance-b",
+        url="https://b.example",
+        api_key="key-b",
+        no_check_certificate=False,
+        source="config",
         instance_type="deployer",
     )
     observed_instances = []

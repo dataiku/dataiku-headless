@@ -51,7 +51,7 @@ async def list_instances(ctx: Context) -> str:
     except ValueError:
         current_instance_name = ""
 
-    # Note: caution to not include inst.api_key in tool return value
+    # Never include instance credentials in tool responses.
     result = []
     for name, inst in instances.items():
         result.append(
@@ -117,9 +117,11 @@ async def delete_instance(name: InstanceName, ctx: Context) -> str:
 async def get_current_instance(ctx: Context) -> str:
     """Confirm which instance is active, whether it can be reached, and its version."""
 
-    # Strip api_key from return value
+    # Strip both credential types from the response, including on failure.
     current_instance = asdict(request.get_pinned_instance())
     current_instance.pop("api_key", None)
+    current_instance.pop("api_ticket", None)
+    current_instance.pop("encrypted_rpc_cert_path", None)
     current_instance["connection_status"] = "failed"
     try:
         client = get_dss_client()

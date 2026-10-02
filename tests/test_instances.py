@@ -20,6 +20,8 @@ from dataclasses import replace
 
 import pytest
 
+import pytest
+
 from dataiku_mcp.config import request
 from dataiku_mcp.config.models import DSSInstance
 from dataiku_mcp.tools import instances
@@ -46,13 +48,13 @@ class _FakeClient:
 
 def _instance(name: str) -> DSSInstance:
     return DSSInstance(
-        name,
-        f"https://{name}.example",
-        API_KEY,
-        False,
-        "config",
-        "design",
-        f"{name} desc",
+        name=name,
+        url=f"https://{name}.example",
+        api_key=API_KEY,
+        no_check_certificate=False,
+        source="config",
+        instance_type="design",
+        description=f"{name} desc",
     )
 
 
@@ -144,3 +146,38 @@ def test_get_current_instance_reports_failed_connection(monkeypatch):
     assert result["connection_status"] == "failed"
     assert "dataiku_version" not in result
     assert client.info_calls == 0
+
+
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+@pytest.mark.parametrize("connected", [False, True])
+def test_get_current_instance_never_returns_credentials(
+    monkeypatch, credential, connected
+):
+    secret = "do-not-return-this-credential"
+    instance = DSSInstance(
+        name="dataiku",
+        url="https://dev.example.com",
+        no_check_certificate=False,
+        source="code-studio-environment" if credential == "api_ticket" else "config",
+        encrypted_rpc_cert_path="/private/test-certificate.pem",
+        **{credential: secret},
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+
+    def get_client():
+        if not connected:
+            raise ConnectionError("connection failed")
+        return _FakeClient({"dssVersion": "14.7.2"})
+
+    monkeypatch.setattr(instances, "get_dss_client", get_client)
+    response = asyncio.run(instances.get_current_instance(FakeContext()))
+    result = json.loads(response)
+
+    assert "api_key" not in result
+    assert "api_ticket" not in result
+    assert "encrypted_rpc_cert_path" not in result
+    assert instance.encrypted_rpc_cert_path not in response
+    assert secret not in response
+    assert result["name"] == instance.name
+    assert result["source"] == instance.source
+    assert result["connection_status"] == ("connected" if connected else "failed")
