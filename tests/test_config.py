@@ -182,23 +182,149 @@ def test_stdio_getters_require_initialization():
         stdio.get_instances()
 
 
-def test_stdio_config_requires_explicit_type_without_rewriting_file():
+@pytest.mark.parametrize("location", ["cwd", "home", "explicit"])
+def test_stdio_config_migrates_missing_types_at_resolved_path(
+    tmp_path, monkeypatch, location
+):
+    monkeypatch.chdir(tmp_path)
+    path = {
+        "cwd": tmp_path / ".dataiku" / "stdio-config.json",
+        "home": stdio.DEFAULT_SETTINGS_PATH,
+        "explicit": tmp_path / "custom.json",
+    }[location]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "default_instance": "legacy",
+        "dss_instances": {
+            "legacy": {
+                "url": "https://legacy.example.com",
+                "api_key": "legacy-key",
+                "description": "Existing profile",
+                "no_check_certificate": True,
+            },
+            "ticket": {"url": "https://ticket.example.com", "api_ticket": "ticket"},
+            "typed": {
+                "url": "https://typed.example.com",
+                "api_key": "typed-key",
+                "instance_type": "automation",
+            },
+        },
+    }
+    path.write_text(json.dumps(document))
+    stdio.set_settings_path(path if location == "explicit" else None)
+    writes = []
+    write_atomic = stdio.write_json_atomic
+
+    def record_write(target, content):
+        writes.append(target)
+        write_atomic(target, content)
+
+    monkeypatch.setattr(stdio, "write_json_atomic", record_write)
+    stdio.initialize_config()
+
+    assert stdio.get_settings_path() == path
+    assert stdio.get_current_instance().name == "legacy"
+    assert stdio.get_current_instance().instance_type == "design"
+    assert stdio.get_instances()["ticket"].instance_type == "design"
+    assert stdio.get_instances()["typed"].instance_type == "automation"
+    document["dss_instances"]["legacy"]["instance_type"] = "design"
+    document["dss_instances"]["ticket"]["instance_type"] = "design"
+    assert json.loads(path.read_text()) == document
+    assert path.stat().st_mode & 0o777 == 0o600
+    migrated = path.read_bytes()
+
+    stdio.initialize_config()
+    assert writes == [path]
+    assert path.read_bytes() == migrated
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {},
+        {"dss_instances": {}},
+        {
+            "dss_instances": {
+                "dev": {
+                    "url": "https://dev.example.com",
+                    "api_key": "key",
+                    "instance_type": "design",
+                }
+            }
+        },
+    ],
+)
+def test_stdio_config_without_missing_types_is_not_rewritten(monkeypatch, document):
+    path = stdio.get_settings_path()
+    path.write_text(json.dumps(document))
+    original = path.read_bytes()
+
+    def unexpected_write(*args):
+        pytest.fail("Profiles with no missing types must not be rewritten")
+
+    monkeypatch.setattr(stdio, "write_json_atomic", unexpected_write)
+    stdio.initialize_config()
+    assert path.read_bytes() == original
+
+
+def test_stdio_config_migration_does_not_create_absent_file():
+    path = stdio.get_settings_path()
+    stdio.initialize_config()
+    assert stdio.get_instances() == {}
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("instances", [None, [], {"dev": "invalid"}])
+def test_stdio_config_migration_leaves_malformed_instances_for_validation(instances):
+    path = stdio.get_settings_path()
+    path.write_text(json.dumps({"dss_instances": instances}))
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="Invalid stdio settings"):
+        stdio.initialize_config()
+    assert path.read_bytes() == original
+
+
+def test_stdio_config_migration_preserves_raw_content_before_validation():
+    path = stdio.get_settings_path()
+    document = {
+        "dss_instances": {
+            "dev": {
+                "url": "https://dev.example.com",
+                "api_key": "secret-key",
+                "unknown": "preserved",
+            }
+        }
+    }
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="unknown") as error:
+        stdio.initialize_config()
+    document["dss_instances"]["dev"]["instance_type"] = "design"
+    assert json.loads(path.read_text()) == document
+    assert "secret-key" not in str(error.value)
+
+
+def test_stdio_config_migration_write_failure_preserves_original(monkeypatch):
     path = stdio.get_settings_path()
     path.write_text(
         json.dumps(
             {
                 "dss_instances": {
-                    "dev": {"url": "https://dev.example.com", "api_key": "secret-key"}
+                    "dev": {"url": "https://dev.example.com", "api_key": "key"}
                 }
             }
         )
     )
     original = path.read_bytes()
 
-    with pytest.raises(ValueError, match="instance_type") as error:
+    def fail_replace(source, destination):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("dataiku_mcp.config.files.os.replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
         stdio.initialize_config()
     assert path.read_bytes() == original
-    assert "secret-key" not in str(error.value)
+    assert list(path.parent.glob("config.*.tmp")) == []
+    assert stdio._config is None
 
 
 @pytest.mark.parametrize(
@@ -518,8 +644,10 @@ def test_stdio_config_rejects_invalid_instance_types(instance_type):
             }
         )
     )
+    original = stdio.get_settings_path().read_bytes()
     with pytest.raises(ValueError, match="instance_type") as error:
         stdio.initialize_config()
+    assert stdio.get_settings_path().read_bytes() == original
     assert "secret-key" not in str(error.value)
 
 

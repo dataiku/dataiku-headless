@@ -187,7 +187,10 @@ plaintext. Use `--settings-path PATH` to select the file; otherwise, the server 
 Add multiple instances through the setup page or edit the file using
 [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example).
 Each profile requires `instance_type`: `design`, `automation`, `deployer`, or
-`agent-management`. This metadata does not change client selection or tool availability.
+`agent-management`. Existing stdio profiles missing this field are automatically
+assigned `design` and rewritten on disk before loading. This temporary migration
+is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
+The type metadata does not change client selection or tool availability.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -216,7 +219,7 @@ All sources remain available through `list_instances` and `switch_instance`;
 use `get_current_instance` to verify the active connection. Environment instances
 take precedence over profiles with the same name. The explicit target must have
 a different name from `dataiku-from-code-studio` when both exist. Missing required
-credentials or types, unsupported types, and duplicate environment names fail startup.
+credentials or environment types, unsupported types, and duplicate environment names fail startup.
 
 Settings load at startup. Changes through the setup page or instance tools refresh
 the saved profiles immediately; manual file edits and environment changes require a restart.

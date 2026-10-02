@@ -154,12 +154,28 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
     return instances
 
 
+def _migrate_missing_instance_types(path: Path, document: dict) -> None:
+    """Persist the default type for older stdio profiles before validation."""
+    # Temporary migration logic; to be deprecated by 0.9.0.
+    instances = document.get("dss_instances")
+    if not isinstance(instances, dict):
+        return
+    changed = False
+    for instance in instances.values():
+        if isinstance(instance, dict) and "instance_type" not in instance:
+            instance["instance_type"] = "design"
+            changed = True
+    if changed:
+        write_json_atomic(path, document)
+
+
 def _load_config() -> StdioConfig:
     path = get_settings_path()
     try:
         document = read_json_object(path, description="Stdio instance configuration")
     except FileNotFoundError:
         return StdioConfig()
+    _migrate_missing_instance_types(path, document)
     try:
         return StdioConfig.model_validate(document)
     except ValidationError as err:
