@@ -1,6 +1,6 @@
 name: Bump version
 
-# Batch changes on main, then prepare a reviewed release PR with Commitizen.
+# Collect changes on release/X.Y.Z, then finalize that branch with Commitizen.
 # Publishing is a separate manual dispatch targeting that PR's merged commit.
 on:
   workflow_dispatch:
@@ -11,6 +11,10 @@ on:
         options: [prepare, publish]
         default: prepare
         required: true
+      release_branch:
+        description: Existing release/X.Y.Z branch to finalize (required for prepare)
+        type: string
+        default: ''
       release_pr:
         description: Merged release PR number (required for publish)
         type: string
@@ -31,64 +35,65 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Validate release branch input
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+        run: |
+          [[ "$RELEASE_BRANCH" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Provide an existing release/X.Y.Z branch.'; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_branch }}
           fetch-depth: 0
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-      - name: Check release baseline and outstanding PRs
-        id: before
+      - name: Check release baseline
         env:
-          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
-          version=$(python3 scripts/check_release.py)
-          git rev-parse --verify "refs/tags/v${version}"
-          open=$(gh pr list --base main --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("release/"))] | length')
-          test "$open" = 0 || { echo 'Finish or close the existing release PR first.'; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          current=$(python3 scripts/check_release.py)
+          python3 scripts/check_release.py --target-branch "$RELEASE_BRANCH"
+          git merge-base --is-ancestor "refs/tags/v$current" HEAD
+          git merge-base --is-ancestor origin/main HEAD || { echo 'Merge main into the release branch first.'; exit 1; }
+          if git show-ref --verify --quiet "refs/tags/v${RELEASE_BRANCH#release/}"; then
+            echo 'The target version already has a tag.'
+            exit 1
+          fi
       - name: Verify PEP 723 script lockfile is current
         run: |
           set -euo pipefail
           uv lock --script runtime/run_mcp.py --check
           uv lock --script runtime/run_mcp.py --upgrade
           git diff --exit-code -- runtime/run_mcp.py.lock
-      - name: Bump version and changelog locally
-        uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          push: false
-          no_raise: '3,21'
-      - name: Validate the prepared version
-        id: version
+      - name: Finalize version and changelog locally
         env:
-          PREVIOUS: ${{ steps.before.outputs.version }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
-          version=$(python3 scripts/check_release.py)
-          if [ "$version" = "$PREVIOUS" ]; then
-            echo 'No releasable commits.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          uv sync --locked
+          # The branch name is the intended version; Commitizen still owns the
+          # version-file updates and conventional-commit changelog generation.
+          uv run cz bump "${RELEASE_BRANCH#release/}" --version-files-only --changelog
           uv lock
           uv sync --locked
+          test "$(python3 scripts/check_release.py)" = "${RELEASE_BRANCH#release/}"
           python3 scripts/check_release.py --notes > "$RUNNER_TEMP/notes.md"
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-      - name: Open release PR
-        if: steps.version.outputs.value != ''
+      - name: Open finalization PR into the release branch
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add uv.lock
-          git commit --amend --no-edit
-          branch="release/$VERSION"
-          # Never push Commitizen's local tag or update main directly.
+          version="${RELEASE_BRANCH#release/}"
+          git add --update
+          git commit -m "bump: finalize $version"
+          branch="prepare-release/$version"
+          # Neither protected integration branch is written directly. A
+          # non-fast-forward push fails rather than replacing a previous run.
           git push origin "HEAD:refs/heads/$branch"
-          url=$(gh pr create --base main --head "$branch" --title "bump: release $VERSION" --body-file "$RUNNER_TEMP/notes.md")
-          echo "Release PR: $url. Approve its workflows, review and merge, then dispatch publish with its PR number." >> "$GITHUB_STEP_SUMMARY"
+          url=$(gh pr create --base "$RELEASE_BRANCH" --head "$branch" --title "bump: finalize $version" --body-file "$RUNNER_TEMP/notes.md")
+          echo "Finalization PR: $url. Approve workflows, review and merge. Then open $RELEASE_BRANCH into main and use a merge commit." >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     if: github.ref == 'refs/heads/main' && inputs.operation == 'publish'
@@ -113,6 +118,7 @@ jobs:
           version=$(jq -r '.head.ref | ltrimstr("release/")' "$RUNNER_TEMP/pr.json")
           gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&per_page=1" > "$RUNNER_TEMP/ci.json"
           jq -e '.workflow_runs[0] | .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/ci.json"
+          echo "head_sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,8 +129,10 @@ jobs:
       - name: Verify merged release before publishing
         env:
           VERSION: ${{ steps.target.outputs.version }}
+          RELEASE_HEAD: ${{ steps.target.outputs.head_sha }}
         run: |
           set -euo pipefail
+          python3 scripts/check_release.py --merge-head "$RELEASE_HEAD"
           test "$(python3 scripts/check_release.py)" = "$VERSION"
           git merge-base --is-ancestor HEAD origin/main
           uv lock --check

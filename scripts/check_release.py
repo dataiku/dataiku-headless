@@ -20,6 +20,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import subprocess
 
 try:
     import tomllib
@@ -66,12 +67,47 @@ def release_notes(root: Path, version: str) -> str:
     raise ValueError(f"No changelog section for v{version}")
 
 
+def validate_target_branch(branch: str, current: str) -> str:
+    match = re.fullmatch(r"release/([0-9]+\.[0-9]+\.[0-9]+)", branch)
+    if not match:
+        raise ValueError("Expected release/X.Y.Z")
+    target = match[1]
+    if tuple(map(int, target.split("."))) <= tuple(map(int, current.split("."))):
+        raise ValueError(
+            "Target must be newer than the current version; already finalized branches do not need another bump"
+        )
+    return target
+
+
+def validate_merge(root: Path, release_head: str) -> None:
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(root), *args], text=True
+        ).strip()
+
+    parents = git("rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
+    if len(parents) != 2 or parents[1] != release_head:
+        raise ValueError(
+            "Release PR must use a merge commit preserving the release branch head"
+        )
+    if git("rev-parse", "HEAD^{tree}") != git("rev-parse", f"{release_head}^{{tree}}"):
+        raise ValueError(
+            "Merge includes changes outside the release branch; reconcile main before releasing"
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--notes", action="store_true")
+    parser.add_argument("--target-branch")
+    parser.add_argument("--merge-head")
     args = parser.parse_args()
     root = Path.cwd()
     version = validate(root)
+    if args.target_branch:
+        validate_target_branch(args.target_branch, version)
+    if args.merge_head:
+        validate_merge(root, args.merge_head)
     print(
         release_notes(root, version) if args.notes else version,
         end="" if args.notes else "\n",

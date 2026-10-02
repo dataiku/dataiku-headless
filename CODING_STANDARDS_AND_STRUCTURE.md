@@ -129,14 +129,16 @@ uv run cz check --rev-range origin/main..HEAD  # validate your branch's messages
 uv run cz bump --dry-run                       # preview the next version (writes nothing)
 ```
 
-Commit *types* decide the version bump: `feat:` cuts a minor, `fix:` a patch,
-and `docs:`/`chore:`/`ci:`/`refactor:`/`test:` cut nothing. Batch PRs on `main`,
-then manually dispatch `.github/workflows/bump.yml` with `operation=prepare`.
-Commitizen prepares the version and changelog on a release PR. After review,
-merge, and successful main CI, dispatch `operation=publish` with that PR number
-to tag its exact merged commit and publish the GitHub release. No workflow
-pushes version changes directly to `main`. Nothing is published to PyPI.
-See `RELEASE.md` for setup and recovery instructions.
+Use Conventional Commit titles when squash-merging feature and fix PRs into
+an active `release/X.Y.Z` branch. Only release branches merge into `main`, using
+a merge commit to preserve the batch's history. At the end of the cycle,
+dispatch `.github/workflows/bump.yml` on `main` with `operation=prepare` and the
+existing `release_branch`. Commitizen sets the version from the branch name and
+builds the changelog in a finalization PR into that branch. After merging the
+finalization PR, review and merge the release branch into `main`. Once main CI
+passes, dispatch `operation=publish` with the release-to-main PR number. Neither
+protected branch receives direct version pushes. Nothing is published to PyPI.
+See `RELEASE.md` for required repository settings and recovery instructions.
 
 ## PR Checklist
 - [ ] Changes are limited to intended scope

@@ -299,7 +299,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 
 ## Contributing
 
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; [`RELEASE.md`](RELEASE.md) covers manually preparing a batched release PR and publishing its reviewed commit.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; [`RELEASE.md`](RELEASE.md) covers collecting changes on `release/X.Y.Z`, finalizing the batch, and publishing its reviewed merge into `main`.
 
 ## License
 
