@@ -145,12 +145,13 @@ limited direct actions Headless supports, see the
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication for the local stdio plugin (env API key or `.dataiku/stdio-config.json`)
+- Server-side authentication for the local stdio plugin (API key, Code Studio API ticket, or `.dataiku/stdio-config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
 In local stdio mode, tools do not accept API keys as arguments — authentication is
-resolved server-side from environment variables or a config file.
+resolved server-side from environment variables or a config file. Code Studios
+provide their hosting instance URL and API ticket automatically.
 
 For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
 
@@ -162,14 +163,19 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-The onboarding flow is:
+Outside a Code Studio, configure a connection using a personal API key:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, Dataiku URL, and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
-The API key never appears in MCP tool arguments.
+Inside a Code Studio, the server automatically discovers the hosting DSS instance
+as `dataiku-from-code-studio`, using the injected `DKU_IS_CODE_STUDIO`, `DKU_BACKEND_PROTOCOL`,
+`DKU_BACKEND_HOST`, `DKU_BACKEND_PORT`, and `DKU_API_TICKET` environment variables.
+No personal API key or setup popup is needed for this connection.
+
+API keys and tickets never appear in MCP tool arguments or instance responses.
 
 ### Where configuration lives
 
@@ -182,7 +188,10 @@ The server loads environment and profile settings at startup. Profile additions 
 deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
 or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
 
-Environment variables are an explicit override:
+Set `DKU_DSS_URL` and `DKU_API_KEY` to explicitly select another instance, including
+inside a Code Studio. `DKU_INSTANCE_NAME` optionally names this instance (default
+`dataiku-from-env`); when both environment instances exist, choose a name other than
+`dataiku-from-code-studio`. Duplicate environment names cause a startup error.
 
 **.env file:**
 Copy `.env.example` to `.env` and fill in your values:
@@ -203,9 +212,16 @@ Put instance info in the resolved configuration file. See `.dataiku/stdio-config
 
 After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
 
-Auth resolution order:
-1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. The resolved configuration file, using its `default_instance`
+The active instance at startup is selected in this order:
+
+1. The explicit `DKU_DSS_URL` / `DKU_API_KEY` environment instance.
+2. The automatically discovered Code Studio instance.
+3. The resolved configuration file's `default_instance`.
+
+Both environment instances remain available through `list_instances` and
+`switch_instance`, together with saved profiles. Environment instances take
+precedence over saved profiles with the same name. Invalid configured environment
+settings cause startup to fail rather than silently selecting another instance.
 
 ## Run
 

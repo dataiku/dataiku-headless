@@ -14,9 +14,12 @@
 
 import asyncio
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from dataiku_mcp.config import request, stdio
 from dataiku_mcp.config.models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
@@ -33,13 +36,19 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(stdio, "_settings_path", tmp_path / "stdio-config.json")
     monkeypatch.setattr(stdio, "_config", None)
     monkeypatch.setattr(stdio, "_current_instance", None)
-    monkeypatch.setattr(stdio, "_environment_instance", None)
+    monkeypatch.setattr(stdio, "_environment_instances", [])
     for variable in (
         "DKU_DSS_URL",
         "DKU_API_KEY",
         "DKU_INSTANCE_NAME",
         "DKU_NO_CHECK_CERTIFICATE",
         "DKU_CONFIG_FILE",
+        "DKU_IS_CODE_STUDIO",
+        "DKU_API_TICKET",
+        "DKU_SERVER_CERT",
+        "DKU_BACKEND_PROTOCOL",
+        "DKU_BACKEND_HOST",
+        "DKU_BACKEND_PORT",
     ):
         monkeypatch.delenv(variable, raising=False)
 
@@ -289,6 +298,73 @@ def test_stdio_config_example_is_valid(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("from_document", [False, True])
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"api_key": "key"},
+        {"api_ticket": "ticket"},
+        {"api_key": "key", "api_ticket": None},
+        {"api_key": None, "api_ticket": "ticket"},
+    ],
+)
+def test_stdio_credentials_accept_exactly_one(credentials, from_document):
+    document = {"url": "https://dev.example.com", **credentials}
+    config = (
+        StdioDSSInstanceConfig.model_validate(document)
+        if from_document
+        else StdioDSSInstanceConfig(**document)
+    )
+    instance = config.to_instance("dev")
+
+    assert instance.api_key == credentials.get("api_key")
+    assert instance.api_ticket == credentials.get("api_ticket")
+    stdio._save_config(StdioConfig(dss_instances={"dev": config}))
+    saved = json.loads(stdio.get_settings_path().read_text())["dss_instances"]["dev"]
+    assert saved == {key: value for key, value in document.items() if value is not None}
+    assert stdio._load_config().dss_instances["dev"] == config
+
+
+@pytest.mark.parametrize("from_document", [False, True])
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {},
+        {"api_key": None, "api_ticket": None},
+        {"api_key": "secret-key", "api_ticket": "secret-ticket"},
+        {"api_key": ""},
+        {"api_ticket": ""},
+        {"api_key": "secret-key", "api_ticket": ""},
+        {"api_ticket": "secret-ticket", "api_key": ""},
+        {"api_key": ["secret-key"]},
+        {"api_ticket": ["secret-ticket"]},
+        {"api_key": 123},
+        {"api_ticket": 123},
+    ],
+)
+def test_stdio_credentials_reject_invalid_combinations(credentials, from_document):
+    document = {"url": "https://dev.example.com", **credentials}
+    with pytest.raises(ValidationError) as exc_info:
+        if from_document:
+            StdioDSSInstanceConfig.model_validate(document)
+        else:
+            StdioDSSInstanceConfig(**document)
+
+    assert "secret-key" not in str(exc_info.value)
+    assert "secret-ticket" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+def test_stdio_credentials_are_hidden_from_representations(credential):
+    secret = "do-not-print-this-credential"
+    config = StdioDSSInstanceConfig(
+        url="https://dev.example.com", **{credential: secret}
+    )
+
+    assert secret not in repr(config)
+    assert secret not in repr(config.to_instance("dev"))
+
+
 def test_stdio_instance_config_converts_to_runtime_instance():
     config = StdioDSSInstanceConfig(
         url="https://dev.example.com",
@@ -334,11 +410,55 @@ def test_stdio_environment_uses_validated_instance(monkeypatch):
     monkeypatch.setenv("DKU_API_KEY", "api-key")
     stdio.initialize_config()
 
-    instance = stdio.get_instances()["dss-env"]
+    instance = stdio.get_instances()["dataiku-from-env"]
 
     assert instance.url == "https://dev.example.com"
     assert instance.api_key == "api-key"
     assert instance.source == "environment"
+
+
+@pytest.fixture
+def code_studio_environment(monkeypatch):
+    monkeypatch.setenv("DKU_IS_CODE_STUDIO", "1")
+    monkeypatch.setenv("DKU_BACKEND_PROTOCOL", "https")
+    monkeypatch.setenv("DKU_BACKEND_HOST", "studio.example.com")
+    monkeypatch.setenv("DKU_BACKEND_PORT", "443")
+    # Both environment instances should remain available, with the explicit one first.
+    monkeypatch.setenv("DKU_DSS_URL", "https://other.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "other-key")
+
+
+@pytest.mark.parametrize("instance_name", [None, "custom-studio"])
+def test_code_studio_environment_uses_ticket(
+    monkeypatch, code_studio_environment, instance_name
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    if instance_name is not None:
+        monkeypatch.setenv("DKU_INSTANCE_NAME", instance_name)
+    stdio.initialize_config()
+
+    instance = stdio.get_instances()["dataiku-from-code-studio"]
+    assert instance.name == "dataiku-from-code-studio"
+    assert instance.url == "https://studio.example.com:443"
+    assert instance.api_key is None
+    assert instance.api_ticket == "studio-ticket"
+    assert instance.source == "code-studio-environment"
+
+
+@pytest.mark.parametrize("ticket", [None, ""])
+def test_code_studio_environment_requires_ticket(
+    monkeypatch, code_studio_environment, ticket
+):
+    if ticket is not None:
+        monkeypatch.setenv("DKU_API_TICKET", ticket)
+
+    message = (
+        "Missing Code Studio environment setting: DKU_API_TICKET"
+        if ticket is None
+        else "Invalid stdio environment settings in Code Studio"
+    )
+    with pytest.raises(ValueError, match=message):
+        stdio.initialize_config()
 
 
 def test_stdio_getters_use_the_startup_snapshot(monkeypatch):
@@ -364,8 +484,8 @@ def test_stdio_getters_use_the_startup_snapshot(monkeypatch):
     assert stdio.get_current_instance().name == "dev"
 
     stdio.initialize_config()
-    assert set(stdio.get_instances()) == {"changed", "dss-env"}
-    assert stdio.get_current_instance().name == "dss-env"
+    assert set(stdio.get_instances()) == {"changed", "dataiku-from-env"}
+    assert stdio.get_current_instance().name == "dataiku-from-env"
 
 
 def test_stdio_mutation_failure_leaves_cached_state_unchanged(monkeypatch):
@@ -512,3 +632,143 @@ def test_deleting_inactive_instance_preserves_current_instance():
     stdio.delete_instance_from_config("inactive")
 
     assert stdio.get_current_instance().name == "active"
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_environment_instances_remain_switchable(
+    monkeypatch, code_studio_environment, explicit
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    monkeypatch.setenv("DKU_NO_CHECK_CERTIFICATE", "true")
+    if not explicit:
+        monkeypatch.delenv("DKU_DSS_URL")
+    add_instance("dataiku-from-code-studio", set_default=True)
+    stdio.initialize_config()
+
+    assert [instance.name for instance in stdio._environment_instances] == (
+        ["dataiku-from-env", "dataiku-from-code-studio"]
+        if explicit
+        else ["dataiku-from-code-studio"]
+    )
+    assert stdio.get_current_instance().name == (
+        "dataiku-from-env" if explicit else "dataiku-from-code-studio"
+    )
+    assert (
+        stdio.get_instances()["dataiku-from-code-studio"].api_ticket == "studio-ticket"
+    )
+    assert (
+        stdio.get_instances()["dataiku-from-code-studio"].no_check_certificate is False
+    )
+    if explicit:
+        assert stdio.get_instances()["dataiku-from-env"].no_check_certificate is True
+    request.set_current_instance("dataiku-from-code-studio")
+    assert stdio.get_current_instance().api_ticket == "studio-ticket"
+    if explicit:
+        request.set_current_instance("dataiku-from-env")
+        assert stdio.get_current_instance().api_key == "other-key"
+    monkeypatch.setenv("DKU_API_TICKET", "changed-ticket")
+    assert (
+        stdio.get_instances()["dataiku-from-code-studio"].api_ticket == "studio-ticket"
+    )
+
+
+def test_environment_instances_reject_duplicate_names(
+    monkeypatch, code_studio_environment
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    monkeypatch.setenv("DKU_INSTANCE_NAME", "dataiku-from-code-studio")
+    with pytest.raises(
+        ValueError, match="Duplicate environment instance name.*DKU_INSTANCE_NAME"
+    ):
+        stdio.initialize_config()
+
+
+def test_invalid_explicit_instance_does_not_fall_back_to_code_studio(
+    monkeypatch, code_studio_environment
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    monkeypatch.delenv("DKU_API_KEY")
+    with pytest.raises(ValueError, match="Invalid stdio environment settings"):
+        stdio.initialize_config()
+
+
+def test_environment_cache_resets_with_settings_path(monkeypatch):
+    monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "key")
+    stdio.initialize_config()
+    stdio.set_settings_path(stdio.get_settings_path())
+    assert stdio._environment_instances == []
+    assert stdio.get_current_instance() is None
+
+
+def test_initial_settings_path_resolution_preserves_environment(monkeypatch, tmp_path):
+    monkeypatch.setattr(stdio, "_settings_path", None)
+    monkeypatch.setattr(stdio, "DEFAULT_SETTINGS_PATH", tmp_path / "settings.json")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DKU_DSS_URL", "https://dev.example.com")
+    monkeypatch.setenv("DKU_API_KEY", "key")
+    stdio.initialize_config()
+    assert stdio.get_current_instance() == stdio.get_instances()["dataiku-from-env"]
+
+
+def test_code_studio_certificate_survives_configuration_reset(
+    monkeypatch, code_studio_environment, localhost_certificate
+):
+    pem, _, _ = localhost_certificate
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    monkeypatch.setenv("DKU_SERVER_CERT", pem)
+    stdio.initialize_config()
+    instance = stdio.get_instances()["dataiku-from-code-studio"]
+    path = Path(instance.encrypted_rpc_cert_path)
+    assert path.read_text() == pem
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert stdio.get_instances()["dataiku-from-env"].encrypted_rpc_cert_path is None
+    assert str(path) not in repr(instance)
+    stdio._save_config(StdioConfig())
+    assert "encrypted_rpc_cert_path" not in stdio.get_settings_path().read_text()
+    stdio.set_settings_path(stdio.get_settings_path())
+    assert path.read_text() == pem
+
+
+def test_certificate_file_is_removed_on_process_exit(localhost_certificate):
+    pem, _, _ = localhost_certificate
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from dataiku_mcp.config import stdio; "
+            "print(stdio._write_encrypted_rpc_certificate(sys.stdin.read()))",
+        ],
+        input=pem,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    path = Path(result.stdout.strip())
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("certificate", [None, ""])
+def test_code_studio_without_certificate_uses_default_trust(
+    monkeypatch, code_studio_environment, certificate
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    if certificate is not None:
+        monkeypatch.setenv("DKU_SERVER_CERT", certificate)
+    stdio.initialize_config()
+    assert (
+        stdio.get_instances()["dataiku-from-code-studio"].encrypted_rpc_cert_path
+        is None
+    )
+
+
+def test_code_studio_rejects_malformed_certificate(
+    monkeypatch, code_studio_environment
+):
+    monkeypatch.setenv("DKU_API_TICKET", "studio-ticket")
+    monkeypatch.setenv("DKU_SERVER_CERT", "do-not-echo-malformed-certificate")
+    with pytest.raises(
+        ValueError, match="Invalid Code Studio DKU_SERVER_CERT"
+    ) as exc_info:
+        stdio.initialize_config()
+    assert "do-not-echo-malformed-certificate" not in str(exc_info.value)
