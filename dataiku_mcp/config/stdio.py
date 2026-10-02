@@ -25,7 +25,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .files import read_json_object, write_json_atomic
-from .models import DSSInstance, StdioConfig, StdioDSSInstanceConfig
+from .models import DSSInstance, InstanceType, StdioConfig, StdioDSSInstanceConfig
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".dataiku" / "stdio-config.json"
@@ -47,11 +47,6 @@ def _resolve_default_settings_path() -> Path:
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
     global _config, _current_instance, _environment_instances, _settings_path
-    if "DKU_CONFIG_FILE" in os.environ:
-        raise ValueError(
-            "DKU_CONFIG_FILE is deprecated. Use --settings-path to select the "
-            "stdio settings file."
-        )
     if path is not None:
         _settings_path = path.expanduser()
     else:
@@ -95,14 +90,21 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
     if os.environ.get("DKU_DSS_URL"):
         no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
         try:
-            instance = StdioDSSInstanceConfig(
-                url=os.environ["DKU_DSS_URL"],
-                api_key=os.environ.get("DKU_API_KEY", ""),
-                no_check_certificate=(
-                    bool(no_check_certificate)
-                    and no_check_certificate.lower() != "false"
-                ),
+            instance = StdioDSSInstanceConfig.model_validate(
+                {
+                    "url": os.environ["DKU_DSS_URL"],
+                    "api_key": os.environ["DKU_API_KEY"],
+                    "instance_type": os.environ["DKU_INSTANCE_TYPE"],
+                    "no_check_certificate": (
+                        bool(no_check_certificate)
+                        and no_check_certificate.lower() != "false"
+                    ),
+                }
             )
+        except KeyError as err:
+            raise ValueError(
+                f"Missing stdio environment setting: {err.args[0]}"
+            ) from None
         except ValidationError as err:
             raise ValueError(f"Invalid stdio environment settings: {err}") from None
         instances.append(
@@ -123,9 +125,12 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
                 f"{os.environ['DKU_BACKEND_PROTOCOL']}://"
                 f"{os.environ['DKU_BACKEND_HOST']}:{os.environ['DKU_BACKEND_PORT']}"
             )
-            instance = StdioDSSInstanceConfig(
-                url=backend_url,
-                api_ticket=os.environ["DKU_API_TICKET"],
+            instance = StdioDSSInstanceConfig.model_validate(
+                {
+                    "url": backend_url,
+                    "api_ticket": os.environ["DKU_API_TICKET"],
+                    "instance_type": os.environ["DKU_NODE_TYPE"],
+                }
             )
         except KeyError as err:
             raise ValueError(
@@ -149,12 +154,28 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
     return instances
 
 
+def _migrate_missing_instance_types(path: Path, document: dict) -> None:
+    """Persist the default type for older stdio profiles before validation."""
+    # Temporary migration logic; to be deprecated by 0.9.0.
+    instances = document.get("dss_instances")
+    if not isinstance(instances, dict):
+        return
+    changed = False
+    for instance in instances.values():
+        if isinstance(instance, dict) and "instance_type" not in instance:
+            instance["instance_type"] = "design"
+            changed = True
+    if changed:
+        write_json_atomic(path, document)
+
+
 def _load_config() -> StdioConfig:
     path = get_settings_path()
     try:
         document = read_json_object(path, description="Stdio instance configuration")
     except FileNotFoundError:
         return StdioConfig()
+    _migrate_missing_instance_types(path, document)
     try:
         return StdioConfig.model_validate(document)
     except ValidationError as err:
@@ -215,6 +236,7 @@ def add_instance_to_config(
     api_key: str,
     *,
     description: str = "",
+    instance_type: InstanceType,
     no_check_certificate: bool = False,
     set_default: bool = False,
 ) -> dict:
@@ -225,6 +247,7 @@ def add_instance_to_config(
             url=url,
             api_key=api_key,
             description=description,
+            instance_type=instance_type,
             no_check_certificate=no_check_certificate,
         )
         config = _load_config()
@@ -237,6 +260,7 @@ def add_instance_to_config(
             "name": name,
             "url": url,
             "description": description,
+            "instance_type": instance.instance_type,
             "path": str(get_settings_path()),
             "default_instance": config.default_instance,
         }

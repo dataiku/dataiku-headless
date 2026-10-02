@@ -37,6 +37,7 @@ def test_client_uses_selected_authentication(
         api_ticket="api-ticket" if credential == "api_ticket" else None,
         no_check_certificate=no_check_certificate,
         source="http" if credential == "http" else "environment",
+        instance_type="design",
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
     monkeypatch.setattr(request, "is_http_request", lambda: credential == "http")
@@ -76,6 +77,7 @@ def test_client_ticket_uses_sdk_ticket_header(monkeypatch):
         no_check_certificate=False,
         source="environment",
         api_ticket="studio-ticket",
+        instance_type="design",
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
     monkeypatch.setattr(request, "is_http_request", lambda: False)
@@ -99,6 +101,7 @@ def test_client_reuses_certificate_path(monkeypatch, localhost_certificate, disa
         api_ticket="ticket",
         no_check_certificate=disabled,
         encrypted_rpc_cert_path=path,
+        instance_type="design",
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
     monkeypatch.setattr(request, "is_http_request", lambda: False)
@@ -134,6 +137,7 @@ def test_client_verifies_local_https(monkeypatch, localhost_certificate, mode):
             name="studio",
             url=f"https://{hostname}:{server.server_port}",
             source="code-studio-environment",
+            instance_type="design",
             no_check_certificate=False,
             api_ticket="test-ticket",
             encrypted_rpc_cert_path=(

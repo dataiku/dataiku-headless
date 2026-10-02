@@ -20,11 +20,13 @@ import webbrowser
 from dataclasses import dataclass
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import get_args
 from urllib.parse import parse_qs, urlsplit
 
 import dataikuapi
 
 from .config import request, stdio
+from .config.models import InstanceType
 
 SESSION_LIFETIME_SECONDS = 10 * 60
 MAX_REQUEST_BYTES = 16 * 1024
@@ -62,6 +64,12 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     url = form.get("url", [""])[0].strip()
     api_key = form.get("api_key", [""])[0].strip()
     description = form.get("description", [""])[0].strip()
+    instance_type = form.get("instance_type", [""])[0]
+
+    if instance_type not in get_args(InstanceType):
+        raise ValueError(
+            "Instance type must be one of: " + ", ".join(get_args(InstanceType)) + "."
+        )
 
     if not name:
         raise ValueError("Instance name is required.")
@@ -93,6 +101,7 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
         "url": url,
         "api_key": api_key,
         "description": description,
+        "instance_type": instance_type,
         "no_check_certificate": "no_check_certificate" in form,
         "set_default": "set_default" in form,
     }
@@ -115,6 +124,13 @@ def _page(
     values = values or {}
     name = escape(values.get("name", ""))
     description = escape(values.get("description", ""))
+    instance_type = values.get("instance_type", "")
+    instance_type_options = "".join(
+        f'<option value="{value}"'
+        + (" selected" if value == instance_type else "")
+        + f">{value.replace('-', ' ').capitalize()}</option>"
+        for value in get_args(InstanceType)
+    )
     url = escape(values.get("url", ""))
     api_key = escape(values.get("api_key", ""))
     set_default = " checked" if is_initial_page or values.get("set_default") else ""
@@ -146,9 +162,9 @@ def _page(
     .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }}
     label {{ display:block; font-size:13px; font-weight:650; margin-bottom:8px; }}
     .full {{ grid-column:1 / -1; }}
-    input[type=text], input[type=url], input[type=password] {{ width:100%; border:1px solid var(--line); border-radius:8px; padding:11px 12px; color:var(--ink); background:var(--paper); font:inherit; outline:none; transition:border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }}
-    input:hover {{ border-color:#aeb9b9; }}
-    input:focus-visible {{ border-color:var(--teal-dark); box-shadow:0 0 0 3px #00a6a626; background:var(--surface); }}
+    input[type=text], input[type=url], input[type=password], select {{ width:100%; border:1px solid var(--line); border-radius:8px; padding:11px 12px; color:var(--ink); background:var(--paper); font:inherit; outline:none; transition:border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }}
+    input:hover, select:hover {{ border-color:#aeb9b9; }}
+    input:focus-visible, select:focus-visible {{ border-color:var(--teal-dark); box-shadow:0 0 0 3px #00a6a626; background:var(--surface); }}
     .hint {{ color:var(--muted); font-size:12px; margin-top:4px; }}
     .checks {{ display:grid; gap:12px; margin:20px 0 24px; }}
     .check {{ display:flex; gap:10px; align-items:flex-start; font-weight:500; margin:0; }}
@@ -181,6 +197,7 @@ def _page(
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production Dataiku" value="{description}"></div>
+          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select></div>
           <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" value="{url}" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" value="{api_key}" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
