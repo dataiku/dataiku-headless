@@ -44,11 +44,6 @@ def _resolve_default_settings_path() -> Path:
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
     global _config, _current_instance, _environment_instance, _settings_path
-    if "DKU_CONFIG_FILE" in os.environ:
-        raise ValueError(
-            "DKU_CONFIG_FILE is deprecated. Use --settings-path to select the "
-            "stdio settings file."
-        )
     if path is not None:
         _settings_path = path.expanduser()
     else:
