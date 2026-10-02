@@ -16,7 +16,10 @@
         "DKU_INSTANCE_NAME",
         "DKU_DSS_URL",
         "DKU_API_KEY",
-        "DKU_NO_CHECK_CERTIFICATE"
+        "DKU_NO_CHECK_CERTIFICATE",
+        "DKU_GOVERN_URL",
+        "DKU_GOVERN_API_KEY",
+        "DKU_GOVERN_NO_CHECK_CERTIFICATE"
       ]
     }
   }

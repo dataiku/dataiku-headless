@@ -35,6 +35,7 @@ from .tools import (  # noqa: F401
     evaluation_stores,
     flow,
     general_settings,
+    govern,
     groups,
     insights,
     instances,

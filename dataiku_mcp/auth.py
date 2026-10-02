@@ -15,6 +15,7 @@
 """Authentication and Dataiku client creation."""
 
 import logging
+import os
 from urllib.parse import urlparse
 
 import dataikuapi
@@ -44,6 +45,29 @@ def get_dss_client() -> dataikuapi.DSSClient:
             extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
         )
     client._session.verify = not current_instance.no_check_certificate
+    return client
+
+
+def get_govern_client() -> dataikuapi.GovernClient:
+    """Get a Govern API client from `DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY`."""
+    if request.is_http_request():
+        raise ValueError(
+            "The govern tool is available only in local stdio mode. A Govern "
+            "node accepts only API keys, not the delegated tokens that HTTP mode "
+            "uses."
+        )
+    url = os.environ.get("DKU_GOVERN_URL", "").strip()
+    api_key = os.environ.get("DKU_GOVERN_API_KEY", "").strip()
+    if not url or not api_key:
+        raise ValueError(
+            "No Govern node is configured. Set DKU_GOVERN_URL and "
+            "DKU_GOVERN_API_KEY in the MCP server environment."
+        )
+    no_check_certificate = os.environ.get("DKU_GOVERN_NO_CHECK_CERTIFICATE", "").strip()
+    client = dataikuapi.GovernClient(url, api_key)
+    client._session.verify = not (
+        bool(no_check_certificate) and no_check_certificate.lower() != "false"
+    )
     return client
 
 
