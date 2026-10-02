@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -161,21 +162,21 @@ def _users_container(value: Any) -> dict[str, Any]:
 
 
 def _replace_raw(definition, new_raw: dict[str, Any]):
-    """Replace a mutable SDK definition in place so ``save()`` sends ``new_raw``.
-
-    Identity keys the caller omits are kept: the operation already names the
-    object, and Govern refuses a body whose ID does not match the URL.
-    """
+    """Replace a mutable SDK definition in place so ``save()`` sends ``new_raw``."""
     raw = definition.get_raw()
-    identity = {
-        key: raw[key]
-        for key in ("id", "blueprintId")
-        if key in raw and key not in new_raw
-    }
     raw.clear()
     raw.update(new_raw)
-    raw.update(identity)
     return definition
+
+
+def _with_id(body: dict[str, Any], object_id: str) -> dict[str, Any]:
+    """Add the ID the operation already names to a small metadata body.
+
+    Govern refuses a blueprint, role or custom page body without its ID. Only
+    these metadata bodies get it: for larger definitions the missing ID makes
+    Govern refuse a wrong payload instead of saving it.
+    """
+    return {"id": object_id, **body}
 
 
 def _version_state(version) -> dict[str, Any]:
@@ -820,7 +821,9 @@ def _create_blueprint(client, p):
 )
 def _update_blueprint(client, p):
     blueprint = _admin_blueprint(client, p)
-    _replace_raw(blueprint.get_definition(), p["blueprint"]).save()
+    _replace_raw(
+        blueprint.get_definition(), _with_id(p["blueprint"], p["blueprint_id"])
+    ).save()
     return blueprint.get_definition().get_raw()
 
 
@@ -875,7 +878,7 @@ def _create_blueprint_version(client, p):
         _p(
             "definition",
             "object",
-            "Complete version definition from get_blueprint_version.",
+            "The definition object of get_blueprint_version (not the whole result), edited.",
             True,
         ),
         _p(
@@ -886,6 +889,11 @@ def _create_blueprint_version(client, p):
     ),
 )
 def _update_blueprint_version(client, p):
+    if "definition" in p["definition"] and "trace" in p["definition"]:
+        raise ValueError(
+            "Pass the 'definition' object of get_blueprint_version, not the whole "
+            "result: saving the result would erase the version's fields and workflow."
+        )
     version = _admin_version(client, p)
     definition = _replace_raw(version.get_definition(), p["definition"])
     definition.save(danger_zone_accepted=p.get("danger_zone_accepted"))
@@ -1061,7 +1069,7 @@ def _create_role(client, p):
 )
 def _update_role(client, p):
     role = _roles(client).get_role(p["role_id"])
-    _replace_raw(role.get_definition(), p["role"]).save()
+    _replace_raw(role.get_definition(), _with_id(p["role"], p["role_id"])).save()
     return role.get_definition().get_raw()
 
 
@@ -1332,7 +1340,9 @@ def _create_custom_page(client, p):
 )
 def _update_custom_page(client, p):
     page = _pages(client).get_custom_page(p["custom_page_id"])
-    _replace_raw(page.get_definition(), p["custom_page"]).save()
+    _replace_raw(
+        page.get_definition(), _with_id(p["custom_page"], p["custom_page_id"])
+    ).save()
     return page.get_definition().get_raw()
 
 
@@ -1930,14 +1940,16 @@ async def govern(
         try:
             return spec.run(client, params)
         except DataikuException as err:
-            # A proxy such as Dataiku Cloud's answers a 404 with an HTML page.
-            message = str(err).lower()
-            if "<!doctype html" in message or "<html" in message:
+            # A proxy answers with an HTML page; its title is the only status left.
+            message = str(err)
+            if "<!doctype html" in message.lower() or "<html" in message.lower():
+                title = re.search(r"<title>(.*?)</title>", message, re.I | re.S)
+                title = " ".join(title.group(1).split()) if title else "no title"
                 raise ValueError(
-                    f"Govern answered '{operation}' with an HTML error page, not an "
-                    "API error. The object most likely does not exist or this API "
-                    "key cannot see it; check its identifiers with a list or search "
-                    "operation."
+                    f"Govern answered '{operation}' with an HTML error page "
+                    f"('{title}'), not an API error. On Dataiku Cloud, 'Dataiku "
+                    "instance not found' means the object does not exist or this "
+                    "API key cannot see it; another title is a proxy or server error."
                 ) from None
             raise
 
