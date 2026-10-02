@@ -20,8 +20,6 @@ from dataclasses import replace
 
 import pytest
 
-import pytest
-
 from dataiku_mcp.config import request
 from dataiku_mcp.config.models import DSSInstance
 from dataiku_mcp.tools import instances
@@ -160,6 +158,7 @@ def test_get_current_instance_never_returns_credentials(
         no_check_certificate=False,
         source="code-studio-environment" if credential == "api_ticket" else "config",
         encrypted_rpc_cert_path="/private/test-certificate.pem",
+        instance_type="design",
         **{credential: secret},
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)

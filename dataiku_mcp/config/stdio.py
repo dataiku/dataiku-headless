@@ -46,7 +46,7 @@ def _resolve_default_settings_path() -> Path:
 
 def set_settings_path(path: Path | None) -> Path:
     """Select the stdio profile file for this server process."""
-    global _config, _current_instance, _environment_instance, _settings_path
+    global _config, _current_instance, _environment_instances, _settings_path
     if path is not None:
         _settings_path = path.expanduser()
     else:
@@ -91,16 +91,20 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
         no_check_certificate = os.environ.get("DKU_NO_CHECK_CERTIFICATE", "").strip()
         try:
             instance = StdioDSSInstanceConfig.model_validate(
-            {
-                "url": os.environ["DKU_DSS_URL"],
-                "api_key": os.environ.get("DKU_API_KEY", ""),
-                "instance_type": os.environ["DKU_INSTANCE_TYPE"],
-                "no_check_certificate": (
-                    bool(no_check_certificate)
-                    and no_check_certificate.lower() != "false"
-                ),
-            }
+                {
+                    "url": os.environ["DKU_DSS_URL"],
+                    "api_key": os.environ["DKU_API_KEY"],
+                    "instance_type": os.environ["DKU_INSTANCE_TYPE"],
+                    "no_check_certificate": (
+                        bool(no_check_certificate)
+                        and no_check_certificate.lower() != "false"
+                    ),
+                }
             )
+        except KeyError as err:
+            raise ValueError(
+                f"Missing stdio environment setting: {err.args[0]}"
+            ) from None
         except ValidationError as err:
             raise ValueError(f"Invalid stdio environment settings: {err}") from None
         instances.append(
@@ -121,9 +125,12 @@ def _load_instances_from_env_vars() -> list[DSSInstance]:
                 f"{os.environ['DKU_BACKEND_PROTOCOL']}://"
                 f"{os.environ['DKU_BACKEND_HOST']}:{os.environ['DKU_BACKEND_PORT']}"
             )
-            instance = StdioDSSInstanceConfig(
-                url=backend_url,
-                api_ticket=os.environ["DKU_API_TICKET"],
+            instance = StdioDSSInstanceConfig.model_validate(
+                {
+                    "url": backend_url,
+                    "api_ticket": os.environ["DKU_API_TICKET"],
+                    "instance_type": os.environ["DKU_NODE_TYPE"],
+                }
             )
         except KeyError as err:
             raise ValueError(

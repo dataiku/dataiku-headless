@@ -45,7 +45,10 @@ export DKU_API_KEY="your-api-key"
   keyword arguments when constructing runtime instances.
 - When `DKU_IS_CODE_STUDIO` is non-empty, environment loading uses
   `DKU_API_TICKET` and builds the URL from `DKU_BACKEND_PROTOCOL`,
-  `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. Load the explicit
+  `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. Its required `instance_type` comes
+  from `DKU_NODE_TYPE`; an explicit target requires `DKU_INSTANCE_TYPE`. Translate
+  missing required environment keys into clear `ValueError` messages and let
+  Pydantic validate present values. Load the explicit
   `DKU_DSS_URL` / `DKU_API_KEY` instance first and the Code Studio instance second;
   both remain switchable. Reject duplicate environment names. Missing or invalid
   credentials fail validation rather than silently discarding an instance.

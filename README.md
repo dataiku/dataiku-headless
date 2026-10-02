@@ -170,73 +170,56 @@ Outside a Code Studio, configure a connection using a personal API key:
 3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
-Inside a Code Studio, the server automatically discovers the hosting DSS instance
-as `dataiku-from-code-studio`, using the injected `DKU_IS_CODE_STUDIO`, `DKU_BACKEND_PROTOCOL`,
-`DKU_BACKEND_HOST`, `DKU_BACKEND_PORT`, and `DKU_API_TICKET` environment variables.
-No personal API key or setup popup is needed for this connection.
+Inside a Code Studio, the hosting DSS instance is discovered automatically using
+its injected API ticket. No personal API key or setup popup is needed.
 
 API keys and tickets never appear in MCP tool arguments or instance responses.
 
 ### Where configuration lives
 
-The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. Use `--settings-path PATH` to select an explicit path; otherwise, the server selects its configuration file once at startup in this order:
+**Saved profiles.** The setup page stores named instances and a `default_instance`
+in a JSON file with user-only (0600) permissions. Credentials are stored in
+plaintext. Use `--settings-path PATH` to select the file; otherwise, the server uses:
 
 1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
 2. `~/.dataiku/stdio-config.json` otherwise.
 
-The server loads environment and profile settings at startup. Profile additions and
-deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
-or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
+Add multiple instances through the setup page or edit the file using
+[`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example).
+Each profile requires `instance_type`: `design`, `automation`, `deployer`, or
+`agent-management`. This metadata does not change client selection or tool availability.
 
-Profiles require an explicit `instance_type`: `design`, `automation`, `deployer`, or
-`agent-management`. Choose the type on the setup page or set it in a JSON profile.
-Environment credentials require `DKU_INSTANCE_TYPE` whenever `DKU_DSS_URL` is set.
-Missing, empty, or unsupported values are rejected for setup submissions,
-environment settings, and configuration profiles. An environment instance keeps
-its own type and takes precedence over a profile with the same name.
+**Environment override.** To select an explicit target, including inside a Code
+Studio, set these three variables in your environment or copy
+[`.env.example`](.env.example) to the repository-root `.env`:
 
-Instance tools report this configured type. It is operator-supplied metadata for
-future routing; it is not discovered or verified through the API and does not change
-client selection, connection testing, or tool availability. Choosing Agent Management
-does not add client support. Configuration changes require a restart unless saved
-through the setup page.
-
-Environment variables are an explicit override:
-Set `DKU_DSS_URL` and `DKU_API_KEY` to explicitly select another instance, including
-inside a Code Studio. `DKU_INSTANCE_NAME` optionally names this instance (default
-`dataiku-from-env`); when both environment instances exist, choose a name other than
-`dataiku-from-code-studio`. Duplicate environment names cause a startup error.
-
-**.env file:**
-Copy `.env.example` to `.env` and fill in your values:
 ```bash
 DKU_DSS_URL=https://your-instance.dataiku.com
 DKU_INSTANCE_TYPE=design
 DKU_API_KEY=your-api-key
-DKU_MCP_MAX_WORKERS=4
-DKU_NO_CHECK_CERTIFICATE=false
 ```
-The canonical `runtime/run_mcp.py` launcher reads this file after validating its
-arguments and before importing the MCP package. `.env` only fills in variables
-not already set in your shell or launcher—a real environment variable of the
-same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
-not read `.env`; embedding callers must prepare their environment first.
 
-**Connect to multiple instances:**
-Put instance info in the resolved configuration file. See `.dataiku/stdio-config.json.example` for the expected shape.
+`DKU_INSTANCE_NAME` optionally names this target (default `dataiku-from-env`).
+`DKU_NO_CHECK_CERTIFICATE=true` optionally disables its TLS verification.
+The launcher loads `.env` without replacing existing environment values, even
+empty ones. Direct package imports do not load `.env`.
 
-After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
+**Startup selection.** The active instance is the first available source below:
 
-The active instance at startup is selected in this order:
+1. The explicit environment target above.
+2. `dataiku-from-code-studio`, discovered when `DKU_IS_CODE_STUDIO` is set, using
+   `DKU_BACKEND_PROTOCOL`, `DKU_BACKEND_HOST`, `DKU_BACKEND_PORT`, `DKU_API_TICKET`,
+   and the lowercase node type in `DKU_NODE_TYPE`.
+3. The saved profiles' `default_instance`.
 
-1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, `DKU_INSTANCE_TYPE`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. The automatically discovered Code Studio instance.
-3. The resolved configuration file's `default_instance`.
+All sources remain available through `list_instances` and `switch_instance`;
+use `get_current_instance` to verify the active connection. Environment instances
+take precedence over profiles with the same name. The explicit target must have
+a different name from `dataiku-from-code-studio` when both exist. Missing required
+credentials or types, unsupported types, and duplicate environment names fail startup.
 
-Both environment instances remain available through `list_instances` and
-`switch_instance`, together with saved profiles. Environment instances take
-precedence over saved profiles with the same name. Invalid configured environment
-settings cause startup to fail rather than silently selecting another instance.
+Settings load at startup. Changes through the setup page or instance tools refresh
+the saved profiles immediately; manual file edits and environment changes require a restart.
 
 ## Run
 
