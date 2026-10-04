@@ -17,7 +17,7 @@
 Exposes Dataiku operations through FastMCP tools.
 """
 
-from .server import mcp, run_http_server, run_stdio_server
+from .server import mcp, run_stdio_server
 
 # Import all modules to register tools and resources
 from .tools import (  # noqa: F401
@@ -59,4 +59,4 @@ from .tools.machine_learning import (  # noqa: F401
 )
 
 
-__all__ = ["mcp", "run_stdio_server", "run_http_server"]
+__all__ = ["mcp", "run_stdio_server"]

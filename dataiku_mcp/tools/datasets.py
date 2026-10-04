@@ -23,7 +23,6 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..config import request
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -272,10 +271,6 @@ async def create_upload_dataset(
         raise ValueError("Provide either 'filepath' or both 'columns' and 'rows'.")
     if has_rows and (columns is None or rows is None):
         raise ValueError("'columns' and 'rows' must be provided together.")
-    if request.is_http_request() and has_filepath:
-        raise ValueError(
-            "'filepath' is unavailable in HTTP mode. Provide 'columns' and 'rows'."
-        )
     if has_filepath:
         filepath = _require_non_empty_string(filepath, "filepath")
 
@@ -461,10 +456,6 @@ async def export_dataset(
     ] = False,
 ) -> str:
     """Write a dataset's rows to a local CSV file, when every row is needed offline."""
-    if request.is_http_request():
-        raise ValueError(
-            "export_dataset is unavailable in HTTP mode because it writes to the MCP host filesystem."
-        )
     project_key = _require_non_empty_string(project_key, "project_key")
     dataset_name = _require_non_empty_string(dataset_name, "dataset_name")
     output_path = _require_non_empty_string(output_path, "output_path")

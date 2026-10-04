@@ -25,16 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Dataiku Headless supports two connection modes:
-
-| Mode | MCP server | Authentication | Installation |
-| --- | --- | --- | --- |
-| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
-| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
-
-Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
-
-The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
+Dataiku Headless runs over stdio, using your personal Dataiku API key or the API ticket provided by its hosting Code Studio.
 
 Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
@@ -153,8 +144,6 @@ In local stdio mode, tools do not accept API keys as arguments — authenticatio
 resolved server-side from environment variables or a config file. Code Studios
 provide their hosting instance URL and API ticket automatically.
 
-For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
-
 ## Agent Skills
 
 `skills` exposes two prompt-based entrypoints: `dataiku-headless-setup` for first-time installation, runtime recovery, and instance configuration; and `dataiku-headless` for Dataiku work. The main entry skill decides which reference guide to read next, carries the shared operating rules, routes in-project asset changes through Cobuild by default, and documents the narrow direct-write exceptions for bootstrap, cross-project, instance-level, or administrative operations that Cobuild does not handle.
@@ -236,7 +225,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```text
 .
 ├── dataiku_mcp/
-│   ├── auth.py                # Dataiku client creation and HTTP token exchange
+│   ├── auth.py                # Dataiku client creation and authentication
 │   ├── executors.py           # Shared blocking and Cobuild executors
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
@@ -270,7 +259,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Tool validation and response-shaping utilities
-│   ├── config/                # Models, stdio/HTTP configuration, and request routing
+│   ├── config/                # Models, local configuration, and request routing
 │   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
 │   └── __init__.py            # Public API and tool-registration composition root

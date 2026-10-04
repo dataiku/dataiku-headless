@@ -29,7 +29,7 @@ from pydantic import Field
 from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking, run_cobuild_blocking
-from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
+from ..server import mcp
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 
@@ -48,7 +48,6 @@ class _Turn:
 
 @dataclass
 class _Conversation:
-    owner: tuple[str, ...]
     instance_name: str
     instance_url: str
     project_key: str
@@ -79,10 +78,6 @@ def _require_conversation_entry(
     if entry is None:
         raise ValueError(
             f"Unknown Cobuild conversation_id '{conversation_id}'. Start a new conversation first."
-        )
-    if entry.owner != request.get_request_owner():
-        raise ValueError(
-            f"Cobuild conversation '{conversation_id}' belongs to another user."
         )
     if entry.project_key != project_key:
         raise ValueError(
@@ -275,7 +270,6 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
     entry = _Conversation(
-        request.get_request_owner(),
         instance.name,
         instance.url,
         project_key,
@@ -457,7 +451,6 @@ async def answer_cobuild_question(
 
 @mcp.tool(
     title="Get Cobuild Turn Status",
-    tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -481,7 +474,6 @@ async def get_cobuild_turn_status(
 
 @mcp.tool(
     title="List Cobuild Conversations",
-    tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -492,14 +484,9 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
     """Find retained conversations for a project and their current turn IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     active_instance = request.get_pinned_instance().name
-    owner = request.get_request_owner()
     rows = []
     for conversation_id, entry in _conversations.items():
-        if (
-            entry.owner != owner
-            or entry.instance_name != active_instance
-            or entry.project_key != project_key
-        ):
+        if entry.instance_name != active_instance or entry.project_key != project_key:
             continue
 
         turn = entry.turn

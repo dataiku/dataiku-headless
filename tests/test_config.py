@@ -527,7 +527,6 @@ def test_instance_tool_mutations_use_blocking_executor(monkeypatch):
 
     monkeypatch.setattr(instance_tools, "run_blocking", run_in_executor)
     monkeypatch.setattr(request, "set_current_instance", select)
-    monkeypatch.setattr(request, "is_http_request", lambda: False)
     monkeypatch.setattr(stdio, "delete_instance_from_config", delete)
 
     asyncio.run(instance_tools.switch_instance("prod", Context()))

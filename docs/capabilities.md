@@ -83,12 +83,12 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
-| Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
-| Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
-| Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
+| Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — local files or supplied rows |
+| Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload |
+| Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
-| Plugins | `list_plugins`, `list_plugin_usages` | `update_plugin`, `delete_plugin` | Instance-level — `update_plugin` is stdio only |
+| Plugins | `list_plugins`, `list_plugin_usages` | `update_plugin`, `delete_plugin` | Instance-level |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
@@ -105,7 +105,7 @@ Local client configuration, not Dataiku objects.
 
 | Tool | Effect |
 |---|---|
-| `configure_instance` | Connect a local stdio instance; opens a local page for URL + API key (disabled in HTTP mode) |
-| `switch_instance` | Change the active instance; in HTTP mode saves only the authenticated user’s selected catalog instance |
+| `configure_instance` | Connect a local stdio instance; opens a local page for URL + API key |
+| `switch_instance` | Change the active instance |
 | `list_instances`, `get_current_instance` | Show configured instances and the active one; `get_current_instance` includes the Dataiku version when available |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |

@@ -31,7 +31,6 @@ fly, so a harness with uv 0.12.0 or later can start the server without a
 project install:
 
     uv run --quiet --locked --script runtime/run_mcp.py --transport stdio
-    uv run --quiet --locked --script runtime/run_mcp.py --transport http
 
 The plugin manifests invoke this script directly through uv. ``runtime/launcher.sh``
 is retained as inactive legacy code for a possible future fallback path.
@@ -67,22 +66,19 @@ if str(REPO_ROOT) not in sys.path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Dataiku MCP server.")
-    parser.add_argument("--transport", choices=("stdio", "http"), required=True)
+    parser.add_argument("--transport", choices=("stdio",), required=True)
     parser.add_argument(
         "--settings-path",
         type=Path,
-        help="Path to the transport-specific settings file.",
+        help="Path to the local stdio settings file.",
     )
     args = parser.parse_args()
 
     load_dotenv(REPO_ROOT / ".env", override=False)
 
-    from dataiku_mcp import run_http_server, run_stdio_server
+    from dataiku_mcp import run_stdio_server
 
-    if args.transport == "stdio":
-        run_stdio_server(args.settings_path)
-    else:
-        run_http_server(args.settings_path)
+    run_stdio_server(args.settings_path)
 
 
 if __name__ == "__main__":

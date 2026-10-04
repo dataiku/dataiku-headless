@@ -103,7 +103,7 @@ export DKU_API_KEY="your-api-key"
 
 ## Fixed Tool Surface
 
-- `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
+- `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin. Stdio is the only supported transport; preserve the registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 

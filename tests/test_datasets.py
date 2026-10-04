@@ -19,7 +19,6 @@ import json
 
 import pytest
 
-from dataiku_mcp.config import request
 from dataiku_mcp.tools import datasets
 from dataiku_mcp.tools.datasets import _serialize_csv_value
 from tests.utils.fakes import FakeContext
@@ -224,69 +223,6 @@ def test_upload_dataset_removes_temporary_file_when_row_validation_fails(monkeyp
 
     assert created_paths
     assert all(not datasets.os.path.exists(path) for path in created_paths)
-
-
-def test_http_upload_dataset_rejects_filepath_before_file_access(monkeypatch):
-    token = request.bind_http_identity("https://idp.example", "alice")
-    monkeypatch.setattr(
-        datasets,
-        "_create_uploaded_dataset_from_file",
-        lambda **kwargs: pytest.fail("local file helper must not run"),
-    )
-    try:
-        with pytest.raises(ValueError, match="filepath.*unavailable in HTTP mode"):
-            asyncio.run(
-                datasets.create_upload_dataset(
-                    "PROJECT",
-                    "new-dataset",
-                    FakeContext(),
-                    "upload-connection",
-                    filepath="/server/secret.csv",
-                )
-            )
-    finally:
-        request.reset_http_identity(token)
-
-
-def test_http_upload_dataset_accepts_rows(monkeypatch):
-    project = _FakeProject(has_existing_dataset=False)
-    monkeypatch.setattr(datasets, "get_dss_client", lambda: _FakeClient(project))
-    token = request.bind_http_identity("https://idp.example", "alice")
-    try:
-        asyncio.run(
-            datasets.create_upload_dataset(
-                "PROJECT",
-                "new-dataset",
-                FakeContext(),
-                "upload-connection",
-                columns=["value"],
-                rows=[["safe"]],
-            )
-        )
-    finally:
-        request.reset_http_identity(token)
-
-    assert project.created_dataset.uploaded == ("new-dataset.csv", b"value\r\nsafe\r\n")
-
-
-def test_http_export_dataset_rejects_before_path_resolution(monkeypatch):
-    token = request.bind_http_identity("https://idp.example", "alice")
-    monkeypatch.setattr(
-        datasets.os.path,
-        "realpath",
-        lambda path: pytest.fail("path resolution must not run"),
-    )
-    try:
-        with pytest.raises(
-            ValueError, match="export_dataset is unavailable in HTTP mode"
-        ):
-            asyncio.run(
-                datasets.export_dataset(
-                    "PROJECT", "dataset", "/server/output.csv", FakeContext()
-                )
-            )
-    finally:
-        request.reset_http_identity(token)
 
 
 @pytest.mark.parametrize(

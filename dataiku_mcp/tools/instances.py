@@ -25,7 +25,7 @@ from pydantic import Field
 from ..auth import get_dss_client
 from ..config import request, stdio
 from ..executors import run_blocking
-from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
+from ..server import mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
 
@@ -41,7 +41,6 @@ InstanceName = Annotated[
         "destructiveHint": False,
         "openWorldHint": False,
     },
-    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def list_instances(ctx: Context) -> str:
     """See which Dataiku instances are configured and which one is active."""
@@ -73,7 +72,6 @@ async def list_instances(ctx: Context) -> str:
         "idempotentHint": True,
         "openWorldHint": False,
     },
-    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def switch_instance(name: InstanceName, ctx: Context) -> str:
     """Retarget every later tool call at a different configured instance."""
@@ -90,14 +88,9 @@ async def switch_instance(name: InstanceName, ctx: Context) -> str:
         "idempotentHint": False,
         "openWorldHint": False,
     },
-    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def delete_instance(name: InstanceName, ctx: Context) -> str:
     """Forget a stored instance's local config; one set via DKU_DSS_URL cannot be deleted."""
-    if request.is_http_request():
-        raise ValueError(
-            "Instances are platform-managed in HTTP mode and cannot be deleted."
-        )
     await ctx.info(f"Deleting instance '{name}'...")
     info = await run_blocking(stdio.delete_instance_from_config, name)
     return compact_json(info)
@@ -143,14 +136,9 @@ async def get_current_instance(ctx: Context) -> str:
         "idempotentHint": False,
         "openWorldHint": False,
     },
-    tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def configure_instance(ctx: Context) -> str:
     """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
-    if request.is_http_request():
-        raise ValueError(
-            "Instances are platform-managed in HTTP mode and cannot be configured."
-        )
     client_params = ctx.session.client_params
     elicitation_capability = (
         client_params.capabilities.elicitation if client_params else None

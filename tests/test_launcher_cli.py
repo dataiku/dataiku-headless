@@ -43,9 +43,6 @@ def _install_fake_launcher_modules(monkeypatch) -> list[tuple]:
     dataiku_mcp_module.run_stdio_server = lambda path: events.append(
         ("run", "stdio", path)
     )
-    dataiku_mcp_module.run_http_server = lambda path: events.append(
-        ("run", "http", path)
-    )
     monkeypatch.setitem(sys.modules, "dotenv", dotenv_module)
     monkeypatch.setitem(sys.modules, "dataiku_mcp", dataiku_mcp_module)
     return events
@@ -56,14 +53,14 @@ def test_launcher_loads_dotenv_before_importing_and_running_server(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(SCRIPT), "--transport", "http", "--settings-path", "/tmp/http.json"],
+        [str(SCRIPT), "--transport", "stdio", "--settings-path", "/tmp/stdio.json"],
     )
 
     runpy.run_path(str(SCRIPT), run_name="__main__")
 
     assert events == [
         ("load_dotenv", SCRIPT.parent.parent / ".env", False),
-        ("run", "http", Path("/tmp/http.json")),
+        ("run", "stdio", Path("/tmp/stdio.json")),
     ]
 
 
@@ -135,3 +132,17 @@ def test_setup_skill_checks_mcp_before_uv():
     assert setup_skill.index("First run `list_instances`.") < setup_skill.index(
         "`uv --version`"
     )
+
+
+@pytest.mark.parametrize("transport", ["http", "streamable-http", "sse"])
+def test_launcher_rejects_remote_transports_before_loading_dotenv(
+    monkeypatch, transport
+):
+    events = _install_fake_launcher_modules(monkeypatch)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--transport", transport])
+
+    with pytest.raises(SystemExit) as error:
+        runpy.run_path(str(SCRIPT), run_name="__main__")
+
+    assert error.value.code == 2
+    assert events == []

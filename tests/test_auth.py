@@ -26,7 +26,7 @@ from dataiku_mcp.config.models import DSSInstance
 
 
 @pytest.mark.parametrize("no_check_certificate", [False, True])
-@pytest.mark.parametrize("credential", ["api_key", "api_ticket", "http"])
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
 def test_client_uses_selected_authentication(
     monkeypatch, credential, no_check_certificate
 ):
@@ -36,16 +36,9 @@ def test_client_uses_selected_authentication(
         api_key="api-key" if credential == "api_key" else None,
         api_ticket="api-ticket" if credential == "api_ticket" else None,
         no_check_certificate=no_check_certificate,
-        source="http" if credential == "http" else "environment",
+        source="environment",
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
-    monkeypatch.setattr(request, "is_http_request", lambda: credential == "http")
-
-    def delegated_token():
-        assert credential == "http"
-        return "delegated-token"
-
-    monkeypatch.setattr(request, "get_http_dss_token", delegated_token)
     captured = {}
     client = SimpleNamespace(_session=SimpleNamespace(verify=True))
 
@@ -59,7 +52,6 @@ def test_client_uses_selected_authentication(
     expected = {
         "api_key": {"api_key": "api-key"},
         "api_ticket": {"internal_ticket": "api-ticket"},
-        "http": {"jwt_bearer_token": "delegated-token"},
     }
     assert captured == {
         "url": instance.url,
@@ -78,7 +70,6 @@ def test_client_ticket_uses_sdk_ticket_header(monkeypatch):
         api_ticket="studio-ticket",
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
-    monkeypatch.setattr(request, "is_http_request", lambda: False)
 
     # SDK construction is local: no HTTP request is made.
     client = auth.get_dss_client()
@@ -101,7 +92,6 @@ def test_client_reuses_certificate_path(monkeypatch, localhost_certificate, disa
         encrypted_rpc_cert_path=path,
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
-    monkeypatch.setattr(request, "is_http_request", lambda: False)
     for _ in range(2):
         client = auth.get_dss_client()
         assert client._session.verify == (False if disabled else path)
@@ -143,7 +133,6 @@ def test_client_verifies_local_https(monkeypatch, localhost_certificate, mode):
             ),
         )
         monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
-        monkeypatch.setattr(request, "is_http_request", lambda: False)
         client = auth.get_dss_client()
         # Keep the test independent of workstation proxies and CA overrides.
         client._session.trust_env = False

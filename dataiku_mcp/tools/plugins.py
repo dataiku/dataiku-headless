@@ -25,7 +25,6 @@ from zipfile import BadZipFile, ZipFile
 from fastmcp import Context
 
 from ..auth import get_dss_client
-from ..config import request
 from ..executors import run_blocking
 from ..server import mcp
 from .utils.errors import dataiku_message
@@ -617,10 +616,6 @@ async def update_plugin(
             true, which needs the update to have completed.
         timeout_seconds: Inline wait budget for each stage, checked between polls.
     """
-    if request.is_http_request():
-        raise ValueError(
-            "update_plugin is unavailable in HTTP mode because it can read the MCP host filesystem."
-        )
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
