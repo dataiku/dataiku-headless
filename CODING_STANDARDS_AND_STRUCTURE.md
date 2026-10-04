@@ -39,9 +39,8 @@ export DKU_API_KEY="your-api-key"
   `api_ticket`, enforced by an after-model validator. The unused credential is
   `None`; both credentials are hidden from representations and preserved when
   converting to a runtime `DSSInstance`.
-- Runtime `DSSInstance` credentials both default to `None`; HTTP conversion
-  omits them because authentication uses a request-scoped bearer token. Use
-  keyword arguments when constructing runtime instances.
+- Runtime `DSSInstance` credentials both default to `None`. Use keyword arguments
+  when constructing runtime instances.
 - When `DKU_IS_CODE_STUDIO` is non-empty, environment loading uses
   `DKU_API_TICKET` and builds the URL from `DKU_BACKEND_PROTOCOL`,
   `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. Load the explicit
@@ -55,8 +54,7 @@ export DKU_API_KEY="your-api-key"
   them in profiles. Client verification uses the path or the normal trust store;
   only explicit environment instances honor `DKU_NO_CHECK_CERTIFICATE`.
 - Client construction maps `api_key` to the SDK's `api_key` parameter and
-  `api_ticket` to `internal_ticket`. HTTP requests continue to use delegated
-  `jwt_bearer_token` authentication and do not use the stdio credential rule.
+  `api_ticket` to `internal_ticket`.
 - The setup UI continues to accept API keys. Profile files use the same stdio
   validation and omit unused credentials when saved.
 
