@@ -21,6 +21,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -91,6 +92,7 @@ async def _wait_for_scenario_run_result(trigger_fire, timeout_seconds: int):
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Scenarios",
     annotations={
         "readOnlyHint": True,
@@ -129,6 +131,7 @@ async def list_scenarios(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Scenario Settings",
     annotations={
         "readOnlyHint": True,
@@ -159,6 +162,7 @@ async def get_scenario_settings(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Run Scenario",
     annotations={
         "readOnlyHint": False,
@@ -303,6 +307,7 @@ async def run_scenario(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Scenario Run History",
     annotations={
         "readOnlyHint": True,
@@ -376,6 +381,7 @@ async def get_scenario_run_history(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Messaging Channels",
     annotations={
         "readOnlyHint": True,

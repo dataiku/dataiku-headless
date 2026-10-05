@@ -21,6 +21,12 @@ import pytest
 
 import dataiku_mcp.server as server
 from dataiku_mcp.config import request
+from dataiku_mcp.instance_policy import (
+    ALL_INSTANCE_TOOL_META,
+    DSS_TOOL_META,
+    PROJECT_EDIT_TOOL_META,
+)
+from fastmcp.exceptions import NotFoundError
 
 
 def _call_middleware(
@@ -30,6 +36,9 @@ def _call_middleware(
     tool_tags: set[str] | None = None,
     tool_resolves: bool = True,
     include_fastmcp_context: bool = True,
+    instance_type: str = "design",
+    tool_meta: dict | None = None,
+    expected_error: tuple[type[Exception], str] | None = None,
 ):
     events = []
     access_token = SimpleNamespace(
@@ -77,6 +86,12 @@ def _call_middleware(
         lambda token: events.append(("reset_dss", token)),
     )
 
+    monkeypatch.setattr(
+        request,
+        "get_pinned_instance",
+        lambda: SimpleNamespace(instance_type=instance_type),
+    )
+
     async def call_next(_context):
         events.append(("tool",))
         return "result"
@@ -86,16 +101,29 @@ def _call_middleware(
             assert name == tool_name
             if not tool_resolves:
                 return None
-            return SimpleNamespace(tags=tool_tags or set())
+            return SimpleNamespace(
+                tags=tool_tags or set(),
+                meta=tool_meta
+                or (
+                    ALL_INSTANCE_TOOL_META
+                    if tool_name in {"switch_instance", "get_current_instance"}
+                    else DSS_TOOL_META
+                ),
+            )
 
     fastmcp_context = None
     if include_fastmcp_context:
         fastmcp_context = SimpleNamespace(fastmcp=FakeFastMCP())
+    monkeypatch.setattr(server.mcp, "get_tool", FakeFastMCP().get_tool)
     context = SimpleNamespace(
         message=SimpleNamespace(name=tool_name),
         fastmcp_context=fastmcp_context,
     )
-    assert asyncio.run(middleware.on_call_tool(context, call_next)) == "result"
+    if expected_error:
+        with pytest.raises(expected_error[0], match=expected_error[1]):
+            asyncio.run(middleware.on_call_tool(context, call_next))
+    else:
+        assert asyncio.run(middleware.on_call_tool(context, call_next)) == "result"
     return events
 
 
@@ -191,21 +219,58 @@ def test_http_current_instance_exchanges_a_dss_token(monkeypatch):
     assert ("set_dss", "dss-token") in events
 
 
-@pytest.mark.parametrize(
-    ("tool_resolves", "include_fastmcp_context"),
-    [(False, True), (True, False)],
-)
-def test_http_unknown_tool_policy_requires_dss_token_exchange(
-    monkeypatch, tool_resolves, include_fastmcp_context
+@pytest.mark.parametrize("include_fastmcp_context", [True, False])
+def test_http_unknown_tool_fails_without_token_exchange(
+    monkeypatch, include_fastmcp_context
 ):
     events = _call_middleware(
         monkeypatch,
         "unknown_tool",
-        tool_resolves=tool_resolves,
+        tool_resolves=False,
         include_fastmcp_context=include_fastmcp_context,
+        expected_error=(NotFoundError, "Unknown tool"),
     )
+    assert ("exchange", "mcp-token") not in events
+    assert ("tool",) not in events
+    assert events[-2:] == [
+        ("reset_instance", "instance"),
+        ("reset_identity", "identity"),
+    ]
 
-    assert ("exchange", "mcp-token") in events
+
+@pytest.mark.parametrize("instance_type", ["govern", "deployer"])
+def test_http_unsupported_current_instance_skips_exchange(monkeypatch, instance_type):
+    events = _call_middleware(
+        monkeypatch, "get_current_instance", instance_type=instance_type
+    )
+    assert ("exchange", "mcp-token") not in events
+    assert ("tool",) in events
+
+
+@pytest.mark.parametrize(
+    "tool_name,tool_tags",
+    [
+        ("set_project_variables", set()),
+        ("list_cobuild_conversations", {server.DSS_INDEPENDENT_TOOL_TAG}),
+    ],
+)
+def test_http_policy_rejection_precedes_exchange_and_handler(
+    monkeypatch, tool_name, tool_tags
+):
+    events = _call_middleware(
+        monkeypatch,
+        tool_name,
+        instance_type="automation",
+        tool_tags=tool_tags,
+        tool_meta=PROJECT_EDIT_TOOL_META,
+        expected_error=(ValueError, "automation.*Allowed types.*switch_instance"),
+    )
+    assert ("exchange", "mcp-token") not in events
+    assert ("tool",) not in events
+    assert events[-2:] == [
+        ("reset_instance", "instance"),
+        ("reset_identity", "identity"),
+    ]
 
 
 def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):

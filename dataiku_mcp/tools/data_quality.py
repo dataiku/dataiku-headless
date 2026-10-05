@@ -19,6 +19,7 @@ from typing import Annotated, Any
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -101,6 +102,7 @@ def _safe_status_by_partition(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Data Quality Rules",
     annotations={
         "readOnlyHint": True,
@@ -131,6 +133,7 @@ async def list_data_quality_rules(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Data Quality Status",
     annotations={
         "readOnlyHint": True,
@@ -184,6 +187,7 @@ async def get_data_quality_status(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Data Quality Rule",
     annotations={
         "readOnlyHint": True,
@@ -214,6 +218,7 @@ async def get_data_quality_rule(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Data Quality Rule Results",
     annotations={
         "readOnlyHint": True,
@@ -264,6 +269,7 @@ async def get_data_quality_rule_results(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Data Quality Rule History",
     annotations={
         "readOnlyHint": True,

@@ -27,6 +27,7 @@ from fastmcp import Context
 from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from .utils.errors import dataiku_message
 from .utils.parsing import parse_json_object
@@ -439,6 +440,7 @@ async def _run_plugin_action(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Installed Plugins",
     description="Find installed plugins and inspect their metadata before an update or deletion.",
     annotations={
@@ -525,6 +527,7 @@ async def list_plugins(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Plugin Deletion Blockers",
     description="Inspect every object or unresolved component that blocks deletion of an installed plugin.",
     annotations={
@@ -577,6 +580,7 @@ async def list_plugin_usages(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Update Plugin",
     description="Update an installed plugin from the store or a local archive, optionally rebuilding its bound environment.",
     annotations={
@@ -729,6 +733,7 @@ def _unresolved_components_refusal(plugin_id: str, reason: str) -> dict:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Delete Plugin",
     description="Remove an installed plugin after checking whether its components are in use.",
     annotations={

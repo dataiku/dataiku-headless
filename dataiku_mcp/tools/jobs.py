@@ -22,6 +22,7 @@ from dataikuapi.dss.future import DSSFuture
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -117,6 +118,7 @@ def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> lis
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Build Datasets",
     annotations={
         "readOnlyHint": False,
@@ -258,6 +260,7 @@ async def build_datasets(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Run Recipe",
     annotations={
         "readOnlyHint": False,
@@ -405,6 +408,7 @@ async def run_recipe(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Future Status",
     annotations={
         "readOnlyHint": True,
@@ -434,6 +438,7 @@ async def get_future_status(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Job Status",
     annotations={
         "readOnlyHint": True,
@@ -466,6 +471,7 @@ async def get_job_status(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Job Log",
     annotations={
         "readOnlyHint": True,
@@ -522,6 +528,7 @@ async def get_job_log(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Jobs",
     annotations={
         "readOnlyHint": True,
@@ -562,6 +569,7 @@ async def list_jobs(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Wait for Job",
     annotations={
         "readOnlyHint": True,
@@ -608,6 +616,7 @@ async def wait_for_job(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Abort Job",
     annotations={
         "readOnlyHint": False,

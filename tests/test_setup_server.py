@@ -105,7 +105,7 @@ def test_setup_form_and_page_preserve_instance_type(instance_type):
     )
     assert values["instance_type"] == instance_type
     for page in (
-        _page(values=values, connection_validated=True),
+        _page(values=values),
         _page(values=values, error="Connection failed"),
     ):
         assert f'<option value="{instance_type}" selected>' in page
@@ -169,14 +169,19 @@ def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
         return error.code, error.read().decode()
 
 
-def test_setup_server_requires_a_successful_test_before_saving(monkeypatch):
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "agent-management", "deployer"]
+)
+def test_setup_server_requires_a_successful_test_before_saving(
+    monkeypatch, instance_type
+):
     session = setup_server.start_setup_server(open_browser=False)
     form = {
         "name": "sandbox",
         "url": "https://example.com",
         "api_key": "secret",
         "description": "",
-        "instance_type": "design",
+        "instance_type": instance_type,
         "action": "save",
     }
     monkeypatch.setattr(
@@ -193,7 +198,18 @@ def test_setup_server_requires_a_successful_test_before_saving(monkeypatch):
     assert "Test the connection successfully before saving." in page
 
 
-def test_setup_server_invalidates_a_test_when_connection_settings_change(monkeypatch):
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"api_key": "other-secret"},
+        {"instance_type": "deployer"},
+        {"url": "https://other.example"},
+        {"no_check_certificate": "on"},
+    ],
+)
+def test_setup_server_invalidates_a_test_when_connection_settings_change(
+    monkeypatch, change
+):
     session = setup_server.start_setup_server(open_browser=False)
     form = {
         "name": "sandbox",
@@ -207,7 +223,7 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(monkeyp
         status, page = _post_setup_form(session.url, {**form, "action": "test"})
         changed_status, changed_page = _post_setup_form(
             session.url,
-            {**form, "api_key": "other-secret", "action": "save"},
+            {**form, **change, "action": "save"},
         )
     finally:
         session.close()
@@ -216,6 +232,63 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(monkeyp
     assert "You can now save this instance." in page
     assert changed_status == 400
     assert (
-        "Test again after changing the URL, API key, or certificate setting."
+        "Test again after changing the URL, API key, certificate setting, or instance type."
         in changed_page
     )
+
+
+def test_govern_profile_can_be_saved_after_unavailable_test(monkeypatch):
+    saved = []
+    monkeypatch.setattr(
+        setup_server.dataikuapi,
+        "DSSClient",
+        lambda *args: pytest.fail("Govern must not construct a DSS client"),
+    )
+    monkeypatch.setattr(
+        setup_server.stdio,
+        "add_instance_to_config",
+        lambda **values: (
+            saved.append(values)
+            or {"name": values["name"], "instance_type": values["instance_type"]}
+        ),
+    )
+    monkeypatch.setattr(setup_server.request, "set_current_instance", lambda name: None)
+    session = setup_server.start_setup_server(open_browser=False)
+    form = {
+        "name": "govern",
+        "url": "https://example.com",
+        "api_key": "secret",
+        "instance_type": "govern",
+    }
+    try:
+        status, page = _post_setup_form(session.url, {**form, "action": "test"})
+        assert status == 400
+        assert "Connection testing is unavailable for Govern" in page
+        assert session.validated_connection is None
+        status, page = _post_setup_form(session.url, {**form, "action": "save"})
+        assert status == 200
+        assert "Instance saved" in page
+        assert saved[0]["instance_type"] == "govern"
+    finally:
+        session.close()
+
+
+def test_deployer_connection_test_uses_dss_client(monkeypatch):
+    calls = []
+
+    class Client:
+        def __init__(self, url, key):
+            from types import SimpleNamespace
+
+            self._session = SimpleNamespace(verify=None)
+            calls.append("client")
+
+        def get_auth_info(self):
+            calls.append("auth")
+            assert self._session.verify is True
+
+    monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", Client)
+    setup_server._test_connection(
+        _validate_form({**_form("https://example.com"), "instance_type": ["deployer"]})
+    )
+    assert calls == ["client", "auth"]

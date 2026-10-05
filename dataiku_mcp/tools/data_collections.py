@@ -16,6 +16,7 @@
 
 from fastmcp import Context
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json
@@ -24,6 +25,7 @@ from .utils.validation import require_non_empty_string as _require_non_empty_str
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Data Collections",
     annotations={
         "readOnlyHint": True,
@@ -56,6 +58,7 @@ async def list_data_collections(ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Data Collection Objects",
     annotations={
         "readOnlyHint": True,

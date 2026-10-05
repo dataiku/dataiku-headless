@@ -16,6 +16,7 @@
 
 from fastmcp import Context
 
+from ...instance_policy import DSS_TOOL_META
 from ...server import mcp
 from ...auth import get_dss_client
 from ...executors import run_blocking
@@ -24,6 +25,7 @@ from ..utils.validation import require_non_empty_string as _require_non_empty_st
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Saved Models",
     annotations={
         "readOnlyHint": True,
@@ -50,6 +52,7 @@ async def list_saved_models(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Saved Model Versions",
     annotations={
         "readOnlyHint": True,
@@ -79,6 +82,7 @@ async def list_saved_model_versions(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Saved Model Version Details",
     annotations={
         "readOnlyHint": True,

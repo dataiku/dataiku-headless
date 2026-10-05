@@ -19,6 +19,7 @@ from typing import Annotated, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -301,6 +302,7 @@ def _fit_response_to_budget(result: dict) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Flow Graph",
     annotations={
         "readOnlyHint": True,
@@ -357,6 +359,7 @@ async def get_flow_graph(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Flow Zones",
     annotations={
         "readOnlyHint": True,
@@ -400,6 +403,7 @@ async def list_flow_zones(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Flow Object Metadata",
     annotations={
         "readOnlyHint": True,

@@ -44,7 +44,7 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
         api_key="key-a",
         no_check_certificate=False,
         source="config",
-        instance_type="automation",
+        instance_type="design",
     )
     instance_b = DSSInstance(
         name="instance-b",
@@ -62,7 +62,7 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
     def get_client():
         stdio._current_instance = instance_b
         observed_instances.append(request.get_pinned_instance().name)
-        assert request.get_pinned_instance().instance_type == "automation"
+        assert request.get_pinned_instance().instance_type == "design"
         return fake_client
 
     monkeypatch.setattr(projects, "get_dss_client", get_client)

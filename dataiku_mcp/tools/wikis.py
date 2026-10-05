@@ -16,6 +16,7 @@
 
 from fastmcp import Context
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -33,6 +34,7 @@ def _build_parent_map(taxonomy: list, parent_id: str | None = None) -> dict:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Wiki Articles",
     annotations={
         "readOnlyHint": True,
@@ -70,6 +72,7 @@ async def list_wiki_articles(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Wiki Article",
     annotations={
         "readOnlyHint": True,
