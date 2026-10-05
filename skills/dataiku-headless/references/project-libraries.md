@@ -5,6 +5,8 @@ description: Understand and inspect a Dataiku project's library tree and, when e
 
 # Project Libraries
 
+Library reads, search, and validation are available on `design`, `automation`, and `agent-management`. Direct file writes and Cobuild changes require `design` or `agent-management`.
+
 Use this guide to understand and inspect the project library, and to handle the direct local-source-file write exception.
 
 ## Project Library Concepts

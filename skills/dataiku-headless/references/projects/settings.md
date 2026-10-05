@@ -5,6 +5,8 @@ description: Inspect and update Dataiku project settings. Use for Flow display a
 
 # Project Settings
 
+`update_project_settings` requires `design` or `agent-management`. Automation can inspect settings but cannot update them.
+
 Project settings are a narrow direct-write exception for configuration that Cobuild does not manage.
 
 `get_project_settings` returns the editable `settings` object. `update_project_settings` accepts only the fields documented below and rejects other settings. It uses JSON Merge Patch behavior: nested objects merge, scalar values replace, and `null` removes a field.

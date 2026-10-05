@@ -49,7 +49,7 @@ class SetupSession:
     browser_opened: bool
     completed: threading.Event
     result: dict | None = None
-    validated_connection: tuple[str, str, bool] | None = None
+    validated_connection: tuple[str, str, bool, str] | None = None
     expired: bool = False
 
     def close(self) -> None:
@@ -112,7 +112,6 @@ def _page(
     error: str = "",
     status: str = "",
     values: dict | None = None,
-    connection_validated: bool = False,
 ) -> str:
     error_markup = (
         f'<div class="error" role="alert">{escape(error)}</div>' if error else ""
@@ -135,7 +134,6 @@ def _page(
     api_key = escape(values.get("api_key", ""))
     set_default = " checked" if is_initial_page or values.get("set_default") else ""
     no_check_certificate = " checked" if values.get("no_check_certificate") else ""
-    save_disabled = "" if connection_validated else " disabled"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -197,7 +195,7 @@ def _page(
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production Dataiku" value="{description}"></div>
-          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select></div>
+          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select><div class="hint">Govern profiles can be saved without testing. Govern and Deployer tools are not available yet.</div></div>
           <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" value="{url}" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" value="{api_key}" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
@@ -206,7 +204,7 @@ def _page(
         </div>
         <details><summary>Advanced options</summary><label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label></details>
         {status_markup}
-        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save"{save_disabled}>Save instance</button></div>
+        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save">Save instance</button></div>
       </form>
     </section>
   </main>
@@ -238,7 +236,7 @@ def _success_page(name: str) -> str:
   <main>
     {DATAIKU_BIRD_SVG}
     <div class="ok">✓</div>
-    <h1>Dataiku is connected</h1>
+    <h1>Instance saved</h1>
     <p><strong>{escape(name)}</strong> is now the active instance. You can close this tab and continue in your AI coding tool.</p>
   </main>
 </body>
@@ -246,6 +244,10 @@ def _success_page(name: str) -> str:
 
 
 def _test_connection(values: dict) -> None:
+    if values["instance_type"] == "govern":
+        raise ValueError(
+            "Connection testing is unavailable for Govern. Save the profile without testing."
+        )
     try:
         client = dataikuapi.DSSClient(values["url"], values["api_key"])
         client._session.verify = not values["no_check_certificate"]
@@ -256,8 +258,13 @@ def _test_connection(values: dict) -> None:
         ) from exc
 
 
-def _connection_settings(values: dict) -> tuple[str, str, bool]:
-    return values["url"], values["api_key"], values["no_check_certificate"]
+def _connection_settings(values: dict) -> tuple[str, str, bool, str]:
+    return (
+        values["url"],
+        values["api_key"],
+        values["no_check_certificate"],
+        values["instance_type"],
+    )
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):
@@ -320,19 +327,18 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                         _page(
                             status="Connection successful. You can now save this instance.",
                             values=values,
-                            connection_validated=True,
                         ),
                     )
                     return
                 if action != "save":
                     raise ValueError("Unknown setup action.")
-                if (
+                if values["instance_type"] != "govern" and (
                     not session_state
                     or session_state.validated_connection
                     != _connection_settings(values)
                 ):
                     raise ValueError(
-                        "Test the connection successfully before saving. Test again after changing the URL, API key, or certificate setting."
+                        "Test the connection successfully before saving. Test again after changing the URL, API key, certificate setting, or instance type."
                     )
                 result = stdio.add_instance_to_config(**values)
                 request.set_current_instance(result["name"])

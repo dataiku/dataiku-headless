@@ -95,7 +95,13 @@ def test_instance_tools_report_configured_type(monkeypatch, instance_type):
     monkeypatch.setattr(instances, "get_dss_client", lambda: client)
     current = asyncio.run(instances.get_current_instance(FakeContext()))
     assert json.loads(current)["instance_type"] == instance_type
-    assert client.info_calls == 1
+    unsupported = instance_type in {"govern", "deployer"}
+    assert client.info_calls == (0 if unsupported else 1)
+    assert json.loads(current)["connection_status"] == (
+        "unsupported" if unsupported else "connected"
+    )
+    if unsupported:
+        assert "dataiku_version" not in json.loads(current)
     for response in (listing, switching, current):
         assert API_KEY not in response
         assert "api_key" not in response

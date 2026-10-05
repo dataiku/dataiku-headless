@@ -24,11 +24,17 @@ from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.azure import AzureProvider
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
+from fastmcp.exceptions import NotFoundError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.types import CallToolRequestParams
 
 from .auth import exchange_http_token
 from .config import http, request, stdio
+from .instance_policy import (
+    INSTANCE_CONTROL_TOOLS,
+    SUPPORTED_DSS_INSTANCE_TYPES,
+    require_instance_type,
+)
 
 logger = logging.getLogger("dataiku-mcp")
 
@@ -77,17 +83,6 @@ def _http_auth() -> JWTVerifier | MultiAuth:
     return MultiAuth(server=interactive_provider, verifiers=direct_token_verifier)
 
 
-async def _tool_requires_dss_token(
-    context: MiddlewareContext[CallToolRequestParams],
-) -> bool:
-    fastmcp_context = context.fastmcp_context
-    if fastmcp_context is None:
-        return True
-
-    tool = await fastmcp_context.fastmcp.get_tool(context.message.name)
-    return tool is None or DSS_INDEPENDENT_TOOL_TAG not in tool.tags
-
-
 class RequestContextMiddleware(Middleware):
     """Bind request identity, active instance, and delegated DSS credentials."""
 
@@ -109,7 +104,28 @@ class RequestContextMiddleware(Middleware):
 
         try:
             pinned_instance_reset_token = request.pin_current_instance()
-            if access_token is not None and await _tool_requires_dss_token(context):
+            tool_name = context.message.name
+            tool_server = (
+                context.fastmcp_context.fastmcp if context.fastmcp_context else mcp
+            )
+            tool = await tool_server.get_tool(tool_name)
+            if tool is None:
+                raise NotFoundError(f"Unknown tool: {tool_name!r}")
+            try:
+                instance = request.get_pinned_instance()
+            except ValueError:
+                if tool_name not in INSTANCE_CONTROL_TOOLS:
+                    raise
+                instance = None
+            require_instance_type(
+                tool_name, instance.instance_type if instance else None, tool.meta
+            )
+            requires_dss_token = DSS_INDEPENDENT_TOOL_TAG not in tool.tags
+            if tool_name == "get_current_instance" and instance is not None:
+                requires_dss_token = (
+                    instance.instance_type in SUPPORTED_DSS_INSTANCE_TYPES
+                )
+            if access_token is not None and requires_dss_token:
                 dss_token = await exchange_http_token(access_token.token)
                 dss_token_reset_token = request.bind_http_dss_token(dss_token)
             return await call_next(context)

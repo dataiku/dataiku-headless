@@ -110,9 +110,11 @@ The settings file has four sections:
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
-Instance types are operator-supplied metadata reported by instance tools. They do
-not trigger API discovery or change client selection, connection testing, or tool
-availability.
+Instance types are operator-supplied and enforce the same
+[tool policy](capabilities.md#instance-types) as stdio. Unsupported tool calls are
+rejected before DSS token exchange. Govern and Deployer support instance controls
+only; `get_current_instance` reports `unsupported` without contacting DSS. The
+configured type does not trigger API discovery or select a different SDK client.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted

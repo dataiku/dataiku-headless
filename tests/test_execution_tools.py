@@ -813,7 +813,7 @@ def test_run_scenario_poll_failure_after_run_materializes_keeps_run_id():
     assert res["error_type"] == "ConnectionError"
 
 
-def test_run_scenario_poll_failure_is_structured_over_fastmcp_transport():
+def test_run_scenario_poll_failure_is_structured_over_fastmcp_transport(monkeypatch):
     """Call through the FastMCP server, not the raw function.
 
     A raised exception would reach the client as unstructured (maskable) error
@@ -823,6 +823,22 @@ def test_run_scenario_poll_failure_is_structured_over_fastmcp_transport():
     from fastmcp import Client
 
     import dataiku_mcp
+
+    from dataiku_mcp.config import stdio
+    from dataiku_mcp.config.models import DSSInstance
+
+    monkeypatch.setattr(
+        stdio,
+        "_current_instance",
+        DSSInstance(
+            name="automation",
+            url="https://example.com",
+            instance_type="automation",
+            api_key="test-key",
+            source="config",
+            no_check_certificate=False,
+        ),
+    )
 
     trigger_fire = MagicMock()
     trigger_fire.run_id = "TRIG-TRANSPORT"

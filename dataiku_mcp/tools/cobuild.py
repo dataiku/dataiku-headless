@@ -26,6 +26,7 @@ from typing import Annotated, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import PROJECT_EDIT_TOOL_META
 from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking, run_cobuild_blocking
@@ -256,6 +257,7 @@ async def _wait_for_turn(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="Start Cobuild Conversation",
     annotations={
         "readOnlyHint": False,
@@ -295,6 +297,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="Send Cobuild Message",
     annotations={
         "readOnlyHint": False,
@@ -350,6 +353,7 @@ async def send_cobuild_message(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="Answer Cobuild Deletion Confirmation",
     annotations={
         "readOnlyHint": False,
@@ -396,6 +400,7 @@ async def answer_cobuild_confirmation(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="Answer Cobuild Question",
     annotations={
         "readOnlyHint": False,
@@ -456,6 +461,7 @@ async def answer_cobuild_question(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="Get Cobuild Turn Status",
     tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={
@@ -480,6 +486,7 @@ async def get_cobuild_turn_status(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_TOOL_META,
     title="List Cobuild Conversations",
     tags={DSS_INDEPENDENT_TOOL_TAG},
     annotations={

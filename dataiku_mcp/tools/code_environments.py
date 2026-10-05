@@ -20,6 +20,7 @@ from typing import Annotated, Literal
 from fastmcp import Context
 from pydantic import BaseModel, Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -212,6 +213,7 @@ def _apply_changes(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Code Environments",
     annotations={
         "readOnlyHint": True,
@@ -304,6 +306,7 @@ async def list_code_envs(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Create Code Environment",
     annotations={
         "readOnlyHint": False,
@@ -382,6 +385,7 @@ async def create_code_env(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Update Code Environment",
     annotations={
         "readOnlyHint": False,
@@ -469,6 +473,7 @@ async def update_code_env(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Delete Code Environment",
     annotations={
         "readOnlyHint": False,

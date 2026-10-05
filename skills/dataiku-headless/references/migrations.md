@@ -6,6 +6,8 @@ description: Translate business logic from third-party tools (e.g. Alteryx, Tabl
 
 # Migrations
 
+Migration construction requires a `design` or `agent-management` instance. Automation can inspect and execute existing assets but cannot build the migrated project or use Cobuild.
+
 Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
 
 A migration consists of four phases: plan, build, validate, and document and cleanup. The "build" and "validate" phase may loop multiple times if the "validation" encounters issues with the assets created in the "build" phase. The loaded Source Subskill may add deliverables and phase steps of its own; they are binding.

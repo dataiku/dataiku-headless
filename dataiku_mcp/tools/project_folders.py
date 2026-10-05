@@ -19,6 +19,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import DSS_TOOL_META
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -61,6 +62,7 @@ def _walk_project_folders(client, folder_id: str) -> list[dict]:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="List Project Folders",
     annotations={
         "readOnlyHint": True,
@@ -95,6 +97,7 @@ async def list_project_folders(ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Get Project Folder",
     annotations={
         "readOnlyHint": True,
@@ -140,6 +143,7 @@ async def get_project_folder(folder_id: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Create Project Folder",
     annotations={
         "readOnlyHint": False,
@@ -179,6 +183,7 @@ async def create_project_folder(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Move Project to Folder",
     annotations={
         "readOnlyHint": False,
@@ -214,6 +219,7 @@ async def move_project_to_folder(
 
 
 @mcp.tool(
+    meta=DSS_TOOL_META,
     title="Delete Project Folder",
     annotations={
         "readOnlyHint": False,

@@ -10,7 +10,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
-2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. The required `instance_type` is configured metadata, not API verification or a guarantee of client support.
+2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. Check the configured `instance_type` against the policy below before choosing a tool. It controls dispatch; Dataiku permissions and API availability still apply.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -19,6 +19,27 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
 10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
+
+## Instance Types
+
+| Configured type | Available work |
+| --- | --- |
+| `design`, `agent-management` | All tools |
+| `automation` | Reads, execution of existing assets, instance administration, and all project-folder operations |
+| `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
+
+Automation excludes all Cobuild tools, including conversation listing and polling,
+and project creation, project settings/variables updates, container placement,
+dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
+runs, and job aborts remain available and can change outputs. For project
+construction or edits, ask which Design or Agent Management instance to use and
+switch to it; do not bypass the policy through raw APIs.
+
+Govern and Deployer report `connection_status=unsupported` without a DSS probe.
+Explain that their API tools are not implemented, then switch to a supported
+configured instance for Dataiku work. Local configuration actions remain subject
+to the existing HTTP restrictions. The catalog stays visible across all types;
+unsupported calls fail before execution.
 
 ## Default Workflow
 
