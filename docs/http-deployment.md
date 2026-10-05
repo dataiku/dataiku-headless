@@ -106,15 +106,13 @@ The settings file has four sections:
   token exchange.
 - `dss_instances` lists the Dataiku endpoints users may select and the audience or
   scope requested for each one. Each entry requires an explicit `instance_type`:
-  `design`, `automation`, `deployer`, or `agent-management`.
+  `design`, `automation`, `deployer`, `govern`, or `agent-management`.
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
 Instance types are operator-supplied metadata reported by instance tools. They do
 not trigger API discovery or change client selection, connection testing, or tool
-availability. Agent Management client routing is not implemented by this field.
-Existing HTTP catalogs must be updated by the administrator; missing types fail
-validation without automatically migrating or rewriting the file.
+availability.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted

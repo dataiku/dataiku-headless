@@ -606,7 +606,7 @@ def test_runtime_instance_repr_hides_api_key():
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_stdio_instance_type_survives_save_load_and_selection(
     monkeypatch, instance_type
@@ -629,7 +629,9 @@ def test_stdio_instance_type_survives_save_load_and_selection(
     assert saved["dss_instances"]["typed"]["instance_type"] == instance_type
 
 
-@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design", None, 1])
+@pytest.mark.parametrize(
+    "instance_type", ["", "unsupported", "DESIGN", " design", None, 1]
+)
 def test_stdio_config_rejects_invalid_instance_types(instance_type):
     stdio.get_settings_path().write_text(
         json.dumps(
@@ -652,7 +654,7 @@ def test_stdio_config_rejects_invalid_instance_types(instance_type):
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_environment_instance_type_overrides_profile(monkeypatch, instance_type):
     stdio.add_instance_to_config(
@@ -670,7 +672,7 @@ def test_environment_instance_type_overrides_profile(monkeypatch, instance_type)
     assert stdio.get_current_instance() == instance
 
 
-@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design"])
+@pytest.mark.parametrize("instance_type", ["", "unsupported", "DESIGN", " design"])
 def test_environment_rejects_invalid_instance_type(monkeypatch, instance_type):
     monkeypatch.setenv("DKU_DSS_URL", "https://typed.example")
     monkeypatch.setenv("DKU_API_KEY", "secret-key")
@@ -741,7 +743,7 @@ def test_code_studio_environment_uses_ticket(
 
 
 @pytest.mark.parametrize(
-    "node_type", ["design", "automation", "deployer", "agent-management"]
+    "node_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_code_studio_type_is_independent_of_explicit_target(
     monkeypatch, code_studio_environment, node_type
@@ -784,7 +786,7 @@ def test_code_studio_requires_injected_settings(
         stdio.initialize_config()
 
 
-@pytest.mark.parametrize("node_type", ["", "govern", "DESIGN", " design"])
+@pytest.mark.parametrize("node_type", ["", "unsupported", "DESIGN", " design"])
 def test_code_studio_rejects_invalid_node_type(
     monkeypatch, code_studio_environment, node_type
 ):

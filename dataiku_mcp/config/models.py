@@ -26,7 +26,7 @@ from pydantic import (
 )
 
 
-InstanceType = Literal["design", "automation", "deployer", "agent-management"]
+InstanceType = Literal["design", "automation", "deployer", "govern", "agent-management"]
 
 
 @dataclass(frozen=True)

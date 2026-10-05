@@ -186,11 +186,12 @@ plaintext. Use `--settings-path PATH` to select the file; otherwise, the server 
 
 Add multiple instances through the setup page or edit the file using
 [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example).
-Each profile requires `instance_type`: `design`, `automation`, `deployer`, or
+Each profile requires `instance_type`: `design`, `automation`, `deployer`, `govern`, or
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
 The type metadata does not change client selection or tool availability.
+Selecting Govern records its type; Govern-specific API tools are not yet implemented.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy

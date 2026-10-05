@@ -97,7 +97,7 @@ def test_setup_page_explains_instance_url():
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_setup_form_and_page_preserve_instance_type(instance_type):
     values = _validate_form(
@@ -109,7 +109,6 @@ def test_setup_form_and_page_preserve_instance_type(instance_type):
         _page(values=values, error="Connection failed"),
     ):
         assert f'<option value="{instance_type}" selected>' in page
-        assert 'value="govern"' not in page
 
 
 def test_setup_requires_an_explicit_type():
@@ -123,7 +122,7 @@ def test_setup_requires_an_explicit_type():
     assert 'name="instance_type" required' in page
 
 
-@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design"])
+@pytest.mark.parametrize("instance_type", ["", "unsupported", "DESIGN", " design"])
 def test_setup_rejects_invalid_instance_types(instance_type):
     with pytest.raises(ValueError, match="Instance type must be one of"):
         _validate_form(

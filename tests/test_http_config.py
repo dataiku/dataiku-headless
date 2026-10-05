@@ -197,7 +197,7 @@ def test_http_instance_config_converts_to_runtime_instance():
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_http_instance_type_survives_selection_save(
     http_config, monkeypatch, instance_type
@@ -228,7 +228,9 @@ def test_http_instance_type_survives_selection_save(
     assert http._load_config().dss_instances["prod"].instance_type == instance_type
 
 
-@pytest.mark.parametrize("instance_type", ["", "govern", "DESIGN", " design", None, 1])
+@pytest.mark.parametrize(
+    "instance_type", ["", "unsupported", "DESIGN", " design", None, 1]
+)
 def test_http_config_rejects_invalid_instance_types(http_config, instance_type):
     document = json.loads(http_config.read_text())
     document["dss_instances"]["prod"]["instance_type"] = instance_type

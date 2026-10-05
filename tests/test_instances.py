@@ -68,7 +68,7 @@ def _current(monkeypatch, client: _FakeClient) -> dict:
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_instance_tools_report_configured_type(monkeypatch, instance_type):
     configured = replace(_instance("primary"), instance_type=instance_type)
