@@ -72,6 +72,7 @@ def _form(url: str) -> dict[str, list[str]]:
         "url": [url],
         "api_key": ["secret"],
         "description": [""],
+        "instance_type": ["design"],
     }
 
 
@@ -95,6 +96,70 @@ def test_setup_page_explains_instance_url():
     assert "Enter the URL of your Dataiku instance." in page
 
 
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
+)
+def test_setup_form_and_page_preserve_instance_type(instance_type):
+    values = _validate_form(
+        {**_form("https://example.com"), "instance_type": [instance_type]}
+    )
+    assert values["instance_type"] == instance_type
+    for page in (
+        _page(values=values, connection_validated=True),
+        _page(values=values, error="Connection failed"),
+    ):
+        assert f'<option value="{instance_type}" selected>' in page
+
+
+def test_setup_requires_an_explicit_type():
+    form = _form("https://example.com")
+    form.pop("instance_type")
+    with pytest.raises(ValueError, match="Instance type"):
+        _validate_form(form)
+    page = _page()
+    assert '<option value="" disabled selected>Choose an instance type</option>' in page
+    assert '<option value="design" selected>' not in page
+    assert 'name="instance_type" required' in page
+
+
+@pytest.mark.parametrize("instance_type", ["", "unsupported", "DESIGN", " design"])
+def test_setup_rejects_invalid_instance_types(instance_type):
+    with pytest.raises(ValueError, match="Instance type must be one of"):
+        _validate_form(
+            {**_form("https://example.com"), "instance_type": [instance_type]}
+        )
+
+
+def test_setup_server_saves_selected_instance_type(monkeypatch):
+    saved = []
+
+    def save(**values):
+        saved.append(values)
+        return {"name": values["name"], "instance_type": values["instance_type"]}
+
+    monkeypatch.setattr(setup_server.stdio, "add_instance_to_config", save)
+    monkeypatch.setattr(setup_server.request, "set_current_instance", lambda name: None)
+    monkeypatch.setattr(setup_server, "_test_connection", lambda values: None)
+    session = setup_server.start_setup_server(open_browser=False)
+    form = {
+        "name": "typed",
+        "url": "https://example.com",
+        "api_key": "secret",
+        "instance_type": "automation",
+    }
+    try:
+        status, page = _post_setup_form(session.url, {**form, "action": "test"})
+        assert status == 200
+        assert '<option value="automation" selected>' in page
+        status, _ = _post_setup_form(session.url, {**form, "action": "save"})
+        assert status == 200
+        assert session.result["instance_type"] == "automation"
+    finally:
+        session.close()
+    assert len(saved) == 1
+    assert saved[0]["instance_type"] == "automation"
+
+
 def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
     request = Request(url, data=urlencode(form).encode(), method="POST")
     try:
@@ -111,6 +176,7 @@ def test_setup_server_requires_a_successful_test_before_saving(monkeypatch):
         "url": "https://example.com",
         "api_key": "secret",
         "description": "",
+        "instance_type": "design",
         "action": "save",
     }
     monkeypatch.setattr(
@@ -134,6 +200,7 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(monkeyp
         "url": "https://example.com",
         "api_key": "secret",
         "description": "",
+        "instance_type": "design",
     }
     monkeypatch.setattr(setup_server, "_test_connection", lambda values: None)
     try:

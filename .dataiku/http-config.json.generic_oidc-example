@@ -23,6 +23,7 @@
   },
   "dss_instances": {
     "prod": {
+      "instance_type": "automation",
       "url": "https://dataiku.example",
       "delegated_audience": "dataiku-prod",
       "delegated_scope": "dataiku.api"

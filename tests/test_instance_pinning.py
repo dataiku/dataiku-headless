@@ -44,6 +44,7 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
         api_key="key-a",
         no_check_certificate=False,
         source="config",
+        instance_type="automation",
     )
     instance_b = DSSInstance(
         name="instance-b",
@@ -51,6 +52,7 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
         api_key="key-b",
         no_check_certificate=False,
         source="config",
+        instance_type="deployer",
     )
     observed_instances = []
     fake_client = _FakeClient()
@@ -60,6 +62,7 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
     def get_client():
         stdio._current_instance = instance_b
         observed_instances.append(request.get_pinned_instance().name)
+        assert request.get_pinned_instance().instance_type == "automation"
         return fake_client
 
     monkeypatch.setattr(projects, "get_dss_client", get_client)
@@ -76,3 +79,4 @@ def test_tool_keeps_its_initial_instance_after_a_concurrent_switch(monkeypatch):
     assert not result.is_error
     assert observed_instances == ["instance-a"]
     assert stdio.get_current_instance() == instance_b
+    assert stdio.get_current_instance().instance_type == "deployer"

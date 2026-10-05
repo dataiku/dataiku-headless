@@ -26,12 +26,16 @@ from pydantic import (
 )
 
 
+InstanceType = Literal["design", "automation", "deployer", "govern", "agent-management"]
+
+
 @dataclass(frozen=True)
 class DSSInstance:
     name: str
     url: str
     no_check_certificate: bool
     source: str
+    instance_type: InstanceType
     api_key: str | None = field(default=None, repr=False)
     api_ticket: str | None = field(default=None, repr=False)
     encrypted_rpc_cert_path: str | None = field(default=None, repr=False)
@@ -55,6 +59,7 @@ class _DSSInstanceConfig(_StrictConfigModel):
     url: NonEmptyString
     no_check_certificate: bool = False
     description: str = ""
+    instance_type: InstanceType
 
 
 class StdioDSSInstanceConfig(_DSSInstanceConfig):
@@ -83,6 +88,7 @@ class StdioDSSInstanceConfig(_DSSInstanceConfig):
             no_check_certificate=self.no_check_certificate,
             source=source,
             description=self.description,
+            instance_type=self.instance_type,
         )
 
 
@@ -179,6 +185,7 @@ class HTTPDSSInstanceConfig(_DSSInstanceConfig):
             description=self.description,
             delegated_audience=self.delegated_audience or "",
             delegated_scope=self.delegated_scope,
+            instance_type=self.instance_type,
         )
 
 
