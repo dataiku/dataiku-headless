@@ -14,9 +14,17 @@
       "cwd": ".",
       "env_vars": [
         "DKU_INSTANCE_NAME",
+        "DKU_INSTANCE_TYPE",
         "DKU_DSS_URL",
         "DKU_API_KEY",
         "DKU_NO_CHECK_CERTIFICATE",
+        "DKU_IS_CODE_STUDIO",
+        "DKU_NODE_TYPE",
+        "DKU_BACKEND_PROTOCOL",
+        "DKU_BACKEND_HOST",
+        "DKU_BACKEND_PORT",
+        "DKU_API_TICKET",
+        "DKU_SERVER_CERT",
         "DKU_GOVERN_URL",
         "DKU_GOVERN_API_KEY",
         "DKU_GOVERN_NO_CHECK_CERTIFICATE"

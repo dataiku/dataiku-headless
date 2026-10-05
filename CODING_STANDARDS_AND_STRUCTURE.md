@@ -20,6 +20,7 @@ Set environment variables:
 
 ```bash
 export DKU_DSS_URL="https://your-instance.dataiku.com"
+export DKU_INSTANCE_TYPE="design"
 export DKU_API_KEY="your-api-key"
 ```
 
@@ -32,6 +33,36 @@ export DKU_API_KEY="your-api-key"
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
 | Project/dataset/folder/recipe/ML skills | `skills/**/SKILL.md` |
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
+
+## Stdio Credentials
+
+- `StdioDSSInstanceConfig` requires exactly one non-empty `api_key` or
+  `api_ticket`, enforced by an after-model validator. The unused credential is
+  `None`; both credentials are hidden from representations and preserved when
+  converting to a runtime `DSSInstance`.
+- Runtime `DSSInstance` credentials both default to `None`; HTTP conversion
+  omits them because authentication uses a request-scoped bearer token. Use
+  keyword arguments when constructing runtime instances.
+- When `DKU_IS_CODE_STUDIO` is non-empty, environment loading uses
+  `DKU_API_TICKET` and builds the URL from `DKU_BACKEND_PROTOCOL`,
+  `DKU_BACKEND_HOST`, and `DKU_BACKEND_PORT`. Its required `instance_type` comes
+  from `DKU_NODE_TYPE`; an explicit target requires `DKU_INSTANCE_TYPE`. Translate
+  missing required environment keys into clear `ValueError` messages and let
+  Pydantic validate present values. Load the explicit
+  `DKU_DSS_URL` / `DKU_API_KEY` instance first and the Code Studio instance second;
+  both remain switchable. Reject duplicate environment names. Missing or invalid
+  credentials fail validation rather than silently discarding an instance.
+- Store raw PEM `DKU_SERVER_CERT` in a private process-owned temporary file and
+  carry its path as runtime-only `encrypted_rpc_cert_path`. Keep files alive
+  across configuration resets for pinned requests and clients, and clean up at
+  process shutdown. Never return certificate paths in tool responses or persist
+  them in profiles. Client verification uses the path or the normal trust store;
+  only explicit environment instances honor `DKU_NO_CHECK_CERTIFICATE`.
+- Client construction maps `api_key` to the SDK's `api_key` parameter and
+  `api_ticket` to `internal_ticket`. HTTP requests continue to use delegated
+  `jwt_bearer_token` authentication and do not use the stdio credential rule.
+- The setup UI continues to accept API keys. Profile files use the same stdio
+  validation and omit unused credentials when saved.
 
 ## Error Handling
 - Prefer simple, readable tool handlers: keep top-level control flow short, avoid repeated Dataiku lookups, and use local helpers only when they improve clarity.

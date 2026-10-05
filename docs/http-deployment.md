@@ -105,9 +105,14 @@ The settings file has four sections:
 - `auth` configures incoming-token verification, optional interactive login, and
   token exchange.
 - `dss_instances` lists the Dataiku endpoints users may select and the audience or
-  scope requested for each one.
+  scope requested for each one. Each entry requires an explicit `instance_type`:
+  `design`, `automation`, `deployer`, `govern`, or `agent-management`.
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
+
+Instance types are operator-supplied metadata reported by instance tools. They do
+not trigger API discovery or change client selection, connection testing, or tool
+availability.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted
@@ -228,6 +233,7 @@ and the [OBO flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-
   "dss_instances": {
     "prod": {
       "url": "https://dataiku.example",
+      "instance_type": "automation",
       "delegated_scope": "api://replace-with-dataiku-app-client-id/dataiku.access"
     }
   },
@@ -293,6 +299,7 @@ setup, trust, and consent requirements depend on the authorization server.
   "dss_instances": {
     "prod": {
       "url": "https://dataiku.example",
+      "instance_type": "automation",
       "delegated_audience": "dataiku-prod",
       "delegated_scope": "dataiku.api"
     }

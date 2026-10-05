@@ -15,6 +15,7 @@
   },
   "dss_instances": {
     "prod": {
+      "instance_type": "automation",
       "url": "https://dataiku.example",
       "delegated_scope": "api://replace-with-dataiku-app-client-id/dataiku.access"
     }

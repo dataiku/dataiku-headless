@@ -70,11 +70,13 @@ def http_config(monkeypatch, tmp_path):
                 },
                 "dss_instances": {
                     "sandbox": {
+                        "instance_type": "design",
                         "url": "https://sandbox.example",
                         "delegated_audience": "dss-sandbox",
                         "delegated_scope": "dss.api",
                     },
                     "prod": {
+                        "instance_type": "automation",
                         "url": "https://prod.example",
                         "delegated_audience": "dss-prod",
                         "delegated_scope": "dss.api",
@@ -174,6 +176,7 @@ def test_http_config_rejects_api_keys(http_config):
 
 def test_http_instance_config_converts_to_runtime_instance():
     config = HTTPDSSInstanceConfig(
+        instance_type="automation",
         url="https://prod.example.com",
         delegated_audience="dss-prod",
         delegated_scope="dss.api",
@@ -184,13 +187,69 @@ def test_http_instance_config_converts_to_runtime_instance():
     assert config.to_instance("prod") == DSSInstance(
         name="prod",
         url="https://prod.example.com",
-        api_key="",
         no_check_certificate=True,
         source="http",
+        instance_type="automation",
         description="Production",
         delegated_audience="dss-prod",
         delegated_scope="dss.api",
     )
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
+)
+def test_http_instance_type_survives_selection_save(
+    http_config, monkeypatch, instance_type
+):
+    document = json.loads(http_config.read_text())
+    document["dss_instances"]["prod"]["instance_type"] = instance_type
+    http_config.write_text(json.dumps(document))
+
+    def unexpected_client(*args, **kwargs):
+        pytest.fail("Instance configuration must not construct a DSS client")
+
+    monkeypatch.setattr("dataikuapi.DSSClient", unexpected_client)
+    http.initialize_config()
+    identity = request.bind_http_identity("https://idp.example", "alice")
+    try:
+        result = request.set_current_instance("prod")
+        pinned = request.pin_current_instance()
+        try:
+            assert request.get_pinned_instance().instance_type == instance_type
+        finally:
+            request.reset_pinned_instance(pinned)
+    finally:
+        request.reset_http_identity(identity)
+
+    saved = json.loads(http_config.read_text())
+    assert result["instance_type"] == instance_type
+    assert saved["dss_instances"]["prod"]["instance_type"] == instance_type
+    assert http._load_config().dss_instances["prod"].instance_type == instance_type
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["", "unsupported", "DESIGN", " design", None, 1]
+)
+def test_http_config_rejects_invalid_instance_types(http_config, instance_type):
+    document = json.loads(http_config.read_text())
+    document["dss_instances"]["prod"]["instance_type"] = instance_type
+    http_config.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="instance_type") as error:
+        http.initialize_config()
+    assert "exchange-secret" not in str(error.value)
+
+
+def test_http_requires_explicit_type_without_migrating_catalog(http_config):
+    document = json.loads(http_config.read_text())
+    document["dss_instances"]["prod"].pop("instance_type")
+    http_config.write_text(json.dumps(document))
+    original = http_config.read_bytes()
+
+    with pytest.raises(ValueError, match="instance_type"):
+        http.initialize_config()
+    assert http_config.read_bytes() == original
 
 
 def test_http_config_rejects_obsolete_user_defaults_key(http_config):
@@ -447,6 +506,7 @@ def test_generic_oidc_http_config_example_is_valid(monkeypatch):
     assert isinstance(http._load_config(), HTTPConfig)
     assert set(instances) == {"prod"}
     assert instances["prod"].url == "https://dataiku.example"
+    assert instances["prod"].instance_type == "automation"
     assert instances["prod"].delegated_audience == "dataiku-prod"
     assert instances["prod"].delegated_scope == "dataiku.api"
     assert selections == {}
@@ -473,6 +533,7 @@ def test_entra_http_config_example_is_valid(monkeypatch):
     )
     instances, selections = http.get_instances_and_selections()
     assert instances["prod"].delegated_audience == ""
+    assert instances["prod"].instance_type == "automation"
     assert instances["prod"].delegated_scope == (
         "api://replace-with-dataiku-app-client-id/dataiku.access"
     )
@@ -759,12 +820,12 @@ def test_token_exchange_uses_provider_protocol(monkeypatch, provider, expected_d
         request,
         "get_pinned_instance",
         lambda: DSSInstance(
-            "prod",
-            "https://prod.example",
-            "",
-            False,
-            "http",
+            name="prod",
+            url="https://prod.example",
+            no_check_certificate=False,
+            source="http",
             delegated_audience="dss-prod",
+            instance_type="automation",
             delegated_scope="dss.api",
         ),
     )
@@ -844,12 +905,12 @@ def test_token_exchange_reports_sanitized_failures(
         request,
         "get_pinned_instance",
         lambda: DSSInstance(
-            "prod",
-            "https://prod.example",
-            "",
-            False,
-            "http",
+            name="prod",
+            url="https://prod.example",
+            no_check_certificate=False,
+            source="http",
             delegated_audience="dss-prod",
+            instance_type="automation",
             delegated_scope="dss.api",
         ),
     )

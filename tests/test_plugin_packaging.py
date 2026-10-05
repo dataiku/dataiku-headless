@@ -55,3 +55,19 @@ def test_public_setup_skill_is_stdio_only():
     assert "--transport stdio" in setup_skill
     assert "references/http.md" not in setup_skill
     assert "customer-managed HTTP" not in setup_skill
+
+
+def test_environment_configuration_is_passed_through():
+    variables = _json(".mcp.json")["mcpServers"]["dataiku"]["env_vars"]
+    assert {
+        "DKU_DSS_URL",
+        "DKU_API_KEY",
+        "DKU_INSTANCE_TYPE",
+        "DKU_IS_CODE_STUDIO",
+        "DKU_NODE_TYPE",
+        "DKU_BACKEND_PROTOCOL",
+        "DKU_BACKEND_HOST",
+        "DKU_BACKEND_PORT",
+        "DKU_API_TICKET",
+        "DKU_SERVER_CERT",
+    }.issubset(variables)

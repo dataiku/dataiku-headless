@@ -36,10 +36,25 @@ def get_dss_client() -> dataikuapi.DSSClient:
         client = dataikuapi.DSSClient(
             current_instance.url,
             jwt_bearer_token=request.get_http_dss_token(),
+            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+        )
+    elif current_instance.api_ticket is not None:
+        client = dataikuapi.DSSClient(
+            current_instance.url,
+            internal_ticket=current_instance.api_ticket,
+            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
         )
     else:
-        client = dataikuapi.DSSClient(current_instance.url, current_instance.api_key)
-    client._session.verify = not current_instance.no_check_certificate
+        client = dataikuapi.DSSClient(
+            current_instance.url,
+            api_key=current_instance.api_key,
+            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+        )
+    client._session.verify = (
+        False
+        if current_instance.no_check_certificate
+        else current_instance.encrypted_rpc_cert_path or True
+    )
     return client
 
 

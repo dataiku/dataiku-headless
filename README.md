@@ -25,17 +25,6 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Dataiku Headless supports two connection modes:
-
-| Mode | MCP server | Authentication | Installation |
-| --- | --- | --- | --- |
-| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
-| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
-
-Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
-
-The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
-
 Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
@@ -145,14 +134,13 @@ limited direct actions Headless supports, see the
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
-- Server-side authentication for the local stdio plugin (env API key or `.dataiku/stdio-config.json`)
+- Server-side authentication for the local stdio plugin (API key, Code Studio API ticket, or `.dataiku/stdio-config.json`)
 - Modular architecture by functional domain
 - Cobuild conversation tools (`start_cobuild_conversation`, `send_cobuild_message`, `answer_cobuild_confirmation`, `list_cobuild_conversations`) as the default path for project-level asset creation
 
 In local stdio mode, tools do not accept API keys as arguments — authentication is
-resolved server-side from environment variables or a config file.
-
-For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
+resolved server-side from environment variables or a config file. Code Studios
+provide their hosting instance URL and API ticket automatically.
 
 ## Agent Skills
 
@@ -162,56 +150,67 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-The onboarding flow is:
+Outside a Code Studio, configure a connection using a personal API key:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
-3. Enter an instance name, Dataiku URL, and personal API key.
+3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
 
-The API key never appears in MCP tool arguments.
+Inside a Code Studio, the hosting DSS instance is discovered automatically using
+its injected API ticket. No personal API key or setup popup is needed.
+
+API keys and tickets never appear in MCP tool arguments or instance responses.
 
 ### Where configuration lives
 
-The resolved configuration file contains named profiles, their URLs, defaults, and a plaintext `api_key`. The setup page writes it atomically with user-only (0600) permissions; you can also edit it by hand. Use `--settings-path PATH` to select an explicit path; otherwise, the server selects its configuration file once at startup in this order:
+**Saved profiles.** The setup page stores named instances and a `default_instance`
+in a JSON file with user-only (0600) permissions. Credentials are stored in
+plaintext. Use `--settings-path PATH` to select the file; otherwise, the server uses:
 
 1. An existing `./.dataiku/stdio-config.json` in the server's working directory.
 2. `~/.dataiku/stdio-config.json` otherwise.
 
-On upgrade, a valid legacy `config.json` at either location is migrated automatically
-to `stdio-config.json` (the working-directory location takes precedence). Existing
-canonical files are used without inspecting a sibling `config.json`; invalid legacy
-files are left untouched and ignored. `DKU_CONFIG_FILE` is no longer supported;
-replace it with `--settings-path PATH` in the launcher configuration.
+Add multiple instances through the setup page or edit the file using
+[`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example).
+Each profile requires `instance_type`: `design`, `automation`, `deployer`, `govern`, or
+`agent-management`. Existing stdio profiles missing this field are automatically
+assigned `design` and rewritten on disk before loading. This temporary migration
+is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
+The type metadata does not change client selection or tool availability.
+Selecting Govern records its type; Govern-specific API tools are not yet implemented.
 
-The server loads environment and profile settings at startup. Profile additions and
-deletions refresh both the resolved file and the in-memory catalog; otherwise, manual
-or environment changes require a restart. See [`.dataiku/stdio-config.json.example`](.dataiku/stdio-config.json.example) for the file shape.
+**Environment override.** To select an explicit target, including inside a Code
+Studio, set these three variables in your environment or copy
+[`.env.example`](.env.example) to the repository-root `.env`:
 
-Environment variables are an explicit override:
-
-**.env file:**
-Copy `.env.example` to `.env` and fill in your values:
 ```bash
 DKU_DSS_URL=https://your-instance.dataiku.com
+DKU_INSTANCE_TYPE=design
 DKU_API_KEY=your-api-key
-DKU_MCP_MAX_WORKERS=4
-DKU_NO_CHECK_CERTIFICATE=false
 ```
-The canonical `runtime/run_mcp.py` launcher reads this file after validating its
-arguments and before importing the MCP package. `.env` only fills in variables
-not already set in your shell or launcher—a real environment variable of the
-same name always wins, even if it is empty. Importing `dataiku_mcp` directly does
-not read `.env`; embedding callers must prepare their environment first.
 
-**Connect to multiple instances:**
-Put instance info in the resolved configuration file. See `.dataiku/stdio-config.json.example` for the expected shape.
+`DKU_INSTANCE_NAME` optionally names this target (default `dataiku-from-env`).
+`DKU_NO_CHECK_CERTIFICATE=true` optionally disables its TLS verification.
+The launcher loads `.env` without replacing existing environment values, even
+empty ones. Direct package imports do not load `.env`.
 
-After adding multiple instance configs, you can use the `list_instances`, `switch_instance`, and `get_current_instance` MCP tools to manage instances from the agent.
+**Startup selection.** The active instance is the first available source below:
 
-Auth resolution order:
-1. Environment variables: `DKU_DSS_URL`, `DKU_API_KEY`, and optional `DKU_NO_CHECK_CERTIFICATE`
-2. The resolved configuration file, using its `default_instance`
+1. The explicit environment target above.
+2. `dataiku-from-code-studio`, discovered when `DKU_IS_CODE_STUDIO` is set, using
+   `DKU_BACKEND_PROTOCOL`, `DKU_BACKEND_HOST`, `DKU_BACKEND_PORT`, `DKU_API_TICKET`,
+   and the lowercase node type in `DKU_NODE_TYPE`.
+3. The saved profiles' `default_instance`.
+
+All sources remain available through `list_instances` and `switch_instance`;
+use `get_current_instance` to verify the active connection. Environment instances
+take precedence over profiles with the same name. The explicit target must have
+a different name from `dataiku-from-code-studio` when both exist. Missing required
+credentials or environment types, unsupported types, and duplicate environment names fail startup.
+
+Settings load at startup. Changes through the setup page or instance tools refresh
+the saved profiles immediately; manual file edits and environment changes require a restart.
 
 ## Run
 
@@ -220,6 +219,19 @@ Every install path above has your harness launch the server itself. Run it stand
 ```bash
 uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```
+
+## Customer-managed HTTP deployment
+
+Dataiku Headless supports two connection modes:
+
+| Mode | MCP server | Authentication | Installation |
+| --- | --- | --- | --- |
+| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
+| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
+
+Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
+
+The Dataiku Headless marketplace plugin uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
 
 ## Project Structure
 
