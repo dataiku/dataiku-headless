@@ -95,7 +95,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
-| Govern | `govern` (catalog and read operations) | `govern` (write and delete operations) | Separate Govern node — stdio only |
+| Govern | `govern` (catalog and read operations) | `govern` (write and delete operations) | Instance of type `govern` — stdio only |
 
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build recipe logic, a model, or an agent.

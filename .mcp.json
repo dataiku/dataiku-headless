@@ -24,10 +24,7 @@
         "DKU_BACKEND_HOST",
         "DKU_BACKEND_PORT",
         "DKU_API_TICKET",
-        "DKU_SERVER_CERT",
-        "DKU_GOVERN_URL",
-        "DKU_GOVERN_API_KEY",
-        "DKU_GOVERN_NO_CHECK_CERTIFICATE"
+        "DKU_SERVER_CERT"
       ]
     }
   }

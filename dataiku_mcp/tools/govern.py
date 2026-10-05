@@ -1938,8 +1938,8 @@ def _require_govern_node(client) -> None:
         return
     if node_type != "GOVERN":
         raise ValueError(
-            f"The configured Govern URL {host} points to a {node_type} node, not a "
-            "Govern node. Check DKU_GOVERN_URL."
+            f"The active instance URL {host} points to a {node_type} node, not a "
+            "Govern node. Check the URL and instance_type of the active instance."
         )
     _verified_hosts.add(host)
 

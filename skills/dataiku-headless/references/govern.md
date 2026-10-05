@@ -30,11 +30,10 @@ DSS project work still uses the other MCP tools and Cobuild.
 
 ## Connect
 
-The Govern node needs its own URL and API key. The tool reads them only from
-`DKU_GOVERN_URL` and `DKU_GOVERN_API_KEY` in the MCP server environment
-(`DKU_GOVERN_NO_CHECK_CERTIFICATE` is optional). Instance profiles and
-`configure_instance` do not hold Govern settings. When the variables are missing,
-the tool says so; ask the user to set them and restart the agent.
+The Govern node is a configured instance of type `govern`, with its own URL and
+API key. The tool uses the active instance and refuses an instance of another
+type. `list_instances` shows the type of each instance; when none has type
+`govern`, run `configure_instance` and choose the Govern type.
 
 The tool works only in local stdio mode. A Govern node accepts API keys, not the
 delegated tokens that the HTTP mode uses, so in HTTP mode the tool returns an
