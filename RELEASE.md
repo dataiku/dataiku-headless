@@ -5,10 +5,12 @@ version, merge it into `main`, and publish it.
 
 ## Normal release checklist
 
-These examples release **0.8.0**. Replace that version with your chosen version
-throughout. Use a minor bump for new features (for example, `0.7.0` → `0.8.0`)
-and a patch bump for fixes (`0.8.0` → `0.8.1`). The release branch name determines
-the version the workflow will write.
+The commands below use `X.Y.Z` as a version placeholder. Replace it with the
+chosen release version before running them. Contributors should use the active
+release branch; list existing branches with `git ls-remote --heads origin 'release/*'`
+or ask a maintainer which one to target. Use a minor bump for new features (for
+example, `0.7.0` → `0.8.0`) and a patch bump for fixes (`0.8.0` → `0.8.1`). The
+release branch name determines the version the workflow will write.
 
 Before your first release, an administrator must complete the
 [one-time repository setup](#repository-setup-and-transition) below. Run these
@@ -21,11 +23,11 @@ Start from the latest `main`, before adding new features:
 
 ```bash
 git fetch origin
-git switch -c release/0.8.0 origin/main
-git push -u origin release/0.8.0
+git switch -c release/X.Y.Z origin/main
+git push -u origin release/X.Y.Z
 ```
 
-Keep one active feature release branch. If `release/0.8.0` already exists,
+Keep one active feature release branch. If `release/X.Y.Z` already exists,
 continue with it instead of creating it again.
 
 ### 2. Add features through PRs into the release branch
@@ -34,14 +36,14 @@ For each feature or fix, create a working branch from the latest release branch:
 
 ```bash
 git fetch origin
-git switch -c feat/my-feature origin/release/0.8.0
+git switch -c feat/my-feature origin/release/X.Y.Z
 ```
 
 Make and commit your changes, then push and open the feature PR:
 
 ```bash
 git push -u origin feat/my-feature
-gh pr create --base release/0.8.0 --head feat/my-feature \
+gh pr create --base release/X.Y.Z --head feat/my-feature \
   --title 'feat: describe the feature'
 ```
 
@@ -51,7 +53,7 @@ capability` or `fix: correct a bug` so the changelog can group the changes.
 Repeat for each feature or fix in the batch.
 
 **Do not update version files yet.** They keep the previous release's version
-until the next step. Feature PRs target `release/0.8.0`, not `main`.
+until the next step. Feature PRs target `release/X.Y.Z`, not `main`.
 
 ### 3. Prepare the version update
 
@@ -60,36 +62,36 @@ When the batch is ready, pause new feature merges and run:
 ```bash
 gh workflow run bump.yml --ref main \
   -f operation=prepare \
-  -f release_branch=release/0.8.0
+  -f release_branch=release/X.Y.Z
 ```
 
 Or use **Actions → Bump version → Run workflow**: select branch **main**,
-operation **prepare**, and enter `release/0.8.0` as **release_branch**.
+operation **prepare**, and enter `release/X.Y.Z` as **release_branch**.
 
 Open the workflow run and follow the PR link in its summary. This is the
 **version-update PR**:
 
 ```text
-prepare-release/0.8.0 → release/0.8.0
+prepare-release/X.Y.Z → release/X.Y.Z
 ```
 
 It updates the project version, plugin manifests, lockfile, and changelog.
 Review those changes, select **Approve workflows to run** if prompted, and wait
-for checks to pass. Then **Squash and merge** this PR into `release/0.8.0`.
+for checks to pass. Then **Squash and merge** this PR into `release/X.Y.Z`.
 
 ### 4. Merge the release into main
 
 Now open the **release PR**:
 
 ```bash
-gh pr create --base main --head release/0.8.0 \
-  --title 'bump: release 0.8.0'
+gh pr create --base main --head release/X.Y.Z \
+  --title 'bump: release X.Y.Z'
 ```
 
 This PR contains the whole batch:
 
 ```text
-release/0.8.0 → main
+release/X.Y.Z → main
 ```
 
 Review it and wait for checks to pass. Choose **Create a merge commit**.
@@ -116,17 +118,17 @@ operation **publish**, and enter that PR number as **release_pr**. Leave
 **release_branch** empty for publication.
 
 Wait for the workflow to succeed, then check **Releases** in GitHub. It creates
-the `v0.8.0` GitHub release and both tags on the reviewed merge commit:
+the `vX.Y.Z` GitHub release and both tags on the reviewed merge commit:
 
-- `v0.8.0`
-- `dataiku-headless--v0.8.0`
+- `vX.Y.Z`
+- `dataiku-headless--vX.Y.Z`
 
 Nothing is published to PyPI. Merging the PR alone does not publish anything.
 
 ### 6. Clean up and start the next cycle
 
-After successful publication, delete `release/0.8.0` and
-`prepare-release/0.8.0` in GitHub if they have not already been deleted. Start
+After successful publication, delete `release/X.Y.Z` and
+`prepare-release/X.Y.Z` in GitHub if they have not already been deleted. Start
 the next release branch from the latest `main` by repeating step 1 with the
 next version.
 
@@ -134,9 +136,9 @@ next version.
 
 | PR | Source → target | Merge method |
 | --- | --- | --- |
-| Feature or fix | Your working branch → `release/0.8.0` | Squash and merge |
-| Version update (created by Prepare) | `prepare-release/0.8.0` → `release/0.8.0` | Squash and merge |
-| Release (its number is used for Publish) | `release/0.8.0` → `main` | Create a merge commit |
+| Feature or fix | Your working branch → `release/X.Y.Z` | Squash and merge |
+| Version update (created by Prepare) | `prepare-release/X.Y.Z` → `release/X.Y.Z` | Squash and merge |
+| Release (its number is used for Publish) | `release/X.Y.Z` → `main` | Create a merge commit |
 
 ## Repository setup and transition
 
