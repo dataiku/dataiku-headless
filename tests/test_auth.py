@@ -163,3 +163,64 @@ def test_client_verifies_local_https(monkeypatch, localhost_certificate, mode):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+@pytest.mark.parametrize("no_check_certificate", [False, True])
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+def test_govern_client_uses_active_govern_instance(
+    monkeypatch, credential, no_check_certificate
+):
+    instance = DSSInstance(
+        name="govern",
+        url="https://govern.example.com",
+        api_key="api-key" if credential == "api_key" else None,
+        api_ticket="api-ticket" if credential == "api_ticket" else None,
+        no_check_certificate=no_check_certificate,
+        source="config",
+        instance_type="govern",
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+    captured = {}
+    client = SimpleNamespace(_session=SimpleNamespace(verify=True))
+
+    def create_client(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return client
+
+    monkeypatch.setattr(auth.dataikuapi, "GovernClient", create_client)
+
+    assert auth.get_govern_client() is client
+    assert captured == {
+        "url": instance.url,
+        "api_key": instance.api_key,
+        "internal_ticket": instance.api_ticket,
+        "extra_headers": {"X-DKU-Client-Application": "dataiku-headless"},
+    }
+    assert client._session.verify is not no_check_certificate
+
+
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "agent-management"]
+)
+def test_govern_client_rejects_other_instance_types(monkeypatch, instance_type):
+    instance = DSSInstance(
+        name="dev",
+        url="https://dev.example.com",
+        api_key="api-key",
+        no_check_certificate=False,
+        source="config",
+        instance_type=instance_type,
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+
+    with pytest.raises(ValueError, match="switch_instance"):
+        auth.get_govern_client()
+
+
+def test_govern_client_is_stdio_only(monkeypatch):
+    monkeypatch.setattr(request, "is_http_request", lambda: True)
+
+    with pytest.raises(ValueError, match="local stdio mode"):
+        auth.get_govern_client()

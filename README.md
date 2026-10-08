@@ -177,8 +177,8 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
-The type metadata does not change client selection or tool availability.
-Selecting Govern records its type; Govern-specific API tools are not yet implemented.
+The type metadata does not change tool availability. Only the `govern` tool reads
+it: that tool runs only when the active instance has type `govern`.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
