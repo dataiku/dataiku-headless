@@ -72,6 +72,8 @@ major_version_zero = true
 version_files = [
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
+    ".cortex-plugin/plugin.json",
+    ".cursor-plugin/plugin.json",
 ]
 
 [dependency-groups]
