@@ -311,7 +311,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 
 ## Contributing
 
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; `RELEASE.md` covers how versions and releases are cut.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; [`RELEASE.md`](RELEASE.md) covers collecting changes on `release/X.Y.Z`, finalizing the batch, and publishing its reviewed merge into `main`.
 
 ## License
 
