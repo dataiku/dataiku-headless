@@ -245,30 +245,25 @@ async def create_project(
         auth_info = client.get_auth_info()
         owner = auth_info.get("authIdentifier", "")
         normalized_folder_id = folder_id.strip()
-        if not normalized_folder_id:
-            client.create_project(
-                project_key, name, owner=owner, description=short_desc
+        folder = None
+        if normalized_folder_id:
+            folder = client.get_project_folder(
+                _require_non_empty_string(normalized_folder_id, "folder_id")
             )
-            return omit_empty({"projectKey": project_key, "name": name, "owner": owner})
-
-        folder = client.get_project_folder(
-            _require_non_empty_string(normalized_folder_id, "folder_id")
-        )
-        folder.create_project(project_key, name, owner)
-        project = client.get_project(project_key)
-        metadata = project.get_metadata()
+            folder.create_project(project_key, name, owner)
+        else:
+            # The SDK's `description` argument sets the long description, not shortDesc.
+            client.create_project(project_key, name, owner=owner)
         if short_desc:
+            project = client.get_project(project_key)
+            metadata = project.get_metadata()
             metadata["shortDesc"] = short_desc
             project.set_metadata(metadata)
-        return omit_empty(
-            {
-                "projectKey": project_key,
-                "name": name,
-                "owner": owner,
-                "folder_id": folder.id,
-                "folder_path": folder.get_path(),
-            }
-        )
+        result = {"projectKey": project_key, "name": name, "owner": owner}
+        if folder is not None:
+            result["folder_id"] = folder.id
+            result["folder_path"] = folder.get_path()
+        return omit_empty(result)
 
     return compact_json(await run_blocking(_run))
 
