@@ -382,7 +382,9 @@ async def list_flow_zones(project_key: str, ctx: Context) -> str:
                     {
                         "zone_id": zone_raw.get("id"),
                         "name": zone_raw.get("name"),
+                        "short_desc": zone_raw.get("shortDesc"),
                         "description": zone_raw.get("description"),
+                        "color": zone_raw.get("color"),
                         "items": [
                             {
                                 "object_type": item.get("objectType"),
@@ -393,7 +395,7 @@ async def list_flow_zones(project_key: str, ctx: Context) -> str:
                     }
                     for zone_raw in zones_raw
                 ],
-                ["zone_id", "name", "description", "items"],
+                ["zone_id", "name", "short_desc", "description", "color", "items"],
             )
         }
     )
