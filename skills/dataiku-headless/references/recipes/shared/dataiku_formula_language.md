@@ -41,11 +41,11 @@ Use this reference to understand the Dataiku formula language (GREL) as it appea
 - `indexOf(string s, string sub)` → number — `indexOf("hello world", "world")` = 6
 - `lastIndexOf(string s, string sub)` → number — `lastIndexOf("hello world", "o")` = 7
 - `length(string or array o)` → number — `length("hello world")` = 11
-- `match(string s, string or regex)` → array — returns capture groups; `match('hello world', 'he(.*)wo(rl)d')` = ["llo ", "rl"]
+- `match(string s, string or regex)` → array — returns capture groups; the pattern must match the whole string, else null (to search, wrap the group: `.*?(…).*`); in a quoted pattern `\d` fails, use `[0-9]` or `/…/`; `match('hello world', 'he(.*)wo(rl)d')` = ["llo ", "rl"]
 - `md5(string s)` → string
 - `ord(string s)` → number — `ord('A')` = 65
 - `partition(string s, string or regex frag, [boolean omitFragment])` → array
-- `replace(string s, string or regex f, string replacement)` → string — `replace('hello world', 'hel', 'a')` = "alo world"
+- `replace(string s, string or regex f, string replacement)` → string — a quoted `f` is literal text, a regex needs `/…/`; `replace('hello world', 'hel', 'a')` = "alo world"
 - `replaceChars(string s, string f, string r)` → string — `replaceChars('abcba', 'bc', 'BC')` = "aBCBa"
 - `rpartition(string s, string or regex frag, [boolean omitFragment])` → array
 - `sha1(string s)` → string
@@ -138,7 +138,7 @@ Use this reference to understand the Dataiku formula language (GREL) as it appea
 - `isNonBlank(o)` → boolean — true if not null/empty (whitespace-only counts as non-blank)
 - `isNotNull(o)` → boolean — true if not null (ignores empty strings)
 - `isNull(o)` → boolean — true if null or empty
-- `isNumeric(o)` → boolean — true if value can represent a number
+- `isNumeric(o)` → boolean — true for a number; for a string, true only for digits with no decimal point (`isNumeric("4.5")` = false)
 - `type(o)` → string — `type(3.126)` = "number"
 
 ### Array Functions

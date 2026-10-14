@@ -30,14 +30,17 @@ Several visual recipes contain processing stages around their named action. Insp
 
 Do not move a condition between stages unless it is equivalent at both grains.
 
-| Recipe types | Input pre-filter | Pre-action computed columns | Core action and other features | Post-action computed columns | Post-filter | Output controls |
+| Recipe types (stages Cobuild can set) | Input pre-filter | Pre-action computed columns | Core action and other features | Post-action computed columns | Post-filter | Output controls |
 | --- | --- | --- | --- | --- | --- | --- |
-| `grouping` | Yes | Yes | Grouping keys; standard or SQL-engine custom aggregations | — | Yes | Selection and name overrides |
-| `window` | Yes | Yes | Window definitions and values; window-wide global aggregations | — | Yes | Retrieved-column selection |
-| `join`, `fuzzyjoin` | Per input | Per input | Join action | Yes | Yes | Selected columns |
-| `sort`, `distinct`, `topn` | Yes | Yes | Ordering, deduplication, ranking, or row limits | — | Yes | Yes |
-| `vstack` | Per input | Yes | Schema mapping and optional origin column | — | Yes | — |
-| `split` | Yes | Yes | Split conditions and catch-all output | — | Yes | — |
+| `grouping` | Yes | Yes | Grouping keys; standard or SQL-engine custom aggregations | — | Yes | Name overrides |
+| `window` | Yes | Yes | Window definitions and values; window-wide global aggregations | — | Yes | Column selection and name overrides |
+| `join` | Per input | Per input | Join action | — | Yes | Selected columns |
+| `fuzzyjoin` | — | — | Join action | — | — | Selected columns |
+| `sort` | Yes | Yes | Ordering | — | — | Name overrides |
+| `topn` | Yes | Yes | Ranking and row limits | — | — | Retrieved-column selection and name overrides |
+| `distinct` | Yes | — | Deduplication | — | Yes | Name overrides |
+| `vstack` | Per input | — | Schema mapping and optional origin column | — | Yes | Selected columns |
+| `split` | Yes | — | Split conditions and catch-all output | — | — | — |
 
 Prefer one recipe when its embedded capabilities express the transformation and separating it provides no material operational, performance, governance, or reuse benefit.
 

@@ -62,7 +62,7 @@ Consolidated reference for all prepare (Shaker) recipe processor `type` values. 
 
 ## Date / Time
 
-- **DateParser** — Parse strings containing dates in any format into standard ISO 8601.
+- **DateParser** — Parse strings containing dates in any format into standard ISO 8601. For a date with no time, use timezone UTC: another zone can move a dateonly result back one day.
 - **DateFormatter** — Reformat a parsed ISO 8601 datetime to a string via a Java `SimpleDateFormat` pattern.
 - **DateComponentsExtractor** — Extract elements (year, month, day, hour, week, timestamp, etc.) of an ISO 8601 date into separate columns.
 - **DateDifference** — Compute the difference between a date column and another reference (column, fixed date, or now), with options to exclude weekends/holidays.

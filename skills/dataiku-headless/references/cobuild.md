@@ -44,7 +44,7 @@ Do not use this guide when:
 7. If an interrupted call loses its response, use `list_cobuild_conversations` to recover the conversation's `current_turn_id`. When it is present, call `get_cobuild_turn_status` before doing anything else; when it is absent, a new message may be sent.
 8. Independent work may continue while a turn is pending. Retain its `conversation_id` and `turn_id`, then poll again after each bounded unit of independent work and before any dependent action or completion report.
 9. Retain the returned `conversation_id` for follow-up work.
-10. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation`.
+10. If Cobuild returns a delete confirmation request, call `get_cobuild_turn_status` with its exact `turn_id`, inspect the retained deletion details, then use `answer_cobuild_confirmation` with `APPROVE` or `CANCEL`.
 11. If Cobuild returns a question request, call `get_cobuild_turn_status` with its exact `turn_id`, then inspect its retained `question` object before using `answer_cobuild_question`.
 12. If an answer returns "No pending question/confirmation found," do not retry. Inspect the project or UI state, then continue the same conversation with a new message if appropriate.
 
