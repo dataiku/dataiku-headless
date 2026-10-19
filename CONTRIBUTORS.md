@@ -2,11 +2,14 @@
 
 Thank you to everyone who has contributed to Dataiku Headless!
 
+## Maintainers
+
+- **Patrick Phrayme (Masi-Phelps)** ([@pmasiphelps](https://github.com/pmasiphelps))
+- **crmapj** ([@crmapj](https://github.com/crmapj))
+
 ## Contributors
 
 - **Ned Martorell** ([@nmartorell](https://github.com/nmartorell))
-- **crmapj** ([@crmapj](https://github.com/crmapj))
-- **Patrick Phrayme (Masi-Phelps)** ([@pmasiphelps](https://github.com/pmasiphelps))
 - **Youssef Jouini** ([@yjouini](https://github.com/yjouini))
 - **Hannes Hapke** ([@hanneshapke](https://github.com/hanneshapke))
 - **Pierre Portal** ([@pportal2](https://github.com/pportal2))
