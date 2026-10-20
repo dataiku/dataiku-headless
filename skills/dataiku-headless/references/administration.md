@@ -16,5 +16,5 @@ direct MCP tools. Permissions vary by operation; follow the matching guide.
 | List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, or profile capacity | `./administration/licensing.md` |
 | Inspect, create, update, or delete code environments | `./administration/code-environments.md` |
-| List installed plugins, update one from the store or a local path, or delete one | `./administration/plugins.md` |
+| Inspect, install, update, or delete plugins and prepare their managed code environments | `./administration/plugins.md` |
 | Inspect container execution or Spark configurations | `./administration/general-settings.md` |

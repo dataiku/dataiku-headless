@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dataiku instance plugin discovery, update, and deletion tools."""
+"""Dataiku instance plugin inspection, installation, environment setup, and removal."""
 
 from __future__ import annotations
 
 import asyncio
 import io
+import re
+from typing import Literal
+
+from dataikuapi.dss.future import DSSFuture
+from dataikuapi.utils import DataikuException
 import time
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
@@ -54,6 +59,8 @@ _SKIPPED_DIRECTORY_NAMES = {".git", "__pycache__"}
 _MANIFEST_NAME = "plugin.json"
 # Noun phrases for error prose, keyed by the machine-readable operation name.
 _OPERATION_NOUNS = {
+    "install": "installation",
+    "ensure_plugin_code_env": "code environment build",
     "update": "update",
     "delete": "deletion",
     "rebuild_code_env": "code environment rebuild",
@@ -138,6 +145,30 @@ def _installed_plugin(client, plugin_id: str) -> dict:
     if similar:
         message += f" Installed ids containing that text: {similar}."
     raise ValueError(message)
+
+
+def _require_absent(client, plugin_id: str) -> None:
+    if any(raw.get("id") == plugin_id for raw in client.list_plugins()):
+        raise ValueError(
+            f"Plugin '{plugin_id}' is already installed; use update_plugin."
+        )
+
+
+def _archive_code_env(archive: io.BytesIO) -> dict:
+    """Inspect only the normalized archive that will actually be uploaded."""
+    languages = []
+    with ZipFile(archive) as source:
+        for language in ("python", "r"):
+            descriptor = f"code-env/{language}/desc.json"
+            if descriptor in source.namelist():
+                parse_json_object(source.read(descriptor).decode("utf-8"), descriptor)
+                languages.append(language)
+    archive.seek(0)
+    return {
+        "status": "required" if languages else "not_required",
+        "languages": languages,
+        "detection": "archive_descriptors",
+    }
 
 
 def _find_manifest_member(archive: ZipFile) -> str:
@@ -352,6 +383,15 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
     alongside its name rather than raised: the fix is to correct the plugin's
     specification and rebuild, not to create another environment.
     """
+    messages = result.get("messages")
+    if not isinstance(messages, dict) or not any(
+        key in messages for key in ("error", "fatal", "messages", "maxSeverity")
+    ):
+        return {
+            "status": "unknown",
+            "code_env_name": code_env_name,
+            "hint": "The environment exists but no build report was returned. Inspect its build logs in Dataiku before treating it as ready.",
+        }
     detail = _report_failure(result)
     if detail is None:
         return {"status": "completed", "code_env_name": code_env_name}
@@ -577,6 +617,100 @@ async def list_plugin_usages(
 
 
 @mcp.tool(
+    title="Install Plugin",
+    description="Install a new instance plugin from the store or a local archive, then inspect its setup needs.",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def install_plugin(
+    source: Literal["store", "local_path"],
+    ctx: Context,
+    plugin_id: str | None = None,
+    local_path: str | None = None,
+    wait_for_completion: bool = True,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Install a plugin that is not yet on the Dataiku instance.
+
+    Requires administrator or plugin-developer permission. A plugin that is already
+    installed is rejected; use update_plugin for that. Newly installed component types
+    may need a Dataiku backend restart before they appear, reported as ``needs_restart``.
+
+    Args:
+        source: ``store`` to install from the Dataiku plugin store, or ``local_path``
+            to upload a plugin from this machine.
+        plugin_id: Store plugin id. Required for ``store``. For ``local_path`` the id
+            is read from plugin.json and this argument, if given, must match it.
+        local_path: Plugin directory containing plugin.json at its root, or a plugin
+            ZIP. Required for ``local_path``.
+        wait_for_completion: Wait up to timeout_seconds for a verified outcome. When
+            false, a store install returns a future_id to follow instead.
+        timeout_seconds: Inline wait budget, checked between polls.
+    """
+    if request.is_http_request():
+        raise ValueError(
+            "install_plugin is unavailable in HTTP mode because it can read the MCP host filesystem."
+        )
+    plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
+    )
+    await ctx.info(f"Installing Dataiku plugin from {source}...")
+
+    def _start():
+        if source == "store":
+            client = get_dss_client()
+            _require_absent(client, plugin_id)
+            return (
+                client,
+                plugin_id,
+                client.install_plugin_from_store(plugin_id),
+                {
+                    "status": "unknown",
+                    "detection": "create_required",
+                },
+            )
+        archive, archive_id = _local_target(plugin_id, local_path)
+        requirements = _archive_code_env(archive)
+        client = get_dss_client()
+        _require_absent(client, archive_id)
+        return (
+            client,
+            archive_id,
+            client.start_install_plugin_from_archive(archive),
+            requirements,
+        )
+
+    client, resolved_id, future, requirements = await run_blocking(_start)
+    result, payload = await _run_plugin_action(
+        "install",
+        resolved_id,
+        future,
+        wait_for_completion,
+        timeout_seconds,
+    )
+    if result is None:
+        return compact_json({**payload, "source": source, "code_env": requirements})
+    plugin = await run_blocking(
+        lambda: _serialize_summary(_installed_plugin(client, resolved_id))
+    )
+    return compact_json(
+        omit_empty(
+            {
+                **payload,
+                "source": source,
+                "plugin": plugin,
+                "code_env": requirements,
+                "hint": "Installation is complete. If code_env.status is required or unknown, call ensure_plugin_code_env; not_required concerns the code environment only. Check any install scripts, system packages, and plugin settings in the Dataiku UI.",
+            }
+        )
+    )
+
+
+@mcp.tool(
     title="Update Plugin",
     description="Update an installed plugin from the store or a local archive, optionally rebuilding its bound environment.",
     annotations={
@@ -703,6 +837,181 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
         }
     result = _terminal_result("rebuild_code_env", plugin_id, state)
     return _build_outcome(result, bound)
+
+
+def _without_code_env(exc: DataikuException, plugin_id: str) -> bool:
+    # SDK 14.7.2 discards the structured error code when raising DataikuException.
+    # Accept that code when present, or the exact no-specification message emitted
+    # by the public plugin-create endpoint. Never suppress unrelated SDK failures.
+    message = dataiku_message(exc)
+    return bool(re.search(r"\bERR_PLUGIN_WITHOUT_CODEENV\b", message)) or message == (
+        f"The plugin {plugin_id} doesn't specify a code env, cannot create it"
+    )
+
+
+def _managed_env_name(plugin_id: str, env_name: str) -> bool:
+    return bool(
+        re.fullmatch(
+            re.escape(f"plugin_{plugin_id}_managed") + r"(?:_[0-9]+)?", env_name
+        )
+    )
+
+
+@mcp.tool(
+    title="Ensure Plugin Code Environment",
+    description="Create and bind a plugin-managed code environment, or resume its exact build future after a timeout.",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "openWorldHint": False,
+    },
+)
+async def ensure_plugin_code_env(
+    plugin_id: str,
+    ctx: Context,
+    python_interpreter: str | None = None,
+    future_id: str | None = None,
+    timeout_seconds: int = 600,
+) -> str:
+    """Ensure initial environment setup. not_required means no code-env specification.
+
+    future_id resumes the build returned by this tool; it must belong to this plugin
+    on the same instance. Never launch another build while the earlier one runs.
+    """
+    plugin_id = _require_non_empty_string(plugin_id, "plugin_id")
+    timeout_seconds = _require_int_in_range(
+        timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
+    )
+    if python_interpreter is not None:
+        python_interpreter = _require_non_empty_string(
+            python_interpreter, "python_interpreter"
+        )
+    if future_id is not None:
+        future_id = _require_non_empty_string(future_id, "future_id")
+        if python_interpreter is not None:
+            raise ValueError("python_interpreter cannot change when resuming future_id")
+    await ctx.info(f"Preparing the code environment of plugin '{plugin_id}'...")
+
+    def _start():
+        client = get_dss_client()
+        _installed_plugin(client, plugin_id)
+        plugin = client.get_plugin(plugin_id)
+        bound = plugin.get_settings().get_raw().get("codeEnvName")
+        if future_id:
+            future = DSSFuture(client, future_id)
+            future.get_state()
+            return plugin, bound, future, None
+        if bound:
+            return plugin, bound, None, None
+        # An orphan can still be building. Do not guess which one to bind or
+        # create a numbered duplicate: recover through the exact future instead.
+        existing = [
+            raw["envName"]
+            for raw in client.list_code_envs()
+            if raw.get("deploymentMode") == "PLUGIN_MANAGED"
+            and _managed_env_name(plugin_id, raw.get("envName", ""))
+        ]
+        if existing:
+            return (
+                plugin,
+                None,
+                None,
+                {
+                    "status": "recovery_required",
+                    "code_env_names": sorted(existing),
+                    "hint": "An unbound managed environment already exists. Resume ensure_plugin_code_env with the original future_id; if unavailable, inspect and complete binding in the Dataiku UI. No new environment was created.",
+                },
+            )
+        try:
+            return (
+                plugin,
+                None,
+                plugin.create_code_env(python_interpreter=python_interpreter),
+                None,
+            )
+        except DataikuException as exc:
+            if _without_code_env(exc, plugin_id):
+                return (
+                    plugin,
+                    None,
+                    None,
+                    {
+                        "status": "not_required",
+                        "detection": "ERR_PLUGIN_WITHOUT_CODEENV",
+                        "hint": "No code environment is required. This does not verify install scripts, system packages, or plugin settings.",
+                    },
+                )
+            raise RuntimeError(
+                "Dataiku refused plugin code-environment creation. Check permissions, the plugin specification, and the interpreter in Dataiku."
+            ) from None
+
+    plugin, bound, future, outcome = await run_blocking(_start)
+    common = {"operation": "ensure_plugin_code_env", "plugin_id": plugin_id}
+    if outcome is not None:
+        return compact_json({**common, **outcome})
+    if future is None:
+        return compact_json(
+            {
+                **common,
+                "status": "completed",
+                "created": False,
+                "code_env_name": bound,
+                "build": {"status": "unknown"},
+                "hint": "Already bound. This call did not verify its earlier build; inspect it with list_code_envs.",
+            }
+        )
+    timed_out, state = await _wait_for_future(future, timeout_seconds)
+    if timed_out:
+        return compact_json(
+            {
+                **_in_flight(
+                    "ensure_plugin_code_env", plugin_id, future, started=False
+                ),
+                "hint": "The environment is not bound yet. Resume ensure_plugin_code_env with this same plugin_id and future_id on the same instance. Do not start another build.",
+            }
+        )
+    result = _terminal_result("ensure_plugin_code_env", plugin_id, state)
+    env_name = _require_non_empty_string(
+        str(result.get("envName", "")), "created code environment name"
+    )
+    if future_id and not _managed_env_name(plugin_id, env_name):
+        raise ValueError(
+            "The future result does not name a managed environment for this plugin; nothing was bound."
+        )
+    build = _build_outcome(result, env_name)
+
+    def _bind():
+        settings = plugin.get_settings()
+        current = settings.get_raw().get("codeEnvName")
+        if current and current != env_name:
+            raise ValueError(
+                "The plugin binding changed during the build; inspect it before rebinding."
+            )
+        settings.set_code_env(env_name)
+        settings.save()
+
+    try:
+        await run_blocking(_bind)
+    except Exception:
+        return compact_json(
+            {
+                **common,
+                "status": "binding_failed",
+                "code_env_name": env_name,
+                "future_id": future.job_id,
+                "build": build,
+                "hint": "The environment exists but could not be bound. Inspect plugin permissions and its current binding. Resume this exact future_id to retry binding, or use the Dataiku UI; do not create another environment.",
+            }
+        )
+    return compact_json(
+        {
+            **common,
+            "status": "completed",
+            "created": future_id is None,
+            "code_env_name": env_name,
+            "build": build,
+        }
+    )
 
 
 def _unresolved_components_refusal(plugin_id: str, reason: str) -> dict:
