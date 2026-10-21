@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "scripts" / "http_plugin_assets"
-PLUGIN_NAME = "dataiku-headless-http"
+PLUGIN_NAME = "headless"
 COPY_PATHS = (
     "LICENSE",
     "skills",

@@ -17,12 +17,19 @@
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("host", ["claude", "codex", "cortex", "cursor"])
+def test_plugin_identity_is_headless(host):
+    assert _json(f".{host}-plugin/plugin.json")["name"] == "headless"
 
 
 def test_marketplace_plugin_uses_stdio():

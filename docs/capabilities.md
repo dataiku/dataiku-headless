@@ -60,8 +60,8 @@ empty managed folder, and select container execution for an existing object (see
 | Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config` |
 | Wikis | `list_wiki_articles`, `get_wiki_article` | — |
 | Data quality | `list_data_quality_rules`, `get_data_quality_status`, `get_data_quality_rule`, `get_data_quality_rule_results`, `get_data_quality_rule_history` | — |
-| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_retrieval_augmented_llms`, `get_retrieval_augmented_llm_settings` | `set_container_exec_config` (knowledge banks) |
-| Semantic models | `list_semantic_models`, `get_semantic_model_version_settings` | — |
+| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_retrieval_augmented_llms`, `get_rag_llm_settings` | `set_container_exec_config` (knowledge banks) |
+| Semantic models | `list_semantic_models`, `get_semantic_model_version_config` | — |
 | Evaluation stores | `list_evaluation_stores`, `get_evaluation_store_details` | — |
 
 ## Driving Cobuild

@@ -22,7 +22,7 @@ Knowledge Banks and RAG LLMs are project objects. Reproducible GenAI flow steps 
 1. Use `list_llms` to discover available LLMs and `get_llm_info` to inspect a selected model's capabilities and configuration.
 2. Use `list_knowledge_banks` to discover Knowledge Banks and `get_knowledge_bank_settings` to inspect a selected bank.
 3. Use `search_knowledge_bank` only when validating retrieved content, diagnosing retrieval relevance, or gathering context for a retrieval change.
-4. Use `list_retrieval_augmented_llms` to discover RAG LLMs and `get_retrieval_augmented_llm_settings` to inspect a selected object.
+4. Use `list_retrieval_augmented_llms` to discover RAG LLMs and `get_rag_llm_settings` to inspect a selected object.
 5. If the request only changes where a Knowledge Bank build runs, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
 6. Route all other Knowledge Bank and RAG-LLM creation, edits, deletion, and builds through `./cobuild.md`.
 7. Route GenAI flow-step creation or changes through `./recipes.md` and Cobuild.
@@ -35,7 +35,7 @@ Knowledge Banks and RAG LLMs are project objects. Reproducible GenAI flow steps 
 - `get_knowledge_bank_settings`
 - `search_knowledge_bank`
 - `list_retrieval_augmented_llms`
-- `get_retrieval_augmented_llm_settings`
+- `get_rag_llm_settings`
 
 ## Safety Rules
 

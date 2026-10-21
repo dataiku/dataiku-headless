@@ -33,7 +33,7 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 ## Get started with the Codex app or Claude Desktop app
 
-Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
@@ -61,14 +61,14 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ```bash
 codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-codex plugin add dataiku-headless@dataiku
+codex plugin add headless@dataiku
 ```
 
 ### Claude Code CLI
 
 ```bash
 claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-claude plugin install dataiku-headless@dataiku
+claude plugin install headless@dataiku
 ```
 
 ### Grok CLI
@@ -81,7 +81,7 @@ grok plugin install dataiku/dataiku-headless --trust
 
 ```bash
 cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
-# Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
+# Tip: use /plugins in interactive mode to install the `headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
@@ -152,7 +152,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 Outside a Code Studio, configure a connection using a personal API key:
 
-1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
+1. Ask the agent to **Set up Dataiku Headless** (or run `/headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.

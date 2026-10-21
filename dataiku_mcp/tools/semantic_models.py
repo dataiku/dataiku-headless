@@ -68,7 +68,7 @@ async def list_semantic_models(project_key: str, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def get_semantic_model_version_settings(
+async def get_semantic_model_version_config(
     project_key: str,
     semantic_model_id: str,
     version_id: str,

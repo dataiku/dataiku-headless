@@ -55,15 +55,14 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"][
         "dataiku"
     ] == {"type": "http", "url": endpoint}
-    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == (
-        "dataiku-headless-http"
-    )
+    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == "headless"
     assert (
         _json(output / ".claude-plugin" / "marketplace.json")["plugins"][0]["name"]
-        == "dataiku-headless-http"
+        == "headless"
     )
     rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
     rendered_claude = _json(output / ".claude-plugin" / "plugin.json")
+    assert rendered_claude["name"] == "headless"
     assert rendered_codex["version"] == source_codex["version"]
     assert rendered_codex["description"] == source_codex["description"]
     assert rendered_claude["version"] == source_claude["version"]
@@ -108,10 +107,8 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert archive.is_file()
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
-        assert "dataiku-headless-http/.mcp.json" in bundle.namelist()
-        assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
-            bundle.namelist()
-        )
+        assert "headless/.mcp.json" in bundle.namelist()
+        assert "headless/skills/dataiku-headless-setup/SKILL.md" in bundle.namelist()
 
 
 def test_rejects_invalid_url_and_existing_artifact(tmp_path):

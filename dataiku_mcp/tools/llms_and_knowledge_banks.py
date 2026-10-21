@@ -359,7 +359,7 @@ async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
         "openWorldHint": False,
     },
 )
-async def get_retrieval_augmented_llm_settings(
+async def get_rag_llm_settings(
     project_key: str,
     retrieval_augmented_llm_id: str,
     ctx: Context,

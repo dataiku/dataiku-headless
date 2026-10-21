@@ -125,7 +125,7 @@ select an entry, and Dataiku decides what that user may do. `configure_instance`
 
 ## Distribute the interactive OAuth plugin
 
-The public `dataiku-headless` marketplace plugin starts its own stdio server and
+The public `headless` marketplace plugin starts its own stdio server and
 must not be installed for this mode.
 
 1. Render the customer-specific plugin with the deployed server's public MCP URL:
@@ -139,8 +139,13 @@ uv run python scripts/build_http_plugin.py \
 2. Add the rendered directory to the organization's enterprise/private marketplace
    or normal plugin distribution channel. Add `--zip` to the command to create
    `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
-3. Users install `dataiku-headless-http`. Its setup skill completes OAuth, chooses
-   an administrator-managed instance, and verifies access.
+3. Users install the rendered `headless` plugin. Its setup skill completes OAuth,
+   chooses an administrator-managed instance, and verifies access.
+
+The ZIP contains a `headless/` plugin root. Both stdio and HTTP distributions use
+the `headless` plugin identity; install only the distribution for your connection
+mode. Replace an existing `dataiku-headless-http` installation with the rendered
+`headless` plugin when upgrading.
 
 The renderer does not modify this stdio-first source checkout or copy Dataiku
 credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one

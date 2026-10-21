@@ -132,7 +132,7 @@ EXPECTED_TOOLS_BY_MODULE = {
         {
             "get_knowledge_bank_settings",
             "get_llm_info",
-            "get_retrieval_augmented_llm_settings",
+            "get_rag_llm_settings",
             "list_knowledge_banks",
             "list_llms",
             "list_retrieval_augmented_llms",
@@ -213,7 +213,7 @@ EXPECTED_TOOLS_BY_MODULE = {
         }
     ),
     "semantic_models": frozenset(
-        {"get_semantic_model_version_settings", "list_semantic_models"}
+        {"get_semantic_model_version_config", "list_semantic_models"}
     ),
     "users": frozenset({"create_user", "delete_user", "list_users", "update_user"}),
     "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
@@ -234,6 +234,20 @@ def registered_tools_by_module() -> dict[str, frozenset[str]]:
 
 def test_registered_tool_modules_are_fixed(registered_tools_by_module):
     assert registered_tools_by_module.keys() == EXPECTED_TOOLS_BY_MODULE.keys()
+
+
+def test_registered_tool_names_fit_bedrock_limit(registered_tools_by_module):
+    # Claude Code adds "mcp__plugin_headless_dataiku__" (30 characters),
+    # leaving 34 characters within Bedrock's 64-character tool-name limit.
+    overlong_names = {
+        name: len(name)
+        for names in registered_tools_by_module.values()
+        for name in sorted(names)
+        if len(name) > 34
+    }
+    assert not overlong_names, (
+        f"Tool names exceed 34 characters (name: length): {overlong_names}"
+    )
 
 
 @pytest.mark.parametrize("module", EXPECTED_TOOLS_BY_MODULE)

@@ -50,9 +50,10 @@ def validate(root: Path) -> str:
             raise ValueError(f"{relative} is missing from Commitizen version_files")
         if json.loads(path.read_text())["version"] != version:
             raise ValueError(f"{relative} must carry version {version}")
+    plugin_name = json.loads((root / ".claude-plugin/plugin.json").read_text())["name"]
     marketplace = json.loads((root / ".claude-plugin/marketplace.json").read_text())
     for entry in marketplace["plugins"]:
-        if entry["name"] == project["project"]["name"]:
+        if entry["name"] == plugin_name:
             if entry.get("version", version) != version:
                 raise ValueError("Marketplace version differs from project version")
     return version
