@@ -31,14 +31,10 @@ for that plugin by name; someone is working in it.
 3. In stdio, use `install_plugin` for a new plugin or `update_plugin` for an existing
    one. Both tools are unavailable in Streamable HTTP because their sources can be
    local server paths. `delete_plugin` removes an installed plugin.
-4. After installation, read `code_env.status`. Local sources inspect the normalized
-   archive for `code-env/python/desc.json` and `code-env/R/desc.json`: `required` means
-   a descriptor exists; `not_required` means neither exists. Store installation returns
-   `unknown` because the public plugin listing does not expose the specification.
-   For `required` or `unknown`, call `ensure_plugin_code_env` as a separate step.
-   This uses the plugin's default interpreter unless explicitly overridden, creates
-   a PLUGIN_MANAGED environment, and binds it after the build finishes. A bound name
-   alone does not establish build success.
+4. After installation, read `code_env.status`: `required` when a local archive has
+   `code-env/python/desc.json` or `code-env/R/desc.json`, `not_required` when it has
+   neither, and `unknown` for store installs. For `required` or `unknown`, call
+   `ensure_plugin_code_env` as described under Code environments.
 5. After any change, re-read the plugin and report `needs_restart` when it is true.
 
 ## Update sources
@@ -74,43 +70,28 @@ plus the `operation` it describes.
 
 ## Code environments
 
-- `ensure_plugin_code_env` uses the public plugin creation API, never the generic
-  `create_code_env` admin tool. DSS `ERR_PLUGIN_WITHOUT_CODEENV` maps to
-  `status: "not_required"`. The pinned SDK drops structured error codes, so the exact
-  public endpoint's no-specification message is recognized too. Permission errors,
-  invalid interpreters, and other failures remain errors and carry Dataiku's reason.
-- Creation and binding are separate DSS calls. `still_running` carries a `future_id`;
-  resume `ensure_plugin_code_env` with that exact ID and plugin on the same instance.
-  Do not start another build. Dataiku forgets a build once its result is read, so a
-  `future_id` only resumes a build that has not yet been reported finished. A future
-  that is not this plugin's build is refused without being read.
-- An unbound managed environment may still be building. `recovery_required` lists
-  the candidates in `code_env_names` and refuses to guess or create a duplicate.
-  Resume the original future while it runs. Otherwise check the candidates with
-  `list_code_envs`, then bind one with `code_env_name`. That binds without building,
-  so its `build.status` is `unknown`.
-- `binding_failed` carries the environment name, build outcome, and Dataiku's
-  `error`. Fix the cause, then call again with that `code_env_name`.
-  `binding_changed` means another binding was set during the build and was kept; ask
-  the user which environment the plugin should use.
-- `python_interpreter`, `future_id`, and `code_env_name` are mutually exclusive. An
-  already-bound plugin refuses a different environment or interpreter.
-- `build.status` can be `completed`, `failed`, or `unknown`. A dependency failure is
-  reported beside the durable environment name, even when binding succeeds. An
-  already-bound environment is returned without creating another or claiming its
-  previous build succeeded. Never treat mere `status: "completed"` as plugin readiness.
-- `update_plugin(rebuild_code_env=true)` updates the plugin and rebuilds its
-  already-bound environment. It does not create or bind one. For a standalone rebuild,
-  use the UI rather than repeating a plugin update solely to trigger a rebuild.
-- A rebuild keeps the interpreter and core-package set the environment was created
-  with; changes to those fields in `desc.json` do not reach an existing environment.
-  When a build fails for that reason, rebuilding again cannot fix it: after correcting
-  `desc.json`, ask the user to recreate the environment in the Dataiku UI.
-- `not_required` concerns code environments only. Install scripts, system packages,
-  presets, and other configuration may still need work in the Dataiku UI. No tool
-  claims these checks are complete.
-- Inspect environments with `list_code_envs` per `./code-environments.md`. Packages
-  come from the plugin's specification and are not editable via `update_code_env`.
+- `ensure_plugin_code_env` creates the plugin's PLUGIN_MANAGED environment and binds it
+  once the build finishes. Never substitute `create_code_env`. `not_required` means the
+  plugin declares no environment; install scripts, system packages, and presets may
+  still need the Dataiku UI.
+- `python_interpreter`, `future_id`, and `code_env_name` are mutually exclusive.
+  `python_interpreter` only applies to a new environment. An already-bound plugin is
+  returned as is and refuses a different environment or interpreter.
+- On `still_running`, resume with the same `plugin_id` and `future_id` on the same
+  instance; never start another build. Dataiku forgets a build once its result is
+  read, so a `future_id` only resumes a build that has not been reported finished.
+- `recovery_required` means an unbound managed environment already exists and may
+  still be building. Resume its future while it runs; otherwise check
+  `code_env_names` with `list_code_envs` and pass one as `code_env_name`.
+- Top-level `completed` means the environment is bound, not that it works. Read
+  `build.status` (`completed`, `failed`, or `unknown`) before treating the plugin as
+  ready.
+- `update_plugin(rebuild_code_env=true)` rebuilds an already-bound environment; it
+  never creates or binds one. A rebuild keeps the interpreter and core-package set the
+  environment was created with, so after correcting those in `desc.json`, ask the user
+  to recreate the environment in the Dataiku UI.
+- Inspect environments with `list_code_envs` per `./code-environments.md`. Their
+  packages come from the plugin and are not editable via `update_code_env`.
 
 ## Deletion
 
@@ -126,8 +107,8 @@ plus the `operation` it describes.
   `unresolvable_components`.
 - `force=true` deletes despite usages and **breaks every blocker**, including blockers
   omitted from the initial refusal. Use it only on explicit instruction after showing the
-  user every page from `list_plugin_usages`. Deleting a plugin does not delete its code
-  environment.
+  user every page from `list_plugin_usages`. Deleting a plugin also deletes its
+  plugin-managed code environments.
 
 ## Out of scope
 

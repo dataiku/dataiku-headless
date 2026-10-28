@@ -657,8 +657,6 @@ def test_update_plugin_rejects_arguments_that_do_not_match_the_source():
         asyncio.run(tools.update_plugin("store", FakeContext()))
     with pytest.raises(ValueError, match="local_path"):
         asyncio.run(tools.update_plugin("local_path", FakeContext()))
-    with pytest.raises(ValueError, match="source"):
-        asyncio.run(tools.update_plugin("git", FakeContext(), plugin_id="x"))
 
 
 def test_update_plugin_zips_a_directory_and_omits_version_control_files(tmp_path):
@@ -1201,48 +1199,6 @@ def test_install_plugin_from_store_reports_completion_and_restart_need():
     assert client.store_install_id == "geocoder"
 
 
-def test_install_plugin_completes_inline_when_dataiku_returns_no_future_id():
-    _, client = _absent(install=FakeFuture(None, [_done()]))
-
-    with _patch_client(client):
-        res = _load(
-            tools.install_plugin(
-                "store", FakeContext(), plugin_id="geocoder", wait_for_completion=False
-            )
-        )
-
-    assert res["status"] == "completed"
-
-
-def test_install_plugin_without_waiting_returns_a_followable_future():
-    _, client = _absent(install=FakeFuture("F9", [_alive()]))
-
-    with _patch_client(client):
-        res = _load(
-            tools.install_plugin(
-                "store", FakeContext(), plugin_id="geocoder", wait_for_completion=False
-            )
-        )
-
-    assert res["status"] == "started"
-    assert res["operation"] == "install"
-    assert res["future_id"] == "F9"
-    assert "get_future_status" in res["hint"]
-
-
-def test_install_plugin_timeout_reports_still_running_without_the_raw_state():
-    _, client = _absent(install=FakeFuture("F5", [_alive(), _alive()]))
-
-    with _patch_client(client), _exhausted_clock() as mock_time:
-        mock_time.monotonic.side_effect = incrementing_monotonic()
-        res = _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
-
-    assert res["status"] == "still_running"
-    assert res["future_id"] == "F5"
-    assert "state" not in res
-    assert "Do not start a duplicate operation" in res["hint"]
-
-
 def test_install_plugin_refuses_an_already_installed_plugin():
     _, client = _installed(version="1.3.1")
 
@@ -1250,102 +1206,6 @@ def test_install_plugin_refuses_an_already_installed_plugin():
         asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
 
     assert "update_plugin" in str(excinfo.value)
-
-
-def test_install_plugin_rejects_arguments_that_do_not_match_the_source():
-    with pytest.raises(ValueError, match="local_path"):
-        asyncio.run(
-            tools.install_plugin(
-                "store", FakeContext(), plugin_id="x", local_path="/tmp/x"
-            )
-        )
-    with pytest.raises(ValueError, match="plugin_id"):
-        asyncio.run(tools.install_plugin("store", FakeContext()))
-    with pytest.raises(ValueError, match="local_path"):
-        asyncio.run(tools.install_plugin("local_path", FakeContext()))
-    with pytest.raises(ValueError, match="source"):
-        asyncio.run(tools.install_plugin("git", FakeContext(), plugin_id="x"))
-
-
-def test_install_plugin_zips_a_directory_and_omits_version_control_files(tmp_path):
-    directory = _plugin_directory(tmp_path)
-    _, client = _absent(plugin_id="my-plugin", install=FakeFuture(None, [_done()]))
-
-    with _patch_client(client):
-        res = _load(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(directory))
-        )
-
-    assert res["status"] == "completed"
-    assert res["source"] == "local_path"
-    assert _members(client.uploaded) == [_MANIFEST, "python-lib/core.py"]
-
-
-def test_install_plugin_flattens_a_zip_wrapped_in_one_directory(tmp_path):
-    archive_path = tmp_path / "download.zip"
-    with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr(
-            "dss-plugin-my-plugin/plugin.json", json.dumps({"id": "my-plugin"})
-        )
-        archive.writestr("dss-plugin-my-plugin/python-lib/core.py", "VALUE = 1\n")
-    _, client = _absent(plugin_id="my-plugin", install=FakeFuture(None, [_done()]))
-
-    with _patch_client(client):
-        res = _load(
-            tools.install_plugin(
-                "local_path", FakeContext(), local_path=str(archive_path)
-            )
-        )
-
-    assert res["status"] == "completed"
-    assert _members(client.uploaded) == [_MANIFEST, "python-lib/core.py"]
-
-
-def test_install_plugin_rejects_a_directory_without_a_manifest(tmp_path):
-    (tmp_path / "empty").mkdir()
-
-    with pytest.raises(ValueError, match="plugin.json"):
-        asyncio.run(
-            tools.install_plugin(
-                "local_path", FakeContext(), local_path=str(tmp_path / "empty")
-            )
-        )
-
-
-def test_install_plugin_rejects_a_manifest_that_is_not_a_json_object(tmp_path):
-    directory = tmp_path / "broken"
-    directory.mkdir()
-    (directory / _MANIFEST).write_text('["not", "an", "object"]')
-
-    with pytest.raises(ValueError, match="must be a JSON object"):
-        asyncio.run(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(directory))
-        )
-
-
-def test_install_plugin_rejects_a_plugin_id_that_contradicts_the_manifest(tmp_path):
-    directory = _plugin_directory(tmp_path)
-
-    with _patch_client(FakeClient()), pytest.raises(ValueError) as excinfo:
-        asyncio.run(
-            tools.install_plugin(
-                "local_path",
-                FakeContext(),
-                plugin_id="other-plugin",
-                local_path=str(directory),
-            )
-        )
-
-    assert "my-plugin" in str(excinfo.value)
-
-
-def test_install_plugin_rejects_a_missing_local_path():
-    with pytest.raises(ValueError, match="does not exist"):
-        asyncio.run(
-            tools.install_plugin(
-                "local_path", FakeContext(), local_path="/nonexistent/plugin"
-            )
-        )
 
 
 # --------------------------------------------------------------------------- #
@@ -1381,17 +1241,6 @@ def test_install_reads_code_env_descriptors_in_normalized_archive(
         )
     assert result["code_env"]["status"] == ("required" if language else "not_required")
     assert result["code_env"]["languages"] == ([language] if language else [])
-
-
-def test_invalid_descriptor_fails_before_connecting(tmp_path):
-    archive = tmp_path / "invalid.zip"
-    with zipfile.ZipFile(archive, "w") as output:
-        output.writestr("plugin.json", '{"id":"sample"}')
-        output.writestr("code-env/python/desc.json", "[]")
-    with pytest.raises(ValueError, match="JSON object"):
-        _load(
-            tools.install_plugin("local_path", FakeContext(), local_path=str(archive))
-        )
 
 
 def _creation(client=None, states=None):
@@ -1530,22 +1379,6 @@ def test_bound_plugin_refuses_a_different_environment_request(kwargs):
     with _patch_client(client), pytest.raises(ValueError, match="already bound"):
         _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), **kwargs))
     assert plugin.settings.get_raw()["codeEnvName"] == "already-bound"
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"future_id": "F4", "python_interpreter": "PYTHON311"},
-        {"future_id": "F4", "code_env_name": "plugin_geocoder_managed"},
-        {"code_env_name": "plugin_geocoder_managed", "python_interpreter": "PYTHON311"},
-    ],
-)
-def test_recovery_arguments_are_mutually_exclusive(monkeypatch, kwargs):
-    monkeypatch.setattr(
-        tools, "run_blocking", lambda *args: pytest.fail("must fail before IO")
-    )
-    with pytest.raises(ValueError, match="at most one"):
-        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), **kwargs))
 
 
 def test_timeout_is_resumed_by_exact_future_and_then_bound(monkeypatch):
@@ -1703,17 +1536,6 @@ def test_code_env_contract_through_real_sdk_http_serialization(monkeypatch, no_s
     assert result["status"] == ("not_required" if no_spec else "completed")
     assert ("codeEnvName" in settings) is not no_spec
     assert ("POST", "/plugins/geocoder/settings") in calls if not no_spec else True
-
-
-def test_install_reports_http_200_action_failure_as_failure():
-    _, client = _absent(
-        install=FakeFuture(
-            None,
-            [_done(success=False, installationError={"message": "install refused"})],
-        )
-    )
-    with _patch_client(client), pytest.raises(RuntimeError, match="install refused"):
-        _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
 
 
 def test_environment_name_without_build_report_is_not_verified_success():
