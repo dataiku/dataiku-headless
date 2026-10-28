@@ -29,8 +29,10 @@ Read this reference only after the user explicitly requests a code-based transfo
 
 Use an `r` recipe only when the user explicitly asks for R. Statistical logic, R package names, or R source code being migrated do not justify R on their own; follow the visual-first default, or `../../migrations.md` for ported logic.
 
-As of Dataiku 15.1, Cobuild cannot create or edit `r` recipes. If the user still wants R:
+In Dataiku 15.1 and earlier, Cobuild cannot create or edit `r` recipes, so Headless writes them directly:
 
-- Inspect an existing R recipe with `get_recipe_settings`, which returns its code.
-- Do not send R recipe creation or edits to Cobuild, and do not fall back to raw APIs. Report the gap.
-- Offer a visual or `python` recipe through Cobuild as the alternative, and build it only if the user agrees.
+- Create with `create_r_recipe`. A missing output dataset is created as a managed dataset.
+- Inspect with `get_recipe_settings`, then replace the code, the main inputs, or both with `update_r_recipe`. The code can read only declared inputs.
+- Build with `run_recipe` and check the output with `get_dataset_sample`.
+- Delete through `../../cobuild.md`.
+- If a run fails on a missing R package, find an R environment that has it with `list_code_envs` (`language` R, `packages`) and make it the project's default R environment with `update_project_settings`. If none has it, creating one changes the instance: confirm with the user first, then see `../../administration/code-environments.md`.
