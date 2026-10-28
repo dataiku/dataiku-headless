@@ -380,8 +380,9 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
     """Report a code-environment build outcome instead of discarding the environment.
 
     The environment exists by this point, so a failed dependency install is reported
-    alongside its name rather than raised: the fix is to correct the plugin's
-    specification and rebuild, not to create another environment.
+    alongside its name rather than raised. A rebuild keeps the interpreter and
+    core-package set the environment was created with, so a failure rooted in
+    ``desc.json`` needs the environment recreated, not rebuilt.
     """
     messages = result.get("messages")
     if not isinstance(messages, dict) or not any(
@@ -400,9 +401,12 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
         "code_env_name": code_env_name,
         "error": detail,
         "hint": (
-            "The environment exists but its dependencies did not install. Fix the "
-            "plugin's code-env specification, then ask the user to rebuild the "
-            "existing environment in the Dataiku UI."
+            "The environment exists but its dependencies did not install. Ask the "
+            "user to check its build log in the Dataiku UI. A rebuild keeps the "
+            "interpreter and core-package set the environment was created with: if "
+            "the cause is there, fix the plugin's desc.json and ask the user to "
+            "recreate the environment in the UI. Otherwise fix the plugin's "
+            "requirements and ask the user to rebuild it."
         ),
     }
 

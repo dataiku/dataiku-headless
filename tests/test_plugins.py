@@ -867,6 +867,7 @@ def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
     assert res["code_env_rebuild"]["status"] == "failed"
     assert "pip resolution failed" in res["code_env_rebuild"]["error"]
     assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
+    assert "recreate" in res["code_env_rebuild"]["hint"]
     assert "update_plugin" not in res["code_env_rebuild"]["hint"]
 
 

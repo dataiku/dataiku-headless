@@ -102,6 +102,10 @@ plus the `operation` it describes.
 - `update_plugin(rebuild_code_env=true)` updates the plugin and rebuilds its
   already-bound environment. It does not create or bind one. For a standalone rebuild,
   use the UI rather than repeating a plugin update solely to trigger a rebuild.
+- A rebuild keeps the interpreter and core-package set the environment was created
+  with; changes to those fields in `desc.json` do not reach an existing environment.
+  When a build fails for that reason, rebuilding again cannot fix it: after correcting
+  `desc.json`, ask the user to recreate the environment in the Dataiku UI.
 - `not_required` concerns code environments only. Install scripts, system packages,
   presets, and other configuration may still need work in the Dataiku UI. No tool
   claims these checks are complete.
