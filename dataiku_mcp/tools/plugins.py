@@ -19,14 +19,13 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+import time
+from pathlib import Path
 from typing import Literal
+from zipfile import BadZipFile, ZipFile
 
 from dataikuapi.dss.future import DSSFuture
 from dataikuapi.utils import DataikuException
-import time
-from pathlib import Path
-from zipfile import BadZipFile, ZipFile
-
 from fastmcp import Context
 
 from ..auth import get_dss_client
@@ -158,8 +157,9 @@ def _archive_code_env(archive: io.BytesIO) -> dict:
     """Inspect only the normalized archive that will actually be uploaded."""
     languages = []
     with ZipFile(archive) as source:
-        for language in ("python", "r"):
-            descriptor = f"code-env/{language}/desc.json"
+        # Dataiku's plugin layout names the R directory in upper case.
+        for language, directory in (("python", "python"), ("r", "R")):
+            descriptor = f"code-env/{directory}/desc.json"
             if descriptor in source.namelist():
                 parse_json_object(source.read(descriptor).decode("utf-8"), descriptor)
                 languages.append(language)
@@ -857,9 +857,37 @@ def _managed_env_name(plugin_id: str, env_name: str) -> bool:
     )
 
 
+def _require_plugin_build(future, plugin_id: str) -> None:
+    """Refuse a future that is not this plugin's managed-env build, before reading it.
+
+    Reading a finished future's result makes Dataiku forget it, so an unrelated
+    future is rejected from its peeked state instead. A plugin build is an
+    ``import_env`` action whose display name ends with the target environment.
+    """
+    try:
+        state = future.peek_state()
+    except DataikuException as exc:
+        if dataiku_message(exc) != "No future by that id":
+            raise
+        raise ValueError(
+            f"Dataiku has no future '{future.job_id}'. A finished build is forgotten "
+            "once its result is read. Find the plugin's managed environment with "
+            "list_code_envs and pass it as code_env_name."
+        ) from None
+    payload = state.get("payload") or {}
+    target = str(payload.get("displayName", "")).rpartition(": ")[2]
+    if payload.get("action") != "import_env" or not _managed_env_name(
+        plugin_id, target
+    ):
+        raise ValueError(
+            f"Future '{future.job_id}' is not a code environment build of plugin "
+            f"'{plugin_id}'; nothing was read or bound."
+        )
+
+
 @mcp.tool(
     title="Ensure Plugin Code Environment",
-    description="Create and bind a plugin-managed code environment, or resume its exact build future after a timeout.",
+    description="Create and bind a plugin-managed code environment, resume its build, or bind an existing unbound one.",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -871,12 +899,20 @@ async def ensure_plugin_code_env(
     ctx: Context,
     python_interpreter: str | None = None,
     future_id: str | None = None,
+    code_env_name: str | None = None,
     timeout_seconds: int = 600,
 ) -> str:
     """Ensure initial environment setup. not_required means no code-env specification.
 
-    future_id resumes the build returned by this tool; it must belong to this plugin
-    on the same instance. Never launch another build while the earlier one runs.
+    Args:
+        plugin_id: Installed plugin id.
+        python_interpreter: Interpreter for a new environment. Defaults to the
+            plugin's own choice. Only applies when creating one.
+        future_id: Resume a build this tool returned as still_running. Dataiku
+            forgets a build once its result is read, so this works only while it runs.
+        code_env_name: Bind this existing, unbound PLUGIN_MANAGED environment of the
+            plugin instead of creating one, as listed by recovery_required.
+        timeout_seconds: Inline wait budget for a build, checked between polls.
     """
     plugin_id = _require_non_empty_string(plugin_id, "plugin_id")
     timeout_seconds = _require_int_in_range(
@@ -888,8 +924,18 @@ async def ensure_plugin_code_env(
         )
     if future_id is not None:
         future_id = _require_non_empty_string(future_id, "future_id")
-        if python_interpreter is not None:
-            raise ValueError("python_interpreter cannot change when resuming future_id")
+    if code_env_name is not None:
+        code_env_name = _require_non_empty_string(code_env_name, "code_env_name")
+    if (
+        sum(
+            value is not None
+            for value in (python_interpreter, future_id, code_env_name)
+        )
+        > 1
+    ):
+        raise ValueError(
+            "Pass at most one of python_interpreter, future_id, and code_env_name."
+        )
     await ctx.info(f"Preparing the code environment of plugin '{plugin_id}'...")
 
     def _start():
@@ -899,41 +945,57 @@ async def ensure_plugin_code_env(
         bound = plugin.get_settings().get_raw().get("codeEnvName")
         if future_id:
             future = DSSFuture(client, future_id)
+            _require_plugin_build(future, plugin_id)
             future.get_state()
-            return plugin, bound, future, None
+            return plugin, future, None
         if bound:
-            return plugin, bound, None, None
-        # An orphan can still be building. Do not guess which one to bind or
-        # create a numbered duplicate: recover through the exact future instead.
-        existing = [
+            if python_interpreter or code_env_name not in (None, bound):
+                raise ValueError(
+                    f"Plugin '{plugin_id}' is already bound to '{bound}'; nothing was "
+                    "changed."
+                )
+            return (
+                plugin,
+                None,
+                {
+                    "status": "completed",
+                    "created": False,
+                    "code_env_name": bound,
+                    "build": {"status": "unknown"},
+                    "hint": "Already bound. This call did not verify its earlier build; inspect it with list_code_envs.",
+                },
+            )
+        unbound = sorted(
             raw["envName"]
             for raw in client.list_code_envs()
             if raw.get("deploymentMode") == "PLUGIN_MANAGED"
             and _managed_env_name(plugin_id, raw.get("envName", ""))
-        ]
-        if existing:
+        )
+        if code_env_name:
+            if code_env_name not in unbound:
+                raise ValueError(
+                    f"'{code_env_name}' is not an existing managed environment of "
+                    f"plugin '{plugin_id}'. Candidates: {unbound}."
+                )
+            return plugin, None, None
+        # An unbound one can still be building. Do not guess which one to bind or
+        # create a numbered duplicate: the caller resumes or names it explicitly.
+        if unbound:
             return (
                 plugin,
-                None,
                 None,
                 {
                     "status": "recovery_required",
-                    "code_env_names": sorted(existing),
-                    "hint": "An unbound managed environment already exists. Resume ensure_plugin_code_env with the original future_id; if unavailable, inspect and complete binding in the Dataiku UI. No new environment was created.",
+                    "code_env_names": unbound,
+                    "hint": "An unbound managed environment already exists; no new one was created. Resume the original future_id if its build is still running. Otherwise bind one with code_env_name, after checking it with list_code_envs.",
                 },
             )
         try:
-            return (
-                plugin,
-                None,
-                plugin.create_code_env(python_interpreter=python_interpreter),
-                None,
-            )
+            future = plugin.create_code_env(python_interpreter=python_interpreter)
         except DataikuException as exc:
             if _without_code_env(exc, plugin_id):
                 return (
                     plugin,
-                    None,
                     None,
                     {
                         "status": "not_required",
@@ -942,72 +1004,77 @@ async def ensure_plugin_code_env(
                     },
                 )
             raise RuntimeError(
-                "Dataiku refused plugin code-environment creation. Check permissions, the plugin specification, and the interpreter in Dataiku."
+                "Dataiku refused plugin code-environment creation: "
+                f"{dataiku_message(exc)}"
             ) from None
+        return plugin, future, None
 
-    plugin, bound, future, outcome = await run_blocking(_start)
+    plugin, future, outcome = await run_blocking(_start)
     common = {"operation": "ensure_plugin_code_env", "plugin_id": plugin_id}
     if outcome is not None:
         return compact_json({**common, **outcome})
     if future is None:
-        return compact_json(
-            {
-                **common,
-                "status": "completed",
-                "created": False,
-                "code_env_name": bound,
-                "build": {"status": "unknown"},
-                "hint": "Already bound. This call did not verify its earlier build; inspect it with list_code_envs.",
-            }
+        env_name = code_env_name
+        build = {
+            "status": "unknown",
+            "code_env_name": env_name,
+            "hint": "This call did not build it. Inspect it with list_code_envs before treating it as ready.",
+        }
+    else:
+        timed_out, state = await _wait_for_future(future, timeout_seconds)
+        if timed_out:
+            return compact_json(
+                {
+                    **_in_flight(
+                        "ensure_plugin_code_env", plugin_id, future, started=False
+                    ),
+                    "hint": "The environment is not bound yet. Resume ensure_plugin_code_env with this same plugin_id and future_id on the same instance. Do not start another build.",
+                }
+            )
+        result = _terminal_result("ensure_plugin_code_env", plugin_id, state)
+        env_name = _require_non_empty_string(
+            str(result.get("envName", "")), "created code environment name"
         )
-    timed_out, state = await _wait_for_future(future, timeout_seconds)
-    if timed_out:
-        return compact_json(
-            {
-                **_in_flight(
-                    "ensure_plugin_code_env", plugin_id, future, started=False
-                ),
-                "hint": "The environment is not bound yet. Resume ensure_plugin_code_env with this same plugin_id and future_id on the same instance. Do not start another build.",
-            }
-        )
-    result = _terminal_result("ensure_plugin_code_env", plugin_id, state)
-    env_name = _require_non_empty_string(
-        str(result.get("envName", "")), "created code environment name"
-    )
-    if future_id and not _managed_env_name(plugin_id, env_name):
-        raise ValueError(
-            "The future result does not name a managed environment for this plugin; nothing was bound."
-        )
-    build = _build_outcome(result, env_name)
+        build = _build_outcome(result, env_name)
 
     def _bind():
         settings = plugin.get_settings()
         current = settings.get_raw().get("codeEnvName")
         if current and current != env_name:
-            raise ValueError(
-                "The plugin binding changed during the build; inspect it before rebinding."
-            )
+            return current
         settings.set_code_env(env_name)
         settings.save()
+        return None
 
     try:
-        await run_blocking(_bind)
-    except Exception:
+        changed = await run_blocking(_bind)
+    except DataikuException as exc:
         return compact_json(
             {
                 **common,
                 "status": "binding_failed",
                 "code_env_name": env_name,
-                "future_id": future.job_id,
                 "build": build,
-                "hint": "The environment exists but could not be bound. Inspect plugin permissions and its current binding. Resume this exact future_id to retry binding, or use the Dataiku UI; do not create another environment.",
+                "error": dataiku_message(exc),
+                "hint": "The environment exists but could not be bound. Fix the cause, then call ensure_plugin_code_env with this code_env_name. Do not create another environment.",
+            }
+        )
+    if changed:
+        return compact_json(
+            {
+                **common,
+                "status": "binding_changed",
+                "code_env_name": env_name,
+                "bound_code_env_name": changed,
+                "build": build,
+                "hint": "Another binding was set during the build and was kept. Ask the user which environment the plugin should use; this one stays unbound.",
             }
         )
     return compact_json(
         {
             **common,
             "status": "completed",
-            "created": future_id is None,
+            "created": future is not None,
             "code_env_name": env_name,
             "build": build,
         }

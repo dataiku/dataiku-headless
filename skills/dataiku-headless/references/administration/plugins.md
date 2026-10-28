@@ -32,7 +32,7 @@ for that plugin by name; someone is working in it.
    one. Both tools are unavailable in Streamable HTTP because their sources can be
    local server paths. `delete_plugin` removes an installed plugin.
 4. After installation, read `code_env.status`. Local sources inspect the normalized
-   archive for `code-env/python/desc.json` and `code-env/r/desc.json`: `required` means
+   archive for `code-env/python/desc.json` and `code-env/R/desc.json`: `required` means
    a descriptor exists; `not_required` means neither exists. Store installation returns
    `unknown` because the public plugin listing does not expose the specification.
    For `required` or `unknown`, call `ensure_plugin_code_env` as a separate step.
@@ -78,16 +78,23 @@ plus the `operation` it describes.
   `create_code_env` admin tool. DSS `ERR_PLUGIN_WITHOUT_CODEENV` maps to
   `status: "not_required"`. The pinned SDK drops structured error codes, so the exact
   public endpoint's no-specification message is recognized too. Permission errors,
-  invalid interpreters, and other failures remain errors.
+  invalid interpreters, and other failures remain errors and carry Dataiku's reason.
 - Creation and binding are separate DSS calls. `still_running` carries a `future_id`;
   resume `ensure_plugin_code_env` with that exact ID and plugin on the same instance.
-  Do not start another build. `future_id` cannot change the interpreter.
-- An unbound managed environment may still be building. `recovery_required` refuses
-  to guess which one to bind or create a duplicate. Resume the original future; if
-  its identity is lost, inspect and finish binding in the Dataiku UI.
-- `binding_failed` retains the environment name, build outcome, and future ID.
-  Inspect permissions/current binding and retry the same future, or complete binding
-  in the UI. A binding changed by another user during the build is preserved.
+  Do not start another build. Dataiku forgets a build once its result is read, so a
+  `future_id` only resumes a build that has not yet been reported finished. A future
+  that is not this plugin's build is refused without being read.
+- An unbound managed environment may still be building. `recovery_required` lists
+  the candidates in `code_env_names` and refuses to guess or create a duplicate.
+  Resume the original future while it runs. Otherwise check the candidates with
+  `list_code_envs`, then bind one with `code_env_name`. That binds without building,
+  so its `build.status` is `unknown`.
+- `binding_failed` carries the environment name, build outcome, and Dataiku's
+  `error`. Fix the cause, then call again with that `code_env_name`.
+  `binding_changed` means another binding was set during the build and was kept; ask
+  the user which environment the plugin should use.
+- `python_interpreter`, `future_id`, and `code_env_name` are mutually exclusive. An
+  already-bound plugin refuses a different environment or interpreter.
 - `build.status` can be `completed`, `failed`, or `unknown`. A dependency failure is
   reported beside the durable environment name, even when binding succeeds. An
   already-bound environment is returned without creating another or claiming its

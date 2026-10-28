@@ -127,7 +127,21 @@ class FakeFuture:
     def get_state(self):
         if self._pending:
             self.state = self._pending.pop(0)
+        self.read = True
         return self.state
+
+    def peek_state(self):
+        return self.peeked
+
+
+def _build_future(job_id, env_name, states):
+    """A plugin code-env build, whose peeked state names its target environment."""
+    future = FakeFuture(job_id, states)
+    future.peeked = {
+        "jobId": job_id,
+        "payload": {"action": "import_env", "displayName": f"Import env: {env_name}"},
+    }
+    return future
 
 
 class FakePluginSettings:
@@ -1346,17 +1360,19 @@ def test_install_is_disabled_in_http_before_any_io(monkeypatch, source):
         _load(tools.install_plugin(source, FakeContext(), plugin_id="sample"))
 
 
-@pytest.mark.parametrize("language", ["python", "r", None])
+@pytest.mark.parametrize(
+    ("directory", "language"), [("python", "python"), ("R", "r"), (None, None)]
+)
 @pytest.mark.parametrize("wrapped", [False, True])
 def test_install_reads_code_env_descriptors_in_normalized_archive(
-    tmp_path, language, wrapped
+    tmp_path, directory, language, wrapped
 ):
     archive = tmp_path / "sample.zip"
     prefix = "wrapper/" if wrapped else ""
     with zipfile.ZipFile(archive, "w") as output:
         output.writestr(prefix + "plugin.json", json.dumps({"id": "sample"}))
-        if language:
-            output.writestr(prefix + f"code-env/{language}/desc.json", "{}")
+        if directory:
+            output.writestr(prefix + f"code-env/{directory}/desc.json", "{}")
     _, client = _absent("sample", {"install": FakeFuture(None, [_done()])})
     with _patch_client(client):
         result = _load(
@@ -1432,8 +1448,9 @@ def test_other_creation_errors_remain_errors(message):
 
     plugin, client, _ = _creation()
     plugin.create_error = DataikuException(message)
-    with _patch_client(client), pytest.raises(RuntimeError, match="refused"):
+    with _patch_client(client), pytest.raises(RuntimeError, match="refused") as excinfo:
         _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert message in str(excinfo.value)
     assert "codeEnvName" not in plugin.settings.get_raw()
 
 
@@ -1456,17 +1473,78 @@ def test_bound_environment_does_not_create_or_claim_build_success():
     assert not plugin.futures
 
 
-def test_orphan_requires_exact_future_instead_of_guessing_or_duplicating():
-    plugin, client = _installed(
+def _with_orphan(**kwargs):
+    return _installed(
         code_envs=[
             {"envName": "plugin_geocoder_managed", "deploymentMode": "PLUGIN_MANAGED"}
-        ]
+        ],
+        **kwargs,
     )
+
+
+def test_orphan_is_listed_instead_of_guessed_or_duplicated():
+    plugin, client = _with_orphan()
     with _patch_client(client):
         result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
     assert result["status"] == "recovery_required"
+    assert result["code_env_names"] == ["plugin_geocoder_managed"]
+    assert "code_env_name" in result["hint"]
     assert not plugin.futures
     assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+def test_named_orphan_is_bound_without_claiming_a_build():
+    plugin, client = _with_orphan()
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env(
+                "geocoder", FakeContext(), code_env_name="plugin_geocoder_managed"
+            )
+        )
+    assert result["status"] == "completed"
+    assert result["created"] is False
+    assert result["build"]["status"] == "unknown"
+    assert plugin.settings.get_raw()["codeEnvName"] == "plugin_geocoder_managed"
+    assert not plugin.futures
+
+
+@pytest.mark.parametrize(
+    "name", ["plugin_other_managed", "plugin_geocoder_managed_1", "my-env"]
+)
+def test_named_environment_must_be_an_existing_managed_env_of_the_plugin(name):
+    plugin, client = _with_orphan()
+    with _patch_client(client), pytest.raises(ValueError, match="Candidates"):
+        _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), code_env_name=name)
+        )
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"code_env_name": "plugin_geocoder_managed"}, {"python_interpreter": "PYTHON311"}],
+)
+def test_bound_plugin_refuses_a_different_environment_request(kwargs):
+    plugin, client = _installed(settings={"codeEnvName": "already-bound"})
+    with _patch_client(client), pytest.raises(ValueError, match="already bound"):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), **kwargs))
+    assert plugin.settings.get_raw()["codeEnvName"] == "already-bound"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"future_id": "F4", "python_interpreter": "PYTHON311"},
+        {"future_id": "F4", "code_env_name": "plugin_geocoder_managed"},
+        {"code_env_name": "plugin_geocoder_managed", "python_interpreter": "PYTHON311"},
+    ],
+)
+def test_recovery_arguments_are_mutually_exclusive(monkeypatch, kwargs):
+    monkeypatch.setattr(
+        tools, "run_blocking", lambda *args: pytest.fail("must fail before IO")
+    )
+    with pytest.raises(ValueError, match="at most one"):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), **kwargs))
 
 
 def test_timeout_is_resumed_by_exact_future_and_then_bound(monkeypatch):
@@ -1479,43 +1557,83 @@ def test_timeout_is_resumed_by_exact_future_and_then_bound(monkeypatch):
     assert result["status"] == "still_running"
     assert result["future_id"] == "F4"
     assert "codeEnvName" not in plugin.settings.get_raw()
-    resumed = FakeFuture("F4", [_code_env_done("plugin_geocoder_managed")])
+    resumed = _build_future(
+        "F4", "plugin_geocoder_managed", [_code_env_done("plugin_geocoder_managed")]
+    )
     monkeypatch.setattr(tools, "DSSFuture", lambda client, future_id: resumed)
     with _patch_client(client):
         result = _load(
             tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4")
         )
     assert result["build"]["status"] == "completed"
-    assert result["created"] is False
+    assert result["created"] is True
     assert plugin.settings.get_raw()["codeEnvName"] == "plugin_geocoder_managed"
 
 
-def test_resuming_wrong_plugins_future_does_not_bind(monkeypatch):
+@pytest.mark.parametrize(
+    "peeked",
+    [
+        {
+            "payload": {
+                "action": "import_env",
+                "displayName": "Import env: plugin_other_managed",
+            }
+        },
+        {"payload": {"action": "update_plugin", "displayName": "Update: geocoder"}},
+        {"jobId": "wrong"},
+    ],
+)
+def test_resuming_another_operations_future_neither_reads_nor_binds(
+    monkeypatch, peeked
+):
     plugin, client = _installed()
-    monkeypatch.setattr(
-        tools,
-        "DSSFuture",
-        lambda *args: FakeFuture("wrong", [_code_env_done("plugin_other_managed")]),
-    )
-    with _patch_client(client), pytest.raises(ValueError, match="does not name"):
+    other = FakeFuture("wrong", [_code_env_done("plugin_other_managed")])
+    other.peeked = peeked
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: other)
+    with (
+        _patch_client(client),
+        pytest.raises(ValueError, match="not a code environment build"),
+    ):
         _load(
             tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="wrong")
         )
+    assert not getattr(other, "read", False)
     assert "codeEnvName" not in plugin.settings.get_raw()
 
 
-def test_binding_failure_keeps_environment_and_future_for_recovery(monkeypatch):
+def test_forgotten_future_points_to_named_binding(monkeypatch):
+    from dataikuapi.utils import DataikuException
+
+    _, client = _installed()
+    gone = FakeFuture("F4", [_alive()])
+
+    def forgotten():
+        raise DataikuException(
+            "java.lang.IllegalArgumentException: No future by that id"
+        )
+
+    gone.peek_state = forgotten
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: gone)
+    with _patch_client(client), pytest.raises(ValueError, match="code_env_name"):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4"))
+
+
+def test_binding_failure_reports_the_reason_and_the_name_to_bind(monkeypatch):
+    from dataikuapi.utils import DataikuException
+
     plugin, client, _ = _creation()
 
     def fail_save():
-        raise RuntimeError("sensitive backend detail")
+        raise DataikuException(
+            "com.dataiku.dip.exceptions.UnauthorizedException: Action forbidden"
+        )
 
     monkeypatch.setattr(plugin.settings, "save", fail_save)
     with _patch_client(client):
         result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
     assert result["status"] == "binding_failed"
-    assert result["future_id"] == "F4"
-    assert "sensitive" not in json.dumps(result)
+    assert result["code_env_name"] == "plugin_geocoder_managed"
+    assert result["error"] == "Action forbidden"
 
 
 def test_changed_binding_is_preserved(monkeypatch):
@@ -1531,7 +1649,8 @@ def test_changed_binding_is_preserved(monkeypatch):
     monkeypatch.setattr(future, "get_state", switched)
     with _patch_client(client):
         result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
-    assert result["status"] == "binding_failed"
+    assert result["status"] == "binding_changed"
+    assert result["bound_code_env_name"] == "chosen-elsewhere"
     assert plugin.settings.raw["codeEnvName"] == "chosen-elsewhere"
 
 

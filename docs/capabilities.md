@@ -24,13 +24,13 @@ instance the local client targets.
 
 ## Surface
 
-**131 tools** · 93 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**131 tools** · 93 read · 24 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin |
+| Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
