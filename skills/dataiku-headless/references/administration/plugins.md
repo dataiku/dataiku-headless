@@ -83,6 +83,8 @@ plus the `operation` it describes.
 - `recovery_required` means an unbound managed environment already exists and may
   still be building. Resume its future while it runs; otherwise check
   `code_env_names` with `list_code_envs` and pass one as `code_env_name`.
+- `binding_changed` means someone else bound another environment during the build.
+  That binding is kept; ask the user which environment the plugin should use.
 - Top-level `completed` means the environment is bound, not that it works. Read
   `build.status` (`completed`, `failed`, or `unknown`) before treating the plugin as
   ready.

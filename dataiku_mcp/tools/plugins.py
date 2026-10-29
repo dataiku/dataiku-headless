@@ -155,7 +155,7 @@ def _require_absent(client, plugin_id: str) -> None:
 
 
 def _archive_code_env(archive: io.BytesIO) -> dict:
-    """Inspect only the normalized archive that will actually be uploaded."""
+    """Report which code-env descriptors the archive to upload declares."""
     languages = []
     with ZipFile(archive) as source:
         # Dataiku's plugin layout names the R directory in upper case.
@@ -168,7 +168,6 @@ def _archive_code_env(archive: io.BytesIO) -> dict:
     return {
         "status": "required" if languages else "not_required",
         "languages": languages,
-        "detection": "archive_descriptors",
     }
 
 
@@ -380,19 +379,13 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
     """Report a code-environment build outcome instead of discarding the environment.
 
     The environment exists by this point, so a failed dependency install is reported
-    alongside its name rather than raised. A rebuild keeps the interpreter and
-    core-package set the environment was created with, so a failure rooted in
-    ``desc.json`` needs the environment recreated, not rebuilt.
+    alongside its name rather than raised.
     """
     messages = result.get("messages")
     if not isinstance(messages, dict) or not any(
         key in messages for key in ("error", "fatal", "messages", "maxSeverity")
     ):
-        return {
-            "status": "unknown",
-            "code_env_name": code_env_name,
-            "hint": "The environment exists but no build report was returned. Inspect its build logs in Dataiku before treating it as ready.",
-        }
+        return {"status": "unknown", "code_env_name": code_env_name}
     detail = _report_failure(result)
     if detail is None:
         return {"status": "completed", "code_env_name": code_env_name}
@@ -400,13 +393,11 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
         "status": "failed",
         "code_env_name": code_env_name,
         "error": detail,
+        # A rebuild keeps the interpreter and core-package set chosen at creation.
         "hint": (
-            "The environment exists but its dependencies did not install. Ask the "
-            "user to check its build log in the Dataiku UI. A rebuild keeps the "
-            "interpreter and core-package set the environment was created with: if "
-            "the cause is there, fix the plugin's desc.json and ask the user to "
-            "recreate the environment in the UI. Otherwise fix the plugin's "
-            "requirements and ask the user to rebuild it."
+            "Fix the plugin's requirements and rebuild. An interpreter or "
+            "core-package problem in desc.json needs the environment recreated in "
+            "the Dataiku UI."
         ),
     }
 
@@ -639,9 +630,8 @@ async def install_plugin(
 ) -> str:
     """Install a plugin that is not yet on the Dataiku instance.
 
-    Requires administrator or plugin-developer permission. A plugin that is already
-    installed is rejected; use update_plugin for that. Newly installed component types
-    may need a Dataiku backend restart before they appear, reported as ``needs_restart``.
+    Requires administrator or plugin-developer permission. ``code_env.status`` says
+    whether to follow up with ensure_plugin_code_env.
 
     Args:
         source: ``store`` to install from the Dataiku plugin store, or ``local_path``
@@ -672,10 +662,7 @@ async def install_plugin(
                 client,
                 plugin_id,
                 client.install_plugin_from_store(plugin_id),
-                {
-                    "status": "unknown",
-                    "detection": "create_required",
-                },
+                {"status": "unknown"},
             )
         archive, archive_id = _local_target(plugin_id, local_path)
         requirements = _archive_code_env(archive)
@@ -702,15 +689,7 @@ async def install_plugin(
         lambda: _serialize_summary(_installed_plugin(client, resolved_id))
     )
     return compact_json(
-        omit_empty(
-            {
-                **payload,
-                "source": source,
-                "plugin": plugin,
-                "code_env": requirements,
-                "hint": "Installation is complete. If code_env.status is required or unknown, call ensure_plugin_code_env; not_required concerns the code environment only. Check any install scripts, system packages, and plugin settings in the Dataiku UI.",
-            }
-        )
+        {**payload, "source": source, "plugin": plugin, "code_env": requirements}
     )
 
 
@@ -844,9 +823,8 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
 
 
 def _without_code_env(exc: DataikuException, plugin_id: str) -> bool:
-    # SDK 14.7.2 discards the structured error code when raising DataikuException.
-    # Accept that code when present, or the exact no-specification message emitted
-    # by the public plugin-create endpoint. Never suppress unrelated SDK failures.
+    # The SDK drops Dataiku's error code from DataikuException, so the endpoint's
+    # exact message is matched as well.
     message = dataiku_message(exc)
     return bool(re.search(r"\bERR_PLUGIN_WITHOUT_CODEENV\b", message)) or message == (
         f"The plugin {plugin_id} doesn't specify a code env, cannot create it"
@@ -871,11 +849,9 @@ def _managed_env_names(client, plugin_id: str) -> list[str]:
 
 
 def _require_plugin_build(future, plugin_id: str) -> None:
-    """Refuse a future that is not this plugin's managed-env build, before reading it.
+    """Refuse a future that is not this plugin's build, without consuming it.
 
-    Reading a finished future's result makes Dataiku forget it, so an unrelated
-    future is rejected from its peeked state instead. A plugin build is an
-    ``import_env`` action whose display name ends with the target environment.
+    Dataiku forgets a finished future once its result is read, so only peek here.
     """
     try:
         state = future.peek_state()
@@ -883,9 +859,8 @@ def _require_plugin_build(future, plugin_id: str) -> None:
         if dataiku_message(exc) != "No future by that id":
             raise
         raise ValueError(
-            f"Dataiku has no future '{future.job_id}'. A finished build is forgotten "
-            "once its result is read. Find the plugin's managed environment with "
-            "list_code_envs and pass it as code_env_name."
+            f"Dataiku has no future '{future.job_id}'; its result was already read. "
+            "Bind the environment with code_env_name."
         ) from None
     payload = state.get("payload") or {}
     target = str(payload.get("displayName", "")).rpartition(": ")[2]
@@ -894,7 +869,7 @@ def _require_plugin_build(future, plugin_id: str) -> None:
     ):
         raise ValueError(
             f"Future '{future.job_id}' is not a code environment build of plugin "
-            f"'{plugin_id}'; nothing was read or bound."
+            f"'{plugin_id}'."
         )
 
 
@@ -937,7 +912,7 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
             "code_env_name": env_name,
             "build": build,
             "error": dataiku_message(exc),
-            "hint": "The environment exists but could not be bound. Fix the cause, then call ensure_plugin_code_env with this code_env_name. Do not create another environment.",
+            "hint": "Fix the cause, then retry with this code_env_name.",
         }
     if changed:
         return {
@@ -945,7 +920,6 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
             "code_env_name": env_name,
             "bound_code_env_name": changed,
             "build": build,
-            "hint": "Another binding was set during the build and was kept. Ask the user which environment the plugin should use; this one stays unbound.",
         }
     return {
         "status": "completed",
@@ -972,7 +946,7 @@ async def ensure_plugin_code_env(
     code_env_name: str | None = None,
     timeout_seconds: int = _BUILD_TIMEOUT_SECONDS,
 ) -> str:
-    """Ensure initial environment setup. not_required means no code-env specification.
+    """Create and bind a plugin's managed code environment, or finish an interrupted setup.
 
     Args:
         plugin_id: Installed plugin id.
@@ -1031,7 +1005,6 @@ async def ensure_plugin_code_env(
                 "created": False,
                 "code_env_name": bound,
                 "build": {"status": "unknown"},
-                "hint": "Already bound. This call did not verify its earlier build; inspect it with list_code_envs.",
             }
         )
     else:
@@ -1042,26 +1015,19 @@ async def ensure_plugin_code_env(
                     f"'{code_env_name}' is not an existing managed environment of "
                     f"plugin '{plugin_id}'. Candidates: {candidates}."
                 )
-            build = {
-                "status": "unknown",
-                "code_env_name": code_env_name,
-                "hint": "This call did not build it. Inspect it with list_code_envs before treating it as ready.",
-            }
-            return compact_json(
-                {
-                    **common,
-                    **await _bind_code_env(plugin, code_env_name, build, created=False),
-                }
+            bound_env = await _bind_code_env(
+                plugin, code_env_name, {"status": "unknown"}, created=False
             )
-        # An unbound one can still be building. Do not guess which one to bind or
-        # create a numbered duplicate: the caller resumes or names it explicitly.
+            return compact_json({**common, **bound_env})
+        # An unbound environment may still be building, so neither guess nor
+        # create a duplicate.
         if candidates:
             return compact_json(
                 {
                     **common,
                     "status": "recovery_required",
                     "code_env_names": candidates,
-                    "hint": "An unbound managed environment already exists; no new one was created. Resume the original future_id if its build is still running. Otherwise bind one with code_env_name, after checking it with list_code_envs.",
+                    "hint": "Resume its future_id if still building; otherwise bind one with code_env_name.",
                 }
             )
         future = await run_blocking(_start_build, plugin, plugin_id, python_interpreter)
@@ -1070,8 +1036,6 @@ async def ensure_plugin_code_env(
                 {
                     **common,
                     "status": "not_required",
-                    "detection": "ERR_PLUGIN_WITHOUT_CODEENV",
-                    "hint": "No code environment is required. This does not verify install scripts, system packages, or plugin settings.",
                 }
             )
 
@@ -1082,7 +1046,7 @@ async def ensure_plugin_code_env(
                 **_in_flight(
                     "ensure_plugin_code_env", plugin_id, future, started=False
                 ),
-                "hint": "The environment is not bound yet. Resume ensure_plugin_code_env with this same plugin_id and future_id on the same instance. Do not start another build.",
+                "hint": "Call ensure_plugin_code_env again with this future_id; do not start another build.",
             }
         )
     result = _terminal_result("ensure_plugin_code_env", plugin_id, state)
