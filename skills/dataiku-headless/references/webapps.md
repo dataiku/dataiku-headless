@@ -33,8 +33,8 @@ Cobuild cannot create, edit, or start Shiny WebApps, so Headless writes them dir
 
 - Create with `create_shiny_webapp`, giving the `ui` and `server` R code.
 - Inspect with `get_webapp_settings`, then replace `ui`, `server`, or both with `update_shiny_webapp`. Omitted code is kept.
-- Both tools save the code and restart the backend. Check it with `get_webapp_state`, which reports a crashed backend's log tail.
-- The backend needs `shiny`, and every package the code loads, in the project's R code environment. If the log reports one missing, find an R environment that has it with `list_code_envs` (`language` R, `packages`) and make it the project's default R environment with `update_project_settings`. If none has it, creating one changes the instance: confirm with the user first, then see `./administration/code-environments.md`.
+- Both tools save the code and restart the backend. Check it with `get_webapp_state`, which reports a crashed backend's log tail. To only restart, call `update_shiny_webapp` without code.
+- The backend needs `shiny`, and every other package the code loads, in the project's R code environment. Dataiku provides `dataiku` itself. If the log reports a missing package, find an R environment that has it with `list_code_envs` (`language` R, `packages` set to the missing ones), make it the project's default R environment with `update_project_settings`, then restart. If none has it, creating one changes the instance: confirm with the user first, then see `./administration/code-environments.md`.
 - Delete through `./cobuild.md`.
 
 ## Workflow

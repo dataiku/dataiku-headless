@@ -125,6 +125,14 @@ def test_update_shiny_webapp_keeps_omitted_code(monkeypatch):
     project.get_webapp.return_value.start_or_restart_backend.assert_called_once()
 
 
+def test_update_shiny_webapp_without_code_only_restarts(monkeypatch):
+    project = _project(monkeypatch)
+    raw = _webapp(project, "SHINY", {"ui": "kept", "server": "kept"})
+    asyncio.run(webapps.update_shiny_webapp("P", "W1", FakeContext()))
+    assert raw["params"] == {"ui": "kept", "server": "kept"}
+    project.get_webapp.return_value.start_or_restart_backend.assert_called_once()
+
+
 def test_update_shiny_webapp_refuses_other_webapp_types(monkeypatch):
     project = _project(monkeypatch)
     _webapp(project, "DASH")

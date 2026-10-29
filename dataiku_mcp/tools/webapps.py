@@ -222,11 +222,9 @@ async def update_shiny_webapp(
     ui: Annotated[str | None, Field(description=SHINY_UI)] = None,
     server: Annotated[str | None, Field(description=SHINY_SERVER)] = None,
 ) -> str:
-    """Replace a Shiny webapp's ui or server code and restart its backend."""
+    """Replace a Shiny webapp's ui or server code and restart its backend. Omit both to only restart."""
     project_key = _require_non_empty_string(project_key, "project_key")
     webapp_id = _require_non_empty_string(webapp_id, "webapp_id")
-    if ui is None and server is None:
-        raise ValueError("Provide ui, server, or both.")
     if ui is not None:
         _require_non_empty_string(ui, "ui")
     if server is not None:
