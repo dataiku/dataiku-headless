@@ -148,10 +148,6 @@ provide their hosting instance URL and API ticket automatically.
 
 The reference library covers the main Dataiku object areas and workflows, including projects, project folders, datasets, recipes, jobs, connections, code environments, plugins, managed folders, project libraries, data quality, machine learning, agents, agent reviews, scenarios, semantic models, webapps, wikis, dashboards, insights, data collections, cross-project sharing, and migrations.
 
-Instance plugins can be installed from the store or a local archive in stdio mode.
-Initial managed code-environment creation and binding are a separate recoverable step;
-see the [plugin guide](skills/dataiku-headless/references/administration/plugins.md).
-
 ## Stdio onboarding and authentication
 
 Outside a Code Studio, configure a connection using a personal API key:
