@@ -32,6 +32,7 @@ from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking
 from ..server import mcp
+from .code_environments import PythonInterpreter
 from .utils.errors import dataiku_message
 from .utils.parsing import parse_json_object
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -272,7 +273,7 @@ def _local_target(plugin_id: str | None, local_path: str) -> tuple[io.BytesIO, s
 def _resolve_source(
     source: PluginSource, plugin_id: str | None, local_path: str | None
 ) -> tuple[str | None, str | None]:
-    """Validate the argument that ``source`` requires."""
+    """Validate the argument ``source`` requires, and refuse local paths over HTTP."""
     if source == "store":
         if local_path is not None:
             raise ValueError("'local_path' applies only to source='local_path'")
@@ -646,7 +647,7 @@ async def install_plugin(
         local_path: Plugin directory containing plugin.json at its root, or a plugin
             ZIP. Required for ``local_path``.
         wait_for_completion: Wait up to timeout_seconds for a verified outcome. When
-            false, a store install returns a future_id to follow instead.
+            false, return a future_id to follow instead.
         timeout_seconds: Inline wait budget, checked between polls.
     """
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
@@ -849,6 +850,8 @@ def _require_plugin_build(future, plugin_id: str) -> None:
     """Refuse a future that is not this plugin's build, without consuming it.
 
     Dataiku forgets a finished future once its result is read, so only peek here.
+    Dataiku labels a plugin build as an ``import_env`` action whose display name
+    ends with ": <environment name>".
     """
     try:
         state = future.peek_state()
@@ -938,7 +941,7 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
 async def ensure_plugin_code_env(
     plugin_id: str,
     ctx: Context,
-    python_interpreter: str | None = None,
+    python_interpreter: PythonInterpreter = None,
     future_id: str | None = None,
     code_env_name: str | None = None,
     timeout_seconds: int = _BUILD_TIMEOUT_SECONDS,
@@ -959,10 +962,6 @@ async def ensure_plugin_code_env(
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
     )
-    if python_interpreter is not None:
-        python_interpreter = _require_non_empty_string(
-            python_interpreter, "python_interpreter"
-        )
     if future_id is not None:
         future_id = _require_non_empty_string(future_id, "future_id")
     if code_env_name is not None:

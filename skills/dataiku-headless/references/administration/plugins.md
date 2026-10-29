@@ -37,9 +37,9 @@ for that plugin by name; someone is working in it.
    `ensure_plugin_code_env` as described under Code environments.
 5. After any change, re-read the plugin and report `needs_restart` when it is true.
 
-## Update sources
+## Sources
 
-Use the installed id returned by `list_plugins`. A `source="store"` update requires
+For an update, use the installed id returned by `list_plugins`. A `source="store"` update requires
 that the plugin came from the store. These tools do not browse the store catalog. For installation, get the exact store
 id from the user or an authoritative plugin source; never guess it.
 
