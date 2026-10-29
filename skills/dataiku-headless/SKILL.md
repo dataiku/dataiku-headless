@@ -10,7 +10,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
-2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. The required `instance_type` is configured metadata, not API verification or a guarantee of client support.
+2. Ensure an instance is configured before instance operations. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. The required `instance_type` is configured metadata, not API verification or a guarantee of client support.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -47,6 +47,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
+| Create, extend, test, or package a Dataiku plugin from local source | `./references/plugin-development.md` |
 | Dataiku administrative tasks: (e.g. users, groups, code environments, general settings, etc.) | `./references/administration.md` |
 | Inspect ML analyses, trained models, or saved models | `./references/machine-learning.md` |
 | Inspect LLMs, Knowledge Banks, or RAG LLMs | `./references/llms-and-knowledge-banks.md` |

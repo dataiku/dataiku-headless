@@ -16,5 +16,6 @@ direct MCP tools. Permissions vary by operation; follow the matching guide.
 | List, create, update, or delete instance groups | `./administration/groups.md` |
 | Inspect license validity, expiry, or profile capacity | `./administration/licensing.md` |
 | Inspect, create, update, or delete code environments | `./administration/code-environments.md` |
-| Inspect, install, update, or delete plugins and prepare their managed code environments | `./administration/plugins.md` |
+| Discover store plugins, manage installed plugins, or prepare their managed code environments | `./administration/plugins.md` |
+| Create, extend, test, or package a Dataiku plugin from local source | `./plugin-development.md` |
 | Inspect container execution or Spark configurations | `./administration/general-settings.md` |

@@ -99,6 +99,12 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build recipe logic, a model, or an agent.
 
+The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
+explains how to write, test, and package plugins locally with the agent's file and
+command tools. Headless can upload a package over stdio or install and update from Git over
+either transport. It cannot create a
+development plugin or edit its files on the instance.
+
 ## Local instance targeting
 
 Local client configuration, not Dataiku objects.

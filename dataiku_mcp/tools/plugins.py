@@ -21,12 +21,13 @@ import io
 import re
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from zipfile import BadZipFile, ZipFile
 
 from dataikuapi.dss.future import DSSFuture
 from dataikuapi.utils import DataikuException
 from fastmcp import Context
+from pydantic import Field
 
 from ..auth import get_dss_client
 from ..config import request
@@ -38,13 +39,15 @@ from .utils.parsing import parse_json_object
 from .utils.serialization import columnar, compact_json, omit_empty
 from .utils.validation import (
     require_allowed_value as _require_allowed_value,
+    require_git_repository_url as _require_git_repository_url,
     require_int_in_range as _require_int_in_range,
     require_non_empty_string as _require_non_empty_string,
     require_non_negative_int as _require_non_negative_int,
     require_positive_int as _require_positive_int,
+    require_relative_posix_path as _require_relative_posix_path,
 )
 
-PluginSource = Literal["store", "local_path"]
+PluginSource = Literal["store", "local_path", "git"]
 _SEARCH_MODES = {"partial", "exact"}
 _MAX_TIMEOUT_SECONDS = 3600
 # Store updates unpack an archive; code-environment rebuilds also install dependencies.
@@ -355,20 +358,21 @@ def _report_failure(result: dict) -> str | None:
     return "; ".join(filter(None, reported)) or "Dataiku reported no error detail."
 
 
-def _terminal_result(operation: str, plugin_id: str, state: dict) -> dict:
+def _terminal_result(operation: str, plugin_id: str | None, state: dict) -> dict:
     """Return a finished future's result, raising when it never produced one."""
     noun = _OPERATION_NOUNS[operation]
+    target = f"plugin '{plugin_id}'" if plugin_id else "the Git plugin"
     if state.get("aborted", False):
-        raise RuntimeError(f"Dataiku aborted the {noun} of plugin '{plugin_id}'.")
+        raise RuntimeError(f"Dataiku aborted the {noun} of {target}.")
     if not state.get("hasResult", False):
         raise RuntimeError(
-            f"Dataiku stopped the {noun} of plugin '{plugin_id}' without reporting a "
+            f"Dataiku stopped the {noun} of {target} without reporting a "
             "result. Inspect the plugin before retrying."
         )
     return state.get("result") or {}
 
 
-def _successful_result(operation: str, plugin_id: str, state: dict) -> dict:
+def _successful_result(operation: str, plugin_id: str | None, state: dict) -> dict:
     """Return a completed action's result, raising when Dataiku reports it failed."""
     result = _terminal_result(operation, plugin_id, state)
     detail = _action_failure(result)
@@ -408,19 +412,21 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
     }
 
 
-def _in_flight(operation: str, plugin_id: str, future, started: bool) -> dict:
+def _in_flight(operation: str, plugin_id: str | None, future, started: bool) -> dict:
     """Describe an operation Dataiku is still working on.
 
     The raw future state is deliberately left out: the caller is routed to
     ``get_future_status``, which exists to return it on demand.
     """
-    return {
-        "status": "started" if started else "still_running",
-        "operation": operation,
-        "plugin_id": plugin_id,
-        "future_id": future.job_id,
-        "hint": _FOLLOW_HINT,
-    }
+    return omit_empty(
+        {
+            "status": "started" if started else "still_running",
+            "operation": operation,
+            "plugin_id": plugin_id,
+            "future_id": future.job_id,
+            "hint": _FOLLOW_HINT,
+        }
+    )
 
 
 def _reload_flags(result: dict) -> dict:
@@ -450,7 +456,7 @@ def _blocker_columns(blockers: list[dict]) -> list[str]:
 
 async def _run_plugin_action(
     operation: str,
-    plugin_id: str,
+    plugin_id: str | None,
     future,
     wait_for_completion: bool,
     timeout_seconds: int,
@@ -471,12 +477,14 @@ async def _run_plugin_action(
     if timed_out:
         return None, _in_flight(operation, plugin_id, future, started=False)
     result = _successful_result(operation, plugin_id, state)
-    return result, {
-        "status": "completed",
-        "operation": operation,
-        "plugin_id": plugin_id,
-        **_reload_flags(result),
-    }
+    return result, omit_empty(
+        {
+            "status": "completed",
+            "operation": operation,
+            "plugin_id": plugin_id,
+            **_reload_flags(result),
+        }
+    )
 
 
 @mcp.tool(
@@ -617,9 +625,90 @@ async def list_plugin_usages(
     )
 
 
+def _git_error(operation: str, exc: Exception, future) -> RuntimeError:
+    # Git errors can include remote URLs, credentials, and subprocess output.
+    # Classify the problem, but never return the original text.
+    message = dataiku_message(exc).casefold()
+    auth_failure = any(
+        marker in message
+        for marker in (
+            "authentication failed",
+            "permission denied",
+            "publickey",
+            "could not read username",
+            "invalid username or password",
+            "unauthorized",
+            "not authorized",
+        )
+    )
+    problem = (
+        "Dataiku could not authenticate to or access the Git repository. "
+        if auth_failure
+        else f"The Git {_OPERATION_NOUNS[operation]} failed or its outcome could not be verified. "
+    )
+    recovery = (
+        f"Inspect future '{future.job_id}' with get_future_status before retrying. "
+        if future is not None and future.job_id
+        else "Check list_plugins before retrying. "
+    )
+    return RuntimeError(
+        problem
+        + recovery
+        + "Check the remote URL, checkout, and subpath. For Git access, an "
+        "administrator must allow the repository in Dataiku's Git settings "
+        "before access is possible. Configure SSH or HTTPS credentials in Dataiku. Credentials "
+        "on the Headless machine do not apply. See the plugin guide's Git access section."
+    )
+
+
+async def _install_git(
+    repository_url: str,
+    checkout: str,
+    subpath: str | None,
+    wait_for_completion: bool,
+    timeout_seconds: int,
+) -> str:
+    client = await run_blocking(get_dss_client)
+    future = None
+    try:
+        future = await run_blocking(
+            client.install_plugin_from_git, repository_url, checkout, subpath
+        )
+        result, payload = await _run_plugin_action(
+            "install", None, future, wait_for_completion, timeout_seconds
+        )
+    except Exception as exc:
+        raise _git_error("install", exc, future) from None
+
+    response = {**payload, "source": "git", "code_env": {"status": "unknown"}}
+    if result is None:
+        return compact_json(response)
+    # The remote manifest, not a caller-provided id, determines the installed plugin.
+    plugin_id = ((result.get("pluginDesc") or {}).get("desc") or {}).get("id")
+    if plugin_id:
+        try:
+            plugin = await run_blocking(
+                lambda: _serialize_summary(_installed_plugin(client, plugin_id))
+            )
+        except Exception:
+            pass
+        else:
+            return compact_json({**response, "plugin_id": plugin_id, "plugin": plugin})
+    return compact_json(
+        omit_empty(
+            {
+                **response,
+                "status": "verification_required",
+                "plugin_id": plugin_id,
+                "hint": "Dataiku reported installation completed. Verify the plugin with list_plugins before retrying or setting up its environment.",
+            }
+        )
+    )
+
+
 @mcp.tool(
     title="Install Plugin",
-    description="Install a new instance plugin from the store or a local archive, then inspect its setup needs.",
+    description="Install a new instance plugin from the store, a local archive, or Git, then inspect its setup needs.",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,
@@ -633,6 +722,9 @@ async def install_plugin(
     local_path: str | None = None,
     wait_for_completion: bool = True,
     timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    repository_url: str | None = None,
+    checkout: str | None = None,
+    subpath: str | None = None,
 ) -> str:
     """Install a plugin that is not yet on the Dataiku instance.
 
@@ -640,20 +732,40 @@ async def install_plugin(
     whether to follow up with ensure_plugin_code_env.
 
     Args:
-        source: ``store`` to install from the Dataiku plugin store, or ``local_path``
-            to upload a plugin from this machine.
-        plugin_id: Store plugin id. Required for ``store``. For ``local_path`` the id
-            is read from plugin.json and this argument, if given, must match it.
+        source: ``store``, ``local_path``, or ``git``. Dataiku fetches Git repositories.
+        plugin_id: Required for ``store``; optional manifest-id assertion for
+            ``local_path``. Omit for ``git``; the remote manifest determines the id.
         local_path: Plugin directory containing plugin.json at its root, or a plugin
             ZIP. Required for ``local_path``.
         wait_for_completion: Wait up to timeout_seconds for a verified outcome. When
             false, return a future_id to follow instead.
         timeout_seconds: Inline wait budget, checked between polls.
+        repository_url: Remote Git URL without inline credentials. Git source only.
+        checkout: Explicit branch, tag, or commit to fetch. Required for Git.
+        subpath: Optional "Path in repository": relative folder containing plugin.json.
+            Omit when plugin.json is at the repository root.
     """
-    plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
     )
+    if source == "git":
+        if plugin_id is not None or local_path is not None:
+            raise ValueError(
+                "Omit 'plugin_id' and 'local_path' for source='git'; the remote plugin.json determines the id."
+            )
+        repository_url = _require_git_repository_url(repository_url or "")
+        checkout = _require_non_empty_string(checkout or "", "checkout")
+        if subpath is not None:
+            subpath = _require_relative_posix_path(subpath, "subpath")
+        await ctx.info("Installing Dataiku plugin from Git...")
+        return await _install_git(
+            repository_url, checkout, subpath, wait_for_completion, timeout_seconds
+        )
+    if any(value is not None for value in (repository_url, checkout, subpath)):
+        raise ValueError(
+            "'repository_url', 'checkout', and 'subpath' apply only to source='git'"
+        )
+    plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     await ctx.info(f"Installing Dataiku plugin from {source}...")
 
     def _start():
@@ -697,7 +809,7 @@ async def install_plugin(
 
 @mcp.tool(
     title="Update Plugin",
-    description="Update an installed plugin from the store or a local archive, optionally rebuilding its bound environment.",
+    description="Update an installed plugin from the store, a local archive, or Git, optionally rebuilding its bound environment.",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -712,6 +824,9 @@ async def update_plugin(
     rebuild_code_env: bool = False,
     wait_for_completion: bool = True,
     timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    repository_url: str | None = None,
+    checkout: str | None = None,
+    subpath: str | None = None,
 ) -> str:
     """Update an installed plugin in place.
 
@@ -722,9 +837,8 @@ async def update_plugin(
     plugin update has already landed by then.
 
     Args:
-        source: ``store`` to update from the Dataiku plugin store, or ``local_path``
-            to upload a newer version from this machine.
-        plugin_id: Installed plugin id. Required for ``store``. For ``local_path`` the
+        source: ``store``, ``local_path``, or ``git``. Dataiku fetches Git repositories.
+        plugin_id: Installed plugin id. Required for ``store`` and ``git``. For ``local_path`` the
             target is the id declared in plugin.json, and this argument, if given, must
             match it.
         local_path: Plugin directory containing plugin.json at its root, or a plugin
@@ -735,8 +849,25 @@ async def update_plugin(
             answered with a completed result. Ignored while ``rebuild_code_env`` is
             true, which needs the update to have completed.
         timeout_seconds: Inline wait budget for each stage, checked between polls.
+        repository_url: Remote Git URL without inline credentials. Git source only.
+        checkout: Explicit branch, tag, or commit to fetch. Required for Git.
+        subpath: Optional "Path in repository": relative folder containing plugin.json.
+            Omit when plugin.json is at the repository root.
     """
-    plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
+    if source == "git":
+        plugin_id = _require_non_empty_string(plugin_id or "", "plugin_id")
+        if local_path is not None:
+            raise ValueError("Omit 'local_path' for source='git'")
+        repository_url = _require_git_repository_url(repository_url or "")
+        checkout = _require_non_empty_string(checkout or "", "checkout")
+        if subpath is not None:
+            subpath = _require_relative_posix_path(subpath, "subpath")
+    else:
+        if any(value is not None for value in (repository_url, checkout, subpath)):
+            raise ValueError(
+                "'repository_url', 'checkout', and 'subpath' apply only to source='git'"
+            )
+        plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
     )
@@ -755,10 +886,41 @@ async def update_plugin(
         plugin = client.get_plugin(archive_id)
         return client, archive_id, plugin.start_update_from_zip(archive)
 
-    client, resolved_id, future = await run_blocking(_start)
-    result, payload = await _run_plugin_action(
-        "update", resolved_id, future, wait_for_completion, timeout_seconds
-    )
+    if source == "git":
+        client = await run_blocking(get_dss_client)
+        await run_blocking(_installed_plugin, client, plugin_id)
+        resolved_id = plugin_id
+        future = None
+        try:
+            future = await run_blocking(
+                lambda: client.get_plugin(plugin_id).update_from_git(
+                    repository_url, checkout, subpath
+                )
+            )
+            result, payload = await _run_plugin_action(
+                "update", resolved_id, future, wait_for_completion, timeout_seconds
+            )
+        except Exception as exc:
+            raise _git_error("update", exc, future) from None
+        if result is not None:
+            actual_id = ((result.get("pluginDesc") or {}).get("desc") or {}).get("id")
+            if actual_id != resolved_id:
+                return compact_json(
+                    omit_empty(
+                        {
+                            **payload,
+                            "status": "verification_required",
+                            "source": source,
+                            "reported_plugin_id": actual_id,
+                            "hint": "Dataiku did not report the expected plugin id. Inspect list_plugins before retrying. No environment rebuild was started.",
+                        }
+                    )
+                )
+    else:
+        client, resolved_id, future = await run_blocking(_start)
+        result, payload = await _run_plugin_action(
+            "update", resolved_id, future, wait_for_completion, timeout_seconds
+        )
     if result is None:
         in_flight = {**payload, "source": source}
         if rebuild_code_env:
@@ -803,9 +965,8 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
             "status": "skipped",
             "reason": "No code environment is bound to this plugin.",
             "hint": (
-                "Check the plugin requirements and set up its code environment in the "
-                "Dataiku UI if needed. An unbound environment does not establish "
-                "whether the plugin needs one."
+                "Call ensure_plugin_code_env to check whether the plugin needs an "
+                "environment and create or recover its managed environment."
             ),
         }
     timed_out, state = await _wait_for_future(future, timeout_seconds)
@@ -941,7 +1102,12 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
 async def ensure_plugin_code_env(
     plugin_id: str,
     ctx: Context,
-    python_interpreter: PythonInterpreter = None,
+    python_interpreter: Annotated[
+        PythonInterpreter,
+        Field(
+            description="Uses the plugin's declared default when omitted; only applies to a new environment."
+        ),
+    ] = None,
     future_id: str | None = None,
     code_env_name: str | None = None,
     timeout_seconds: int = _BUILD_TIMEOUT_SECONDS,
@@ -950,8 +1116,8 @@ async def ensure_plugin_code_env(
 
     Args:
         plugin_id: Installed plugin id.
-        python_interpreter: Interpreter for a new environment. Defaults to the
-            plugin's own choice. Only applies when creating one.
+        python_interpreter: Uses the plugin's declared default when omitted;
+            only applies to a new environment.
         future_id: Resume a build this tool returned as still_running. Dataiku
             forgets a build once its result is read, so this works only while it runs.
         code_env_name: Bind this existing, unbound PLUGIN_MANAGED environment of the

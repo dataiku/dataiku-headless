@@ -25,6 +25,24 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 6. Use `get_job_log` when execution logs or failure text are needed.
 7. Use `abort_job` to stop a job that must not continue, then confirm the terminal state before any replacement run.
 
+## Futures
+
+Some instance operations, including plugin installation, updates, deletion, and
+code-environment builds, return a `future_id` rather than a project `job_id`.
+Use `get_future_status` on the same instance; project job tools do not track futures.
+
+- Poll with `fetch_result=false` to inspect `state.alive`, `state.hasResult`, and
+  `state.aborted` without consuming the result. A timeout ends observation, not execution.
+- When `state.hasResult` is true, use `fetch_result=true` to retrieve `state.result`.
+  Save the result: Dataiku forgets a completed future after its result is fetched.
+- Check whether the operation was aborted or stopped without a result. If it returned
+  a result, follow the relevant guide to check for failure: plugin actions can return
+  `success=false`, and environment builds report failures inside `messages`.
+- For initial plugin environment setup, resume through `ensure_plugin_code_env`
+  with the original `plugin_id` and `future_id` instead of fetching its result here.
+  That tool needs the result to finish binding; follow `./administration/plugins.md`.
+- Keep supervising the existing future; do not repeat the operation to poll it.
+
 ## Preferred Tools
 
 - `list_jobs`
@@ -34,6 +52,7 @@ A wait timeout or interrupted client call ends observation, not necessarily exec
 - `wait_for_job`
 - `get_job_log`
 - `abort_job`
+- `get_future_status`
 
 ## Safety Rules
 

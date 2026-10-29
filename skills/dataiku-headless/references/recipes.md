@@ -62,6 +62,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 - Project-library code dependencies: `./project-libraries.md`
 - Active or uncertain execution: `./jobs.md`
 - Container execution placement for one object: `./container-execution.md`
+- Creating a reusable plugin recipe component from local source: `./plugin-development.md`
 
 ## Preferred Tools
 
