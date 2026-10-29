@@ -319,22 +319,13 @@ def _members(payload):
     return sorted(zipfile.ZipFile(io.BytesIO(payload)).namelist())
 
 
-@pytest.mark.parametrize(
-    ("source", "plugin_id", "local_path"),
-    [("store", "my-plugin", None), ("local_path", None, "/server/plugin.zip")],
-)
-def test_update_plugin_is_unavailable_in_http_mode(source, plugin_id, local_path):
+def test_update_plugin_local_path_is_unavailable_in_http_mode():
     token = request.bind_http_identity("https://idp.example", "alice")
     try:
-        with pytest.raises(
-            ValueError, match="update_plugin is unavailable in HTTP mode"
-        ):
+        with pytest.raises(ValueError, match="unavailable in HTTP mode"):
             asyncio.run(
                 tools.update_plugin(
-                    source,
-                    FakeContext(),
-                    plugin_id=plugin_id,
-                    local_path=local_path,
+                    "local_path", FakeContext(), local_path="/server/plugin.zip"
                 )
             )
     finally:
@@ -1179,7 +1170,11 @@ def test_poll_interval_scales_with_the_wait_budget(monkeypatch):
     assert slept and all(interval == 10 for interval in slept)
 
 
-def test_install_plugin_from_store_reports_completion_and_restart_need():
+@pytest.mark.parametrize("http", [False, True])
+def test_install_plugin_from_store_reports_completion_and_restart_need(
+    monkeypatch, http
+):
+    monkeypatch.setattr(request, "is_http_request", lambda: http)
     _, client = _absent(
         version="1.3.1",
         install=FakeFuture(
@@ -1211,14 +1206,17 @@ def test_install_plugin_refuses_an_already_installed_plugin():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("source", ["store", "local_path"])
-def test_install_is_disabled_in_http_before_any_io(monkeypatch, source):
+def test_local_install_is_disabled_in_http_before_any_io(monkeypatch):
     monkeypatch.setattr(request, "is_http_request", lambda: True)
     monkeypatch.setattr(
         tools, "run_blocking", lambda *args: pytest.fail("must fail before IO")
     )
     with pytest.raises(ValueError, match="unavailable in HTTP"):
-        _load(tools.install_plugin(source, FakeContext(), plugin_id="sample"))
+        _load(
+            tools.install_plugin(
+                "local_path", FakeContext(), local_path="/server/plugin.zip"
+            )
+        )
 
 
 @pytest.mark.parametrize(

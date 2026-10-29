@@ -28,9 +28,9 @@ for that plugin by name; someone is working in it.
    "the SharePoint plugin" or "Answers" resolve without knowing the id.
 2. Use `search_mode="exact"` with `include_details=true` to inspect one plugin before
    changing it. Details cost one settings read per row, so pair them with `search`.
-3. In stdio, use `install_plugin` for a new plugin or `update_plugin` for an existing
-   one. Both tools are unavailable in Streamable HTTP because their sources can be
-   local server paths. `delete_plugin` removes an installed plugin.
+3. Use `install_plugin` for a new plugin or `update_plugin` for an existing one, and
+   `delete_plugin` to remove one. `source="local_path"` works only in stdio, because
+   it reads the server's filesystem; store sources work in both transports.
 4. After installation, read `code_env.status`: `required` when a local archive has
    `code-env/python/desc.json` or `code-env/R/desc.json`, `not_required` when it has
    neither, and `unknown` for store installs. For `required` or `unknown`, call

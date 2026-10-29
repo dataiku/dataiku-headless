@@ -277,6 +277,11 @@ def _resolve_source(
         if local_path is not None:
             raise ValueError("'local_path' applies only to source='local_path'")
         return _require_non_empty_string(plugin_id or "", "plugin_id"), None
+    if request.is_http_request():
+        raise ValueError(
+            "source='local_path' is unavailable in HTTP mode because it reads the MCP "
+            "host filesystem."
+        )
     local_path = _require_non_empty_string(local_path or "", "local_path")
     if plugin_id is not None:
         plugin_id = _require_non_empty_string(plugin_id, "plugin_id")
@@ -644,10 +649,6 @@ async def install_plugin(
             false, a store install returns a future_id to follow instead.
         timeout_seconds: Inline wait budget, checked between polls.
     """
-    if request.is_http_request():
-        raise ValueError(
-            "install_plugin is unavailable in HTTP mode because it can read the MCP host filesystem."
-        )
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
@@ -734,10 +735,6 @@ async def update_plugin(
             true, which needs the update to have completed.
         timeout_seconds: Inline wait budget for each stage, checked between polls.
     """
-    if request.is_http_request():
-        raise ValueError(
-            "update_plugin is unavailable in HTTP mode because it can read the MCP host filesystem."
-        )
     plugin_id, local_path = _resolve_source(source, plugin_id, local_path)
     timeout_seconds = _require_int_in_range(
         timeout_seconds, "timeout_seconds", 1, _MAX_TIMEOUT_SECONDS
@@ -934,7 +931,7 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
     description="Create and bind a plugin-managed code environment, resume its build, or bind an existing unbound one.",
     annotations={
         "readOnlyHint": False,
-        "destructiveHint": True,
+        "destructiveHint": False,
         "openWorldHint": False,
     },
 )

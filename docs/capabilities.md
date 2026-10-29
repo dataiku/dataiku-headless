@@ -88,7 +88,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
-| Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — install/update are stdio only |
+| Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — local-path install/update are stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
