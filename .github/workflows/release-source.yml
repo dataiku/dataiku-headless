@@ -1,0 +1,24 @@
+name: Release source policy
+
+# Run the policy from the trusted base branch. Never check out or execute PR code.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  release-source:
+    name: Release branch into main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a same-repository release branch
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$HEAD_REPO" = "$BASE_REPO" || { echo 'Main accepts release branches from this repository only.'; exit 1; }
+          [[ "$HEAD_BRANCH" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Target feature and fix PRs at the active release/X.Y.Z branch, not main.'; exit 1; }

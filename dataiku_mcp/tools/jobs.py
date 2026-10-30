@@ -19,10 +19,12 @@ import time
 from typing import Annotated, Literal
 
 from dataikuapi.dss.future import DSSFuture
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
+from requests.exceptions import RequestException
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import PROJECT_EXECUTION_POLICY
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -118,7 +120,7 @@ def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> lis
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Build Datasets",
     annotations={
         "readOnlyHint": False,
@@ -260,7 +262,7 @@ async def build_datasets(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Run Recipe",
     annotations={
         "readOnlyHint": False,
@@ -407,8 +409,51 @@ async def run_recipe(
     )
 
 
+def _plugin_future_state(state: dict) -> dict:
+    """Compact plugin receipts without settings, logs, or Git subprocess errors."""
+    safe = {
+        key: state[key]
+        for key in ("jobId", "alive", "hasResult", "aborted", "runningTime")
+        if key in state
+    }
+    progress_states = (state.get("progress") or {}).get("states") or []
+    if progress_states:
+        safe["progress"] = {
+            "states": [
+                {
+                    key: progress[key]
+                    for key in ("name", "unit", "cur", "target")
+                    if key in progress
+                }
+                for progress in progress_states
+            ]
+        }
+    result = state.get("result")
+    if isinstance(result, dict):
+        receipt = {
+            key: result[key]
+            for key in ("success", "needsReload", "needsRestart")
+            if key in result
+        }
+        desc = (result.get("pluginDesc") or {}).get("desc") or {}
+        if desc.get("id"):
+            receipt["pluginDesc"] = {
+                "desc": {key: desc[key] for key in ("id", "version") if key in desc}
+            }
+        if (
+            result.get("success") is False
+            or result.get("installationError")
+            or result.get("errorMessage")
+        ):
+            receipt["error"] = (
+                "Plugin operation failed. Inspect the plugin and Dataiku server logs before retrying; raw error details are omitted because they may contain credentials."
+            )
+        safe["result"] = receipt
+    return safe
+
+
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Future Status",
     annotations={
         "readOnlyHint": True,
@@ -431,14 +476,34 @@ async def get_future_status(
 
     def _run():
         future = DSSFuture(get_dss_client(), future_id)
-        state = future.get_state() if fetch_result else future.peek_state()
+        try:
+            state = future.peek_state()
+        except (DataikuException, RequestException):
+            raise RuntimeError(
+                "Could not inspect this future. It may have failed or its result may already have been read. Inspect the affected object before retrying; raw errors are omitted because they may contain credentials."
+            ) from None
+        plugin_action = (state.get("payload") or {}).get("action") in {
+            "plugin_install",
+            "plugin_delete",
+        }
+        if fetch_result:
+            try:
+                state = future.get_state()
+            except Exception:
+                if not plugin_action:
+                    raise
+                raise RuntimeError(
+                    "Could not retrieve the plugin operation result. Inspect installed plugins before retrying; raw error details are omitted because they may contain credentials."
+                ) from None
+        if plugin_action:
+            state = _plugin_future_state(state)
         return {"future_id": future_id, "state": state}
 
     return compact_json(await run_blocking(_run))
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Job Status",
     annotations={
         "readOnlyHint": True,
@@ -471,7 +536,7 @@ async def get_job_status(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Job Log",
     annotations={
         "readOnlyHint": True,
@@ -528,7 +593,7 @@ async def get_job_log(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="List Jobs",
     annotations={
         "readOnlyHint": True,
@@ -569,7 +634,7 @@ async def list_jobs(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Wait for Job",
     annotations={
         "readOnlyHint": True,
@@ -616,7 +681,7 @@ async def wait_for_job(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Abort Job",
     annotations={
         "readOnlyHint": False,

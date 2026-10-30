@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/*']
   pull_request:
-    branches: [main]
+    branches: [main, 'release/*']
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -60,6 +60,13 @@ jobs:
           enable-cache: true
       - name: Install locked dependencies
         run: uv sync --locked --python ${{ matrix.python-version }}
+      - name: Validate finalized release into main
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && startsWith(github.head_ref, 'release/')
+        env:
+          RELEASE_BRANCH: ${{ github.head_ref }}
+        run: |
+          test "$(uv run python scripts/check_release.py)" = "${RELEASE_BRANCH#release/}"
+          uv run python scripts/check_release.py --notes
       - name: Run tests
         run: uv run pytest
 

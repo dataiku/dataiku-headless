@@ -10,7 +10,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
-2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. Check the configured `instance_type` against the policy below before choosing a tool. It controls dispatch; Dataiku permissions and API availability still apply.
+2. Ensure an instance is configured before instance operations. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. Check the configured `instance_type` against the policy below before choosing a tool. It controls dispatch; Dataiku permissions and API availability still apply.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -24,18 +24,18 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 | Configured type | Available work |
 | --- | --- |
-| `design`, `agent-management` | All tools |
+| `design` | All tools |
 | `automation` | Reads, execution of existing assets, instance administration, and all project-folder operations |
-| `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
+| `agent-management`, `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
 
 Automation excludes all Cobuild tools, including conversation listing and polling,
 and project creation, project settings/variables updates, container placement,
 dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
 runs, and job aborts remain available and can change outputs. For project
-construction or edits, ask which Design or Agent Management instance to use and
+construction or edits, ask which Design instance to use and
 switch to it; do not bypass the policy through raw APIs.
 
-Govern and Deployer report `connection_status=unsupported` without a DSS probe.
+Agent Management, Govern and Deployer report `connection_status=unsupported` without a DSS probe.
 Explain that their API tools are not implemented, then switch to a supported
 configured instance for Dataiku work. Local configuration actions remain subject
 to the existing HTTP restrictions. The catalog stays visible across all types;
@@ -51,7 +51,7 @@ unsupported calls fail before execution.
 6. If the task is a documented direct-write exception, follow the matching guide's direct-write path instead of forcing it through Cobuild.
 7. Keep the user's main object of work as the primary guide. Read supporting guides only when the primary guide tells you they are relevant.
 8. For tasks that span multiple object types, keep one primary guide and read supporting guides for dependent objects or job/run follow-up.
-9. Completion status is not enough. Validate by re-reading the changed object and using `./references/jobs.md` when execution may still be in progress.
+9. Completion status is not enough. Validate by re-reading the changed object and comparing it with what the user asked for. Where the request is specific about names, titles, or values, check them in the saved settings or a data sample, and mention any requirement you could not confirm. Use `./references/jobs.md` when execution may still be in progress.
 
 ## Guide Routing
 
@@ -68,6 +68,7 @@ unsupported calls fail before execution.
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
 | Inspect connections or choose a valid connection | `./references/connections.md` |
+| Create, extend, test, or package a Dataiku plugin from local source | `./references/plugin-development.md` |
 | Dataiku administrative tasks: (e.g. users, groups, code environments, general settings, etc.) | `./references/administration.md` |
 | Inspect ML analyses, trained models, or saved models | `./references/machine-learning.md` |
 | Inspect LLMs, Knowledge Banks, or RAG LLMs | `./references/llms-and-knowledge-banks.md` |

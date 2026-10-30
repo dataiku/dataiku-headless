@@ -5,7 +5,7 @@ description: Select where an existing recipe, ML task, WebApp backend, Knowledge
 
 # Container Execution Placement
 
-`set_container_exec_config` requires `design` or `agent-management`; placement changes are unavailable on Automation.
+`set_container_exec_config` requires `design`; placement changes are unavailable on Automation.
 
 `set_container_exec_config` changes only the container execution selection of one
 existing object. It preserves the object's logic, code, inputs, outputs, and every other

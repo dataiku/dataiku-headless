@@ -27,10 +27,11 @@ discussed.
 
 ## Opening a pull request
 
-1. Fork the repository and create a focused branch from `main`.
+1. Fork the repository and create a focused branch from the active `release/X.Y.Z` branch.
 2. Make the smallest coherent change and add or update relevant tests.
 3. Run the verification commands in the coding standards linked above.
-4. Open a pull request against `main`.
+4. Open a pull request against that release branch. Only release branches merge
+   into `main`; see [`RELEASE.md`](RELEASE.md) for the release process.
 
 Use a [Conventional Commits](https://www.conventionalcommits.org/) title for the
 pull request, such as `fix: handle failed plugin installation`. In the pull

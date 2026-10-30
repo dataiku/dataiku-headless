@@ -25,17 +25,6 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Dataiku Headless supports two connection modes:
-
-| Mode | MCP server | Authentication | Installation |
-| --- | --- | --- | --- |
-| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
-| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
-
-Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
-
-The rest of this README covers the Dataiku Headless marketplace plugin, which uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
-
 Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
@@ -139,6 +128,9 @@ For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
 
+To build or update a Dataiku plugin, follow the
+[plugin development guide](skills/dataiku-headless/references/plugin-development.md).
+
 ## MCP Server
 
 `dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
@@ -152,8 +144,6 @@ limited direct actions Headless supports, see the
 In local stdio mode, tools do not accept API keys as arguments — authentication is
 resolved server-side from environment variables or a config file. Code Studios
 provide their hosting instance URL and API ticket automatically.
-
-For advanced multi-user deployments, see [Streamable HTTP deployment](docs/http-deployment.md).
 
 ## Agent Skills
 
@@ -191,10 +181,10 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
 The configured type determines which tools can run; see the
-[instance-type policy](docs/capabilities.md#instance-types). Govern and Deployer
+[instance-type policy](docs/capabilities.md#instance-types). Agent Management, Govern and Deployer
 currently support instance controls only. Their status is `unsupported`, without
-a DSS connection check. The setup page allows Govern profiles to be saved without
-testing; other types, including Deployer, require a successful connection test.
+a DSS connection check. The setup page allows these profiles to be saved without testing.
+Design and Automation require a successful connection test.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -236,6 +226,19 @@ Every install path above has your harness launch the server itself. Run it stand
 uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 ```
 
+## Customer-managed HTTP deployment
+
+Dataiku Headless supports two connection modes:
+
+| Mode | MCP server | Authentication | Installation |
+| --- | --- | --- | --- |
+| Local stdio | Runs on the user's workstation | Personal Dataiku API key | Install the local plugin |
+| Customer-managed HTTP | Runs as an organization-managed service | Enterprise OAuth and delegated Dataiku identity | Install the customer-specific remote plugin distributed by the administrator |
+
+Do not enable both Dataiku MCP definitions in the same client. They expose the same tools with different credential ownership and can cause the agent to target the wrong server.
+
+The Dataiku Headless marketplace plugin uses stdio transport. For customer-managed HTTP installation, endpoint distribution, OAuth login, and end-user verification, see [Streamable HTTP deployment](docs/http-deployment.md#distribute-the-interactive-oauth-plugin).
+
 ## Project Structure
 
 ```text
@@ -261,7 +264,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── plugins.py         # Instance plugin listing, updates, and deletion
+│   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
@@ -314,7 +317,7 @@ uv run --quiet --locked --script ./runtime/run_mcp.py --transport stdio
 
 ## Contributing
 
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; `RELEASE.md` covers how versions and releases are cut.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) to report an issue or open a pull request. `CODING_STANDARDS_AND_STRUCTURE.md` has local setup, coding standards, guardrails, and the PR checklist; [`RELEASE.md`](RELEASE.md) covers collecting changes on `release/X.Y.Z`, finalizing the batch, and publishing its reviewed merge into `main`.
 
 ## License
 

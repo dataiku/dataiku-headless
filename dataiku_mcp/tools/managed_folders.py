@@ -19,7 +19,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META, PROJECT_EDIT_TOOL_META
+from ..instance_policy import (
+    PROJECT_EDIT_POLICY,
+    PROJECT_READ_POLICY,
+)
 from ..config import request
 from ..server import mcp
 from ..auth import get_dss_client
@@ -32,7 +35,7 @@ from .utils.validation import (
 
 
 @mcp.tool(
-    meta=PROJECT_EDIT_TOOL_META,
+    meta=PROJECT_EDIT_POLICY,
     title="Create Managed Folder",
     annotations={
         "readOnlyHint": False,
@@ -85,7 +88,7 @@ async def create_managed_folder(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="List Managed Folders",
     annotations={
         "readOnlyHint": True,
@@ -118,7 +121,7 @@ async def list_managed_folders(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="Get Managed Folder Contents",
     annotations={
         "readOnlyHint": True,
@@ -173,7 +176,7 @@ async def get_managed_folder_contents(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="Get Managed Folder Info",
     annotations={
         "readOnlyHint": True,
@@ -213,7 +216,7 @@ async def get_managed_folder_info(
 
 
 @mcp.tool(
-    meta=PROJECT_EDIT_TOOL_META,
+    meta=PROJECT_EDIT_POLICY,
     title="Upload File to Managed Folder",
     annotations={
         "readOnlyHint": False,

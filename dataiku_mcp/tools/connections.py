@@ -21,7 +21,7 @@ from typing import Annotated, Literal
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -157,7 +157,7 @@ def _get_connection_category(connection_type: str) -> str | None:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=ADMIN_POLICY,
     title="List Connections",
     annotations={
         "readOnlyHint": True,
@@ -232,7 +232,7 @@ async def list_connections(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=ADMIN_POLICY,
     title="Get Connection Info",
     annotations={
         "readOnlyHint": True,
@@ -278,7 +278,7 @@ async def get_connection_info(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=ADMIN_POLICY,
     title="Test Connection",
     annotations={
         "readOnlyHint": True,

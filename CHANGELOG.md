@@ -1,3 +1,14 @@
+## v0.8.0 (2026-10-08)
+
+### Feat
+
+- add instance types (#176)
+- **auth**: support Code Studio API ticket authentication (#171)
+
+### Fix
+
+- **auth**: tag SDK requests with headless application header (#172)
+
 ## v0.7.0 (2026-09-30)
 
 ### Feat

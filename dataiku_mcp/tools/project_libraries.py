@@ -31,7 +31,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META, PROJECT_EDIT_TOOL_META
+from ..instance_policy import (
+    PROJECT_EDIT_POLICY,
+    PROJECT_READ_POLICY,
+)
 from ..config import request
 from ..server import mcp
 from ..executors import run_blocking
@@ -261,7 +264,7 @@ def _ast_validate_python(content: str) -> dict:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="List Project Library",
     annotations={
         "readOnlyHint": True,
@@ -346,7 +349,7 @@ async def list_project_library(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="Read Project Library File",
     annotations={
         "readOnlyHint": True,
@@ -380,7 +383,7 @@ async def read_project_library_file(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="Search Project Library",
     annotations={
         "readOnlyHint": True,
@@ -508,7 +511,7 @@ async def search_project_library(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=PROJECT_READ_POLICY,
     title="Validate Project Library File",
     annotations={
         "readOnlyHint": True,
@@ -560,7 +563,7 @@ async def validate_project_library_file(
 
 
 @mcp.tool(
-    meta=PROJECT_EDIT_TOOL_META,
+    meta=PROJECT_EDIT_POLICY,
     title="Write Project Library File",
     annotations={
         "readOnlyHint": False,

@@ -5,7 +5,7 @@ description: Understand and inspect Dataiku projects, their metadata, variables,
 
 # Projects
 
-Project creation and variable writes require `design` or `agent-management`. Project and Flow reads are also available on `automation`; Cobuild is not.
+Project creation and variable writes require `design`. Project and Flow reads are also available on `automation`; Cobuild is not.
 
 Use this guide to understand and inspect Dataiku projects, update project variables, and gather grounded context for Cobuild.
 

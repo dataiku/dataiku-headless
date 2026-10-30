@@ -169,9 +169,7 @@ def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
         return error.code, error.read().decode()
 
 
-@pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "agent-management", "deployer"]
-)
+@pytest.mark.parametrize("instance_type", ["design", "automation"])
 def test_setup_server_requires_a_successful_test_before_saving(
     monkeypatch, instance_type
 ):
@@ -202,7 +200,7 @@ def test_setup_server_requires_a_successful_test_before_saving(
     "change",
     [
         {"api_key": "other-secret"},
-        {"instance_type": "deployer"},
+        {"instance_type": "automation"},
         {"url": "https://other.example"},
         {"no_check_certificate": "on"},
     ],
@@ -237,12 +235,17 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(
     )
 
 
-def test_govern_profile_can_be_saved_after_unavailable_test(monkeypatch):
+@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
+def test_unsupported_profile_can_be_saved_after_unavailable_test(
+    monkeypatch, instance_type
+):
     saved = []
     monkeypatch.setattr(
         setup_server.dataikuapi,
         "DSSClient",
-        lambda *args: pytest.fail("Govern must not construct a DSS client"),
+        lambda *args: pytest.fail(
+            "Unsupported profiles must not construct a DSS client"
+        ),
     )
     monkeypatch.setattr(
         setup_server.stdio,
@@ -255,25 +258,25 @@ def test_govern_profile_can_be_saved_after_unavailable_test(monkeypatch):
     monkeypatch.setattr(setup_server.request, "set_current_instance", lambda name: None)
     session = setup_server.start_setup_server(open_browser=False)
     form = {
-        "name": "govern",
+        "name": instance_type,
         "url": "https://example.com",
         "api_key": "secret",
-        "instance_type": "govern",
+        "instance_type": instance_type,
     }
     try:
         status, page = _post_setup_form(session.url, {**form, "action": "test"})
         assert status == 400
-        assert "Connection testing is unavailable for Govern" in page
+        assert f"Connection testing is unavailable for {instance_type}" in page
         assert session.validated_connection is None
         status, page = _post_setup_form(session.url, {**form, "action": "save"})
         assert status == 200
         assert "Instance saved" in page
-        assert saved[0]["instance_type"] == "govern"
+        assert saved[0]["instance_type"] == instance_type
     finally:
         session.close()
 
 
-def test_deployer_connection_test_uses_dss_client(monkeypatch):
+def test_design_connection_test_uses_dss_client(monkeypatch):
     calls = []
 
     class Client:
@@ -289,6 +292,6 @@ def test_deployer_connection_test_uses_dss_client(monkeypatch):
 
     monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", Client)
     setup_server._test_connection(
-        _validate_form({**_form("https://example.com"), "instance_type": ["deployer"]})
+        _validate_form({**_form("https://example.com"), "instance_type": ["design"]})
     )
     assert calls == ["client", "auth"]
