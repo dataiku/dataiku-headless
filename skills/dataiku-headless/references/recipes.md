@@ -32,7 +32,7 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 4. Read the matching recipe-family reference before interpreting a type-specific configuration or describing a new recipe to Cobuild.
 5. Read supporting guides when the selected recipe depends on managed folders, models, LLMs, Knowledge Banks, agents, code environments, project libraries, or connections.
 6. If the request only changes where an existing recipe runs, use `./container-execution.md`. This is a narrow direct-write exception and does not require Cobuild.
-7. Route all other recipe creation, editing, and wiring through `./cobuild.md`.
+7. Route all other recipe creation, editing, and wiring through `./cobuild.md`, except `r` recipes: see [R Recipes](./recipes/recipe-types/code-recipes.md#r-recipes).
 8. Cobuild will run recipes and build datasets as part of broader project work. For one-off execution of an existing recipe or dataset build, use `./jobs.md`: `build_datasets` for dataset outputs and `run_recipe` for direct recipe execution.
 9. After a build or run starts, use `./jobs.md` to follow an active or uncertain job. Validate outputs through the relevant guide.
 
@@ -76,12 +76,12 @@ A recipe's outputs must fit the surrounding Flow. Inspect input schemas and exis
 ## Safety Rules
 
 - Inspect an existing recipe before any modification.
-- Treat container execution selection, documented in `./container-execution.md`, as the
-  only direct recipe-setting write. Route changes to recipe logic, code, inputs, outputs,
-  or other engine settings through Cobuild.
+- Treat container execution selection, documented in `./container-execution.md`, and
+  `r` recipe writes as the only direct recipe writes. Route all other changes to recipe
+  logic, code, inputs, outputs, or engine settings through Cobuild.
 - Preserve the surrounding Flow's storage and dependency context unless the user requests a change.
 - Treat a timed-out or interrupted build as potentially still running; inspect the job before retrying or changing related Flow objects.
 - `get_flow_graph` is the primary flow-orientation tool. It returns flow sources, nodes, and dependency edges. On large flows those lists may come back clipped; when that affects the task, use the relevant `list_*` tools for context and inspect only the specific datasets, recipes, or flow objects that matter with the relevant `get_*` tools.
 - Use `./jobs.md` for direct execution of an existing recipe or its dataset outputs; this guide stays focused on inspection and grounded recipe planning.
 - Keep this skill focused on inspection, concepts, and Cobuild grounding. Do not add
-  direct recipe mutation workflows beyond the container execution exception.
+  direct recipe mutation workflows beyond the container execution and `r` recipe exceptions.
