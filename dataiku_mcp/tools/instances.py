@@ -22,10 +22,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import INSTANCE_MANAGEMENT, SUPPORTED_DSS_INSTANCE_TYPES
-from ..auth import get_dss_client
+from ..auth import get_dss_client, get_govern_client
 from ..config import request, stdio
 from ..executors import run_blocking
+from ..instance_policy import INSTANCE_MANAGEMENT, SUPPORTED_DSS_INSTANCE_TYPES
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -120,20 +120,35 @@ async def delete_instance(name: InstanceName, ctx: Context) -> str:
     },
 )
 async def get_current_instance(ctx: Context) -> str:
-    """Inspect the active profile and its DSS connection, or report an unsupported node type."""
+    """Confirm which instance is active, whether it can be reached, and its version."""
 
     # Strip both credential types from the response, including on failure.
     current_instance = asdict(request.get_pinned_instance())
     current_instance.pop("api_key", None)
     current_instance.pop("api_ticket", None)
     current_instance.pop("encrypted_rpc_cert_path", None)
-    if current_instance["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES:
+    if (
+        current_instance["instance_type"] != "govern"
+        and current_instance["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES
+    ):
         current_instance["connection_status"] = "unsupported"
+        return compact_json(omit_empty(current_instance))
+    if current_instance["instance_type"] == "govern" and request.is_http_request():
+        current_instance["connection_status"] = "unsupported_authentication"
         return compact_json(omit_empty(current_instance))
     current_instance["connection_status"] = "failed"
     try:
         version = await run_blocking(
-            lambda: get_dss_client().get_instance_info().raw.get("dssVersion") or ""
+            lambda: (
+                (
+                    get_govern_client()
+                    if current_instance["instance_type"] == "govern"
+                    else get_dss_client()
+                )
+                .get_instance_info()
+                .raw.get("dssVersion")
+                or ""
+            )
         )
     except Exception:
         pass

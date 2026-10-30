@@ -128,6 +128,10 @@ class RequestContextMiddleware(Middleware):
                     instance.instance_type in SUPPORTED_DSS_INSTANCE_TYPES
                 )
             if access_token is not None and requires_dss_token:
+                if instance.instance_type == "govern":
+                    raise ValueError(
+                        "Govern operations require stdio; HTTP authentication is unsupported."
+                    )
                 dss_token = await exchange_http_token(access_token.token)
                 dss_token_reset_token = request.bind_http_dss_token(dss_token)
             return await call_next(context)
