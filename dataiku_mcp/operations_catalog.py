@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audited operation declarations for Deployer and Govern."""
+"""Audited operation declarations for Deployer, Govern and Agent Management."""
 
 from .operation_registry import Operation, arguments_for, make_catalog
-from .tools import deployer, govern
+from .tools import deployer, govern, agent_management
 from .operation_schemas import govern_arguments
 
 
@@ -98,6 +98,32 @@ _DEPLOYER_OPERATIONS = list(
 )
 
 
+def _agent_management_operation(name, spec):
+    arguments = (
+        agent_management.AlertEvaluationArguments
+        if name == "evaluate_alerts"
+        else arguments_for(spec.handler, exclude=("client",))
+    )
+    return Operation(
+        operation_id="agent-management." + name,
+        domain="agent-management",
+        category=spec.domain,
+        description=spec.handler.__doc__,
+        effect=spec.effect,
+        allowed_instance_types=("agent-management",),
+        arguments=arguments,
+        handler=agent_management.operation_handler(spec),
+        requirements="Requires dataiku-api-client 15.2.0 or newer and a compatible Agent Management release. Uses public SDK methods only. Nested settings are backend-defined. Catalog presence does not verify live permissions or server features.",
+        response_contract="Public SDK JSON with credentials recursively redacted. Save inspected fetchedRevision as expected_revision for writes. Async starts return platform_id, agent_id and operation_id for polling without waiting. No automatic retries. Alert evaluation returns queued_agent_count, not newly created alerts. Local-file transfers require stdio.",
+        example=spec.example,
+        destructive=spec.destructive,
+        transports=("stdio",)
+        if "output_path" in spec.local_file_fields
+        else ("stdio", "http"),
+        local_file_fields=spec.local_file_fields,
+    )
+
+
 def _govern_operation(name, spec):
     arguments = govern_arguments(name, spec)
     example = {}
@@ -145,6 +171,10 @@ def _govern_operation(name, spec):
 OPERATIONS = make_catalog(
     [
         *_DEPLOYER_OPERATIONS,
+        *[
+            _agent_management_operation(name, spec)
+            for name, spec in agent_management.AGENT_MANAGEMENT_OPERATIONS.items()
+        ],
         *[
             _govern_operation(name, spec)
             for name, spec in govern.GOVERN_OPERATIONS.items()

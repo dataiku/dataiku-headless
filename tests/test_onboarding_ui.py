@@ -28,18 +28,18 @@ def test_setup_page_uses_dataiku_branding_and_accessible_states():
     assert "gradient" not in page
 
 
-def test_setup_page_allows_govern_save_without_a_connection_test():
+def test_setup_page_requires_a_successful_connection_test():
     page = _page()
 
     assert "<summary>Advanced options</summary>" in page
     assert 'name="no_check_certificate"' in page
-    assert 'name="action" value="save" disabled' not in page
-    assert "Agent Management profiles can be saved without testing." in page
+    assert 'name="action" value="save" disabled' in page
+    assert "Govern profiles can be saved without testing." not in page
     assert "button:disabled, button:disabled:hover" in page
 
 
 def test_setup_page_enables_save_after_a_successful_connection_test():
-    page = _page(status="Connection successful.")
+    page = _page(status="Connection successful.", connection_validated=True)
 
     assert 'name="action" value="save" disabled' not in page
 

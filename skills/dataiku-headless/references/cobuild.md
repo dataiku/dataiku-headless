@@ -5,7 +5,7 @@ description: Use Dataiku Cobuild for project-level asset creation, modification,
 
 # Cobuild
 
-All Cobuild tools require `design`, including read-only conversations, listing, and polling. Automation cannot use Cobuild; switch to a supported instance before this workflow.
+All Cobuild tools require `design` or `agent-management`, including read-only conversations, listing, and polling. Automation cannot use Cobuild; switch to a supported instance before this workflow.
 
 Cobuild is Dataiku's AI building agent for co-developing Dataiku projects. It can build and modify flows, recipes, models, dashboards, webapps, notebooks, wiki content, agents, scenarios, and other project assets through a retained conversation.
 
