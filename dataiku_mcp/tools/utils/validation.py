@@ -15,6 +15,9 @@
 """Shared validation helpers for tool modules."""
 
 import re
+from typing import Annotated
+
+from pydantic import AfterValidator, Field
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
@@ -147,3 +150,29 @@ def require_relative_posix_path(value: str, field_name: str) -> str:
     if path.is_absolute() or ".." in path.parts or "\\" in value:
         raise ValueError(f"'{field_name}' must be a relative path without '..'")
     return value
+
+
+def require_path_segment(value: str) -> str:
+    """Reject separators, double-decoding escapes and URL-normalized dot segments."""
+    value = value.strip()
+    if (
+        not value
+        or value in {".", ".."}
+        or any(char in value for char in "/\\%")
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise ValueError(
+            "Expected a non-empty path segment without separators, escapes or dot segments"
+        )
+    return value
+
+
+PathSegment = Annotated[
+    str,
+    Field(
+        min_length=1,
+        pattern=r"^[^/\\%\x00-\x1f\x7f]+$",
+        description="One identifier segment; dot segments, slashes, backslashes and percent escapes are rejected.",
+    ),
+    AfterValidator(require_path_segment),
+]

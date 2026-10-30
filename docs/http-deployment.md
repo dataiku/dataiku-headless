@@ -110,11 +110,7 @@ The settings file has four sections:
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
-Instance types are operator-supplied and enforce the same
-[tool policy](capabilities.md#instance-types) as stdio. Unsupported tool calls are
-rejected before DSS token exchange. Agent Management, Govern and Deployer support instance controls
-only; `get_current_instance` reports `unsupported` without contacting DSS. The
-configured type does not trigger API discovery or select a different SDK client.
+Instance types are operator-supplied and enforce the same [tool policy](capabilities.md#instance-policies-and-operation-discovery) as stdio. Unsupported tool calls fail before backend token exchange. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted
@@ -385,3 +381,7 @@ string-or-array format found in the exchanged token.
 > delegated token's `sub` must equal the selected Dataiku login or email. Validate this
 > constraint before production rollout. See Microsoft's
 > [access-token claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference).
+
+## Product authentication boundaries
+
+The shared operation catalog includes Deployer. Deployer supports delegated HTTP authentication. Agent Management and Govern product support is deferred.
