@@ -19,7 +19,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_ADMIN
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
@@ -120,7 +120,7 @@ def _apply_changes(definition: dict, changes: dict) -> None:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="List Groups",
     annotations={
         "readOnlyHint": True,
@@ -207,7 +207,7 @@ async def list_groups(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="Create Group",
     annotations={
         "readOnlyHint": False,
@@ -329,7 +329,7 @@ async def create_group(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="Update Group",
     annotations={
         "readOnlyHint": False,
@@ -446,7 +446,7 @@ async def update_group(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="Delete Group",
     annotations={
         "readOnlyHint": False,

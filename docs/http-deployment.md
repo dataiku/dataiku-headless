@@ -112,7 +112,7 @@ The settings file has four sections:
 
 Instance types are operator-supplied and enforce the same
 [tool policy](capabilities.md#instance-types) as stdio. Unsupported tool calls are
-rejected before DSS token exchange. Govern and Deployer support instance controls
+rejected before DSS token exchange. Agent Management, Govern and Deployer support instance controls
 only; `get_current_instance` reports `unsupported` without contacting DSS. The
 configured type does not trigger API discovery or select a different SDK client.
 

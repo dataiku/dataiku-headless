@@ -18,7 +18,7 @@ import copy
 
 from fastmcp import Context
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -54,7 +54,7 @@ def _serialize_webapp_list_item(item: dict) -> dict:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Webapps",
     annotations={
         "readOnlyHint": True,
@@ -92,7 +92,7 @@ async def list_webapps(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Webapp Settings",
     annotations={
         "readOnlyHint": True,
@@ -123,7 +123,7 @@ async def get_webapp_settings(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Webapp State",
     annotations={
         "readOnlyHint": True,

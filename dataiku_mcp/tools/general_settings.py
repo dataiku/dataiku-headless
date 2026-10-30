@@ -19,7 +19,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_ADMIN
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
@@ -158,7 +158,7 @@ def _serialize_spark_config(raw: dict, include_details: bool) -> dict:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="List Container Execution Configs",
     annotations={
         "readOnlyHint": True,
@@ -193,7 +193,7 @@ async def list_container_exec_configs(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="List Spark Configs",
     annotations={
         "readOnlyHint": True,

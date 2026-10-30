@@ -20,7 +20,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_ADMIN
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
@@ -56,7 +56,7 @@ def _profile_rows(status: dict, include_capabilities: bool) -> list[dict]:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_ADMIN,
     title="Get Licensing Status",
     annotations={
         "readOnlyHint": True,

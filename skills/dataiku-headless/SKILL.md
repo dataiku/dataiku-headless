@@ -24,18 +24,18 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 | Configured type | Available work |
 | --- | --- |
-| `design`, `agent-management` | All tools |
+| `design` | All tools |
 | `automation` | Reads, execution of existing assets, instance administration, and all project-folder operations |
-| `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
+| `agent-management`, `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
 
 Automation excludes all Cobuild tools, including conversation listing and polling,
 and project creation, project settings/variables updates, container placement,
 dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
 runs, and job aborts remain available and can change outputs. For project
-construction or edits, ask which Design or Agent Management instance to use and
+construction or edits, ask which Design instance to use and
 switch to it; do not bypass the policy through raw APIs.
 
-Govern and Deployer report `connection_status=unsupported` without a DSS probe.
+Agent Management, Govern and Deployer report `connection_status=unsupported` without a DSS probe.
 Explain that their API tools are not implemented, then switch to a supported
 configured instance for Dataiku work. Local configuration actions remain subject
 to the existing HTTP restrictions. The catalog stays visible across all types;
@@ -51,7 +51,7 @@ unsupported calls fail before execution.
 6. If the task is a documented direct-write exception, follow the matching guide's direct-write path instead of forcing it through Cobuild.
 7. Keep the user's main object of work as the primary guide. Read supporting guides only when the primary guide tells you they are relevant.
 8. For tasks that span multiple object types, keep one primary guide and read supporting guides for dependent objects or job/run follow-up.
-9. Completion status is not enough. Validate by re-reading the changed object and using `./references/jobs.md` when execution may still be in progress.
+9. Completion status is not enough. Validate by re-reading the changed object and comparing it with what the user asked for. Where the request is specific about names, titles, or values, check them in the saved settings or a data sample, and mention any requirement you could not confirm. Use `./references/jobs.md` when execution may still be in progress.
 
 ## Guide Routing
 

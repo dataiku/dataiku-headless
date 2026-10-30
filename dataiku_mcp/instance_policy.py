@@ -12,26 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Declared instance-type policies for MCP dispatch."""
+"""Declared instance policies, enforced before acquiring backend credentials."""
 
 from typing import get_args
 
 from .config.models import InstanceType
 
+# Product-node support is added separately from this Design/Automation foundation.
+SUPPORTED_DSS_INSTANCE_TYPES = frozenset({"design", "automation"})
 
-SUPPORTED_DSS_INSTANCE_TYPES = frozenset({"design", "automation", "agent-management"})
-ALL_INSTANCE_TOOL_META = {"allowed_instance_types": list(get_args(InstanceType))}
-DSS_TOOL_META = {"allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)}
-PROJECT_EDIT_TOOL_META = {"allowed_instance_types": ["design", "agent-management"]}
-INSTANCE_CONTROL_TOOLS = frozenset(
-    {"list_instances", "switch_instance", "configure_instance", "delete_instance"}
-)
+# These are @mcp.tool metadata policies. V1 tools expose individual actions;
+# project authoring still routes through Cobuild and its fixed direct exceptions.
+V1_EXPLICIT_TOOL_PROJECT_READS = {
+    "allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)
+}
+V1_EXPLICIT_TOOL_PROJECT_EXECUTION = {
+    "allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)
+}
+V1_EXPLICIT_TOOL_ADMIN = {
+    "allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)
+}
+V1_EXPLICIT_TOOL_PROJECT_EDITS = {"allowed_instance_types": ["design"]}
+INSTANCE_MANAGEMENT = {"allowed_instance_types": list(get_args(InstanceType))}
 
 
 def require_instance_type(
     tool_name: str, instance_type: InstanceType | None, metadata: dict | None
 ) -> None:
-    """Reject missing policy declarations and calls on unsupported node types."""
     allowed = (
         metadata.get("allowed_instance_types") if isinstance(metadata, dict) else None
     )
@@ -42,13 +49,13 @@ def require_instance_type(
             not isinstance(value, str) or value not in get_args(InstanceType)
             for value in allowed
         )
-        or len(set(allowed)) != len(allowed)
+        or len(allowed) != len(set(allowed))
     ):
         raise ValueError(f"Tool '{tool_name}' has an invalid instance-type policy.")
-    if instance_type is None and tool_name in INSTANCE_CONTROL_TOOLS:
+    # Only the connection-management group can run before a profile is selected.
+    if instance_type is None and metadata == INSTANCE_MANAGEMENT:
         return
     if instance_type not in allowed:
         raise ValueError(
-            f"Tool '{tool_name}' is unavailable for instance type '{instance_type}'. "
-            f"Allowed types: {', '.join(allowed)}. Use switch_instance to choose a supported instance."
+            f"Tool '{tool_name}' is unavailable for instance type '{instance_type}'. Allowed types: {', '.join(allowed)}. Use switch_instance to choose a supported instance."
         )

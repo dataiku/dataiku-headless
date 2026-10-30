@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 import dataikuapi
 
 from .config import request, stdio
+from .instance_policy import SUPPORTED_DSS_INSTANCE_TYPES
 from .config.models import InstanceType
 
 SESSION_LIFETIME_SECONDS = 10 * 60
@@ -195,7 +196,7 @@ def _page(
         <div class="grid">
           <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
           <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production Dataiku" value="{description}"></div>
-          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select><div class="hint">Govern profiles can be saved without testing. Govern and Deployer tools are not available yet.</div></div>
+          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select><div class="hint">Agent Management, Govern and Deployer profiles can be saved without testing. Their API tools are not available yet.</div></div>
           <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" value="{url}" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
           <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" value="{api_key}" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
         </div>
@@ -244,9 +245,9 @@ def _success_page(name: str) -> str:
 
 
 def _test_connection(values: dict) -> None:
-    if values["instance_type"] == "govern":
+    if values["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES:
         raise ValueError(
-            "Connection testing is unavailable for Govern. Save the profile without testing."
+            f"Connection testing is unavailable for {values['instance_type']}. Save the profile without testing."
         )
     try:
         client = dataikuapi.DSSClient(values["url"], values["api_key"])
@@ -332,7 +333,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                     return
                 if action != "save":
                     raise ValueError("Unknown setup action.")
-                if values["instance_type"] != "govern" and (
+                if values["instance_type"] in SUPPORTED_DSS_INSTANCE_TYPES and (
                     not session_state
                     or session_state.validated_connection
                     != _connection_settings(values)

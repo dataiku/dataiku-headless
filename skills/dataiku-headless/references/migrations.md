@@ -6,7 +6,7 @@ description: Translate business logic from third-party tools (e.g. Alteryx, Tabl
 
 # Migrations
 
-Migration construction requires a `design` or `agent-management` instance. Automation can inspect and execute existing assets but cannot build the migrated project or use Cobuild.
+Migration construction requires a `design` instance. Automation can inspect and execute existing assets but cannot build the migrated project or use Cobuild.
 
 Translate business logic from third-party tools (e.g. Alteryx, Tableau Prep, SAS, Excel) into runnable Dataiku flows.
 

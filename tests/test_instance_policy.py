@@ -60,8 +60,8 @@ def _allowed(tool_name):
     if tool_name in INSTANCE_TOOLS:
         return set(get_args(InstanceType))
     if tool_name in PROJECT_EDIT_TOOLS:
-        return {"design", "agent-management"}
-    return {"design", "automation", "agent-management"}
+        return {"design"}
+    return {"design", "automation"}
 
 
 def test_every_registered_tool_declares_its_exact_instance_policy():
@@ -98,7 +98,9 @@ def test_invalid_policy_fails_closed_even_for_instance_controls(metadata):
         require_instance_type("switch_instance", None, metadata)
 
 
-@pytest.mark.parametrize("instance_type", ["automation", "govern", "deployer"])
+@pytest.mark.parametrize(
+    "instance_type", ["automation", "govern", "deployer", "agent-management"]
+)
 def test_mcp_dispatch_denies_every_disallowed_tool_before_validation_or_sdk(
     monkeypatch, instance_type
 ):
@@ -122,7 +124,7 @@ def test_mcp_dispatch_denies_every_disallowed_tool_before_validation_or_sdk(
     asyncio.run(dispatch())
 
 
-@pytest.mark.parametrize("instance_type", ["design", "automation", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["design", "automation"])
 def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
     monkeypatch.setattr(stdio, "_current_instance", _instance(instance_type))
     calls = []
@@ -150,7 +152,7 @@ def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
     assert calls == [instance_type]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "deployer"])
+@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
 def test_mcp_unsupported_status_needs_no_client(monkeypatch, instance_type):
     from dataiku_mcp.tools import instances
 

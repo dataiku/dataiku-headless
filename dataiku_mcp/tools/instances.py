@@ -22,7 +22,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import ALL_INSTANCE_TOOL_META, SUPPORTED_DSS_INSTANCE_TYPES
+from ..instance_policy import INSTANCE_MANAGEMENT, SUPPORTED_DSS_INSTANCE_TYPES
 from ..auth import get_dss_client
 from ..config import request, stdio
 from ..executors import run_blocking
@@ -36,7 +36,7 @@ InstanceName = Annotated[
 
 
 @mcp.tool(
-    meta=ALL_INSTANCE_TOOL_META,
+    meta=INSTANCE_MANAGEMENT,
     title="List Dataiku Instances",
     annotations={
         "readOnlyHint": True,
@@ -71,7 +71,7 @@ async def list_instances(ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=ALL_INSTANCE_TOOL_META,
+    meta=INSTANCE_MANAGEMENT,
     title="Switch Dataiku Instance",
     annotations={
         "readOnlyHint": False,
@@ -89,7 +89,7 @@ async def switch_instance(name: InstanceName, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=ALL_INSTANCE_TOOL_META,
+    meta=INSTANCE_MANAGEMENT,
     title="Delete Dataiku Instance",
     annotations={
         "readOnlyHint": False,
@@ -111,7 +111,7 @@ async def delete_instance(name: InstanceName, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=ALL_INSTANCE_TOOL_META,
+    meta=INSTANCE_MANAGEMENT,
     title="Get Current Instance",
     annotations={
         "readOnlyHint": True,
@@ -146,7 +146,7 @@ async def get_current_instance(ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=ALL_INSTANCE_TOOL_META,
+    meta=INSTANCE_MANAGEMENT,
     title="Configure Dataiku Instance",
     annotations={
         "readOnlyHint": False,

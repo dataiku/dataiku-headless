@@ -5,7 +5,7 @@ description: Use Dataiku Cobuild for project-level asset creation, modification,
 
 # Cobuild
 
-All Cobuild tools require `design` or `agent-management`, including read-only conversations, listing, and polling. Automation cannot use Cobuild; switch to a supported instance before this workflow.
+All Cobuild tools require `design`, including read-only conversations, listing, and polling. Automation cannot use Cobuild; switch to a supported instance before this workflow.
 
 Cobuild is Dataiku's AI building agent for co-developing Dataiku projects. It can build and modify flows, recipes, models, dashboards, webapps, notebooks, wiki content, agents, scenarios, and other project assets through a retained conversation.
 
@@ -54,10 +54,12 @@ Do not use this guide when:
 
 - Unless the user explicitly requests otherwise, keep each turn to one coherent unit of work. For example, creating a recipe, adding descriptions to a number of objects, editing a Wiki. The intention here is to not submit large, monolithic instructions to Cobuild that cover many actions at once.
 - Large transformations may hit Cobuild's server-side time cap and end mid-turn. After a timed-out turn, inspect the project to see what was actually created, then re-issue instructions covering only the remaining work.
+- Include the user's explicit requirements in the instruction, using their wording for names, titles, and formats, and avoid narrowing, deferring, or substituting what was asked for without checking with the user.
 - Prefer explicit Dataiku object names in prompts.
 - For creation requests, describe the intended asset, inputs, outputs, and constraints clearly.
 - If Cobuild needs project context, mention the relevant datasets, recipes, folders, models, dashboards, or other assets directly by name.
 - For existing assets, include the configuration and constraints discovered through the relevant guide.
+- Prefer verifying results by reading the project directly (for example `./dashboards.md` and `./datasets.md`) over asking Cobuild to verify its own work.
 - When the request touches project library source, state the destination path chosen per `./project-libraries.md`.
 
 ## Preferred Tools

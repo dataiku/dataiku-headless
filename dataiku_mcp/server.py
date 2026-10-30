@@ -19,19 +19,19 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import NotFoundError
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.azure import AzureProvider
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
-from fastmcp.exceptions import NotFoundError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.types import CallToolRequestParams
 
 from .auth import exchange_http_token
 from .config import http, request, stdio
 from .instance_policy import (
-    INSTANCE_CONTROL_TOOLS,
+    INSTANCE_MANAGEMENT,
     SUPPORTED_DSS_INSTANCE_TYPES,
     require_instance_type,
 )
@@ -114,13 +114,15 @@ class RequestContextMiddleware(Middleware):
             try:
                 instance = request.get_pinned_instance()
             except ValueError:
-                if tool_name not in INSTANCE_CONTROL_TOOLS:
+                if tool.meta != INSTANCE_MANAGEMENT:
                     raise
                 instance = None
             require_instance_type(
                 tool_name, instance.instance_type if instance else None, tool.meta
             )
-            requires_dss_token = DSS_INDEPENDENT_TOOL_TAG not in tool.tags
+            requires_dss_token = (
+                instance is not None and DSS_INDEPENDENT_TOOL_TAG not in tool.tags
+            )
             if tool_name == "get_current_instance" and instance is not None:
                 requires_dss_token = (
                     instance.instance_type in SUPPORTED_DSS_INSTANCE_TYPES

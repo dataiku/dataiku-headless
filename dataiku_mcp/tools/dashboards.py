@@ -16,7 +16,7 @@
 
 from fastmcp import Context
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -37,7 +37,7 @@ def _serialize_dashboard_list_item(item) -> dict:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Dashboards",
     annotations={
         "readOnlyHint": True,
@@ -65,7 +65,7 @@ async def list_dashboards(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Dashboard Settings",
     annotations={
         "readOnlyHint": True,

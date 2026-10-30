@@ -22,9 +22,9 @@ import pytest
 import dataiku_mcp.server as server
 from dataiku_mcp.config import request
 from dataiku_mcp.instance_policy import (
-    ALL_INSTANCE_TOOL_META,
-    DSS_TOOL_META,
-    PROJECT_EDIT_TOOL_META,
+    INSTANCE_MANAGEMENT,
+    V1_EXPLICIT_TOOL_PROJECT_READS,
+    V1_EXPLICIT_TOOL_PROJECT_EDITS,
 )
 from fastmcp.exceptions import NotFoundError
 
@@ -105,9 +105,9 @@ def _call_middleware(
                 tags=tool_tags or set(),
                 meta=tool_meta
                 or (
-                    ALL_INSTANCE_TOOL_META
+                    INSTANCE_MANAGEMENT
                     if tool_name in {"switch_instance", "get_current_instance"}
-                    else DSS_TOOL_META
+                    else V1_EXPLICIT_TOOL_PROJECT_READS
                 ),
             )
 
@@ -238,7 +238,7 @@ def test_http_unknown_tool_fails_without_token_exchange(
     ]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "deployer"])
+@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
 def test_http_unsupported_current_instance_skips_exchange(monkeypatch, instance_type):
     events = _call_middleware(
         monkeypatch, "get_current_instance", instance_type=instance_type
@@ -262,7 +262,7 @@ def test_http_policy_rejection_precedes_exchange_and_handler(
         tool_name,
         instance_type="automation",
         tool_tags=tool_tags,
-        tool_meta=PROJECT_EDIT_TOOL_META,
+        tool_meta=V1_EXPLICIT_TOOL_PROJECT_EDITS,
         expected_error=(ValueError, "automation.*Allowed types.*switch_instance"),
     )
     assert ("exchange", "mcp-token") not in events

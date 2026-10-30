@@ -16,7 +16,7 @@
 
 from fastmcp import Context
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -25,7 +25,7 @@ from .utils.validation import require_non_empty_string
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agent Reviews",
     annotations={
         "readOnlyHint": True,
@@ -55,7 +55,7 @@ async def list_agent_reviews(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Agent Review",
     annotations={
         "readOnlyHint": True,
@@ -91,7 +91,7 @@ async def get_agent_review(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agent Review Tests",
     annotations={
         "readOnlyHint": True,
@@ -131,7 +131,7 @@ async def list_agent_review_tests(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agent Review Runs",
     annotations={
         "readOnlyHint": True,
@@ -187,7 +187,7 @@ async def list_agent_review_runs(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Agent Review Run Results",
     annotations={
         "readOnlyHint": True,

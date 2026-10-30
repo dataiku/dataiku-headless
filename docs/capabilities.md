@@ -31,9 +31,9 @@ Dataiku permissions and API availability still apply to permitted calls.
 
 | Instance type | Available tools |
 |---|---|
-| design, agent-management | All tools |
+| design | All existing explicit tools |
 | automation | Reads, existing asset execution, instance administration, and project-folder operations; no Cobuild or project definition/content writes |
-| govern, deployer | Instance controls only; API tools for these node types are not implemented yet |
+| agent-management, govern, deployer | Instance controls only; API tools for these node types are not implemented yet |
 
 Automation excludes all six Cobuild tools, even conversation listing and polling,
 and `create_project`, `update_project_settings`, `set_project_variables`,
@@ -46,10 +46,10 @@ Existing execution can modify outputs; this policy does not make Automation read
 Instance controls are `list_instances`, `switch_instance`, `configure_instance`,
 `delete_instance`, and `get_current_instance`. The first four also work without an
 active selection, subject to the existing HTTP restrictions on local configuration.
-For Govern and Deployer, `get_current_instance` returns sanitized profile metadata
+For Agent Management, Govern and Deployer, `get_current_instance` returns sanitized profile metadata
 with connection_status set to unsupported, without contacting DSS or reporting a version.
-Govern profiles can be saved without a connection test; Deployer profiles still
-require a successful DSS connection test in local setup.
+Agent Management, Govern and Deployer profiles can be saved without a connection
+test. Design and Automation require a successful DSS connection test in local setup.
 
 ## Surface
 

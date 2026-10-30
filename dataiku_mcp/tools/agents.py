@@ -19,7 +19,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..instance_policy import DSS_TOOL_META
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -50,7 +50,7 @@ def _get_sa(version):
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agents",
     annotations={
         "readOnlyHint": True,
@@ -81,7 +81,7 @@ async def list_agents(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Agent Settings",
     annotations={
         "readOnlyHint": True,
@@ -158,7 +158,7 @@ async def get_agent_settings(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agent Versions",
     annotations={
         "readOnlyHint": True,
@@ -191,7 +191,7 @@ async def list_agent_versions(
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Agent Tools",
     annotations={
         "readOnlyHint": True,
@@ -223,7 +223,7 @@ async def list_agent_tools(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
-    meta=DSS_TOOL_META,
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Agent Tool Settings",
     annotations={
         "readOnlyHint": True,
