@@ -95,7 +95,7 @@ def test_instance_tools_report_configured_type(monkeypatch, instance_type):
     monkeypatch.setattr(instances, "get_dss_client", lambda: client)
     current = asyncio.run(instances.get_current_instance(FakeContext()))
     assert json.loads(current)["instance_type"] == instance_type
-    unsupported = instance_type in {"govern", "deployer", "agent-management"}
+    unsupported = instance_type in {"govern", "agent-management"}
     assert client.info_calls == (0 if unsupported else 1)
     assert json.loads(current)["connection_status"] == (
         "unsupported" if unsupported else "connected"

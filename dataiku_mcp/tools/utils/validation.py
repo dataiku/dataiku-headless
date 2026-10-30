@@ -15,6 +15,9 @@
 """Shared validation helpers for tool modules."""
 
 import re
+from typing import Annotated
+
+from pydantic import AfterValidator, Field
 
 _HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -109,3 +112,29 @@ def require_hex_color(value: str, field_name: str) -> str:
             f"'{field_name}' must be a hex color in '#RGB' or '#RRGGBB' format"
         )
     return cleaned
+
+
+def require_path_segment(value: str) -> str:
+    """Reject separators, double-decoding escapes and URL-normalized dot segments."""
+    value = value.strip()
+    if (
+        not value
+        or value in {".", ".."}
+        or any(char in value for char in "/\\%")
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise ValueError(
+            "Expected a non-empty path segment without separators, escapes or dot segments"
+        )
+    return value
+
+
+PathSegment = Annotated[
+    str,
+    Field(
+        min_length=1,
+        pattern=r"^[^/\\%\x00-\x1f\x7f]+$",
+        description="One identifier segment; dot segments, slashes, backslashes and percent escapes are rejected.",
+    ),
+    AfterValidator(require_path_segment),
+]
