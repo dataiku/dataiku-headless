@@ -34,7 +34,7 @@ def test_setup_page_allows_govern_save_without_a_connection_test():
     assert "<summary>Advanced options</summary>" in page
     assert 'name="no_check_certificate"' in page
     assert 'name="action" value="save" disabled' not in page
-    assert "Agent Management and Govern profiles can be saved without testing." in page
+    assert "Agent Management profiles can be saved without testing." in page
     assert "button:disabled, button:disabled:hover" in page
 
 

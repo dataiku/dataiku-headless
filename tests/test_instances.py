@@ -93,9 +93,10 @@ def test_instance_tools_report_configured_type(monkeypatch, instance_type):
     # API information is observational; it must not replace the configured type.
     client = _FakeClient({"dssVersion": "14.7.2", "nodeType": "AUTOMATION"})
     monkeypatch.setattr(instances, "get_dss_client", lambda: client)
+    monkeypatch.setattr(instances, "get_govern_client", lambda: client)
     current = asyncio.run(instances.get_current_instance(FakeContext()))
     assert json.loads(current)["instance_type"] == instance_type
-    unsupported = instance_type in {"govern", "agent-management"}
+    unsupported = instance_type == "agent-management"
     assert client.info_calls == (0 if unsupported else 1)
     assert json.loads(current)["connection_status"] == (
         "unsupported" if unsupported else "connected"
