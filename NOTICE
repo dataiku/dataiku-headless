@@ -1,0 +1,524 @@
+Dataiku Headless
+Copyright 2026 Dataiku SAS
+
+This product includes software developed by Dataiku SAS.
+
+Third-Party Licenses
+====================
+
+This software uses the following third-party libraries. The list covers the
+runtime dependency closure resolved in uv.lock and runtime/run_mcp.py.lock.
+Development-only tools (for example pytest, Ruff, pre-commit, and Commitizen)
+are not distributed with this software and are not listed.
+
+Python Dependencies
+===================
+
+FastMCP (fastmcp, fastmcp-slim)
+-------------------------------
+Copyright (c) Prefect Technologies, Inc. and FastMCP contributors
+Licensed under the Apache License 2.0
+https://github.com/PrefectHQ/fastmcp
+
+Dataiku API Client
+------------------
+Copyright 2015-2021 Dataiku SAS
+Licensed under the Apache License 2.0
+https://github.com/dataiku/dataiku-api-client-python
+
+Pydantic
+--------
+Copyright (c) 2017 to present Pydantic Services Inc. and individual contributors
+Licensed under the MIT License
+https://github.com/pydantic/pydantic
+
+python-dotenv
+-------------
+Copyright (c) 2014, Saurabh Kumar (python-dotenv), 2013, Ted Tieken (django-dotenv-rw), 2013, Jacob Kaplan-Moss (django-dotenv)
+Licensed under the BSD 3-Clause License
+https://github.com/theskumar/python-dotenv
+
+Requests
+--------
+Copyright 2019 Kenneth Reitz
+Licensed under the Apache License 2.0
+https://github.com/psf/requests
+
+Python Indirect Dependencies
+============================
+
+aiofile
+-------
+Copyright (c) Dmitry Orlov
+Licensed under the Apache License 2.0
+https://github.com/mosquito/aiofile
+
+annotated-types
+---------------
+Copyright (c) 2022 the contributors
+Licensed under the MIT License
+https://github.com/annotated-types/annotated-types
+
+AnyIO
+-----
+Copyright (c) 2018 Alex Grönholm
+Licensed under the MIT License
+https://github.com/agronholm/anyio
+
+attrs
+-----
+Copyright (c) 2015 Hynek Schlawack and the attrs contributors
+Licensed under the MIT License
+https://github.com/python-attrs/attrs
+
+Authlib
+-------
+Copyright (c) 2017, Hsiaoming Yang
+Licensed under the BSD 3-Clause License
+https://github.com/authlib/authlib
+
+beartype
+--------
+Copyright (c) 2014-2025 Beartype authors
+Licensed under the MIT License
+https://github.com/beartype/beartype
+
+cachetools
+----------
+Copyright (c) 2014-2026 Thomas Kemmer
+Licensed under the MIT License
+https://github.com/tkem/cachetools
+
+caio
+----
+Copyright 2025 Dmitry Orlov
+Licensed under the Apache License 2.0
+https://github.com/mosquito/caio
+
+certifi
+-------
+Copyright (c) Kenneth Reitz
+Licensed under the Mozilla Public License 2.0
+https://github.com/certifi/python-certifi
+
+CFFI
+----
+Copyright (c) Armin Rigo, Maciej Fijalkowski and contributors
+Licensed under the MIT No Attribution License (MIT-0)
+https://github.com/python-cffi/cffi
+
+charset-normalizer
+------------------
+Copyright (c) 2025 TAHRI Ahmed R.
+Licensed under the MIT License
+https://github.com/jawah/charset_normalizer
+
+Click
+-----
+Copyright 2014 Pallets
+Licensed under the BSD 3-Clause License
+https://github.com/pallets/click
+
+cryptography
+------------
+Copyright (c) Individual contributors
+Dual-licensed under the Apache License 2.0 and the BSD 3-Clause License
+https://github.com/pyca/cryptography
+
+Cyclopts
+--------
+Copyright (c) Brian Pugh
+Licensed under the Apache License 2.0
+https://github.com/BrianPugh/cyclopts
+
+dnspython
+---------
+Copyright (C) Dnspython Contributors
+Copyright (C) 2001-2017 Nominum, Inc.
+Licensed under the ISC License
+https://github.com/rthalley/dnspython
+
+docstring_parser
+----------------
+Copyright (c) 2018 Marcin Kurczewski
+Licensed under the MIT License
+https://github.com/rr-/docstring_parser
+
+email-validator
+---------------
+Copyright (c) Joshua Tauberer
+Released into the public domain under the Unlicense
+https://github.com/JoshData/python-email-validator
+
+exceptiongroup
+--------------
+Copyright (c) 2022 Alex Grönholm
+Licensed under the MIT License
+https://github.com/agronholm/exceptiongroup
+
+Griffe (griffelib)
+------------------
+Copyright (c) 2021, Timothée Mazzucotelli
+Licensed under the ISC License
+https://github.com/mkdocstrings/griffe
+
+h11
+---
+Copyright (c) 2016 Nathaniel J. Smith and other contributors
+Licensed under the MIT License
+https://github.com/python-hyper/h11
+
+HTTP Core (httpcore)
+--------------------
+Copyright (c) 2020, Encode OSS Ltd
+Licensed under the BSD 3-Clause License
+https://github.com/encode/httpcore
+
+HTTPX
+-----
+Copyright (c) 2019, Encode OSS Ltd
+Licensed under the BSD 3-Clause License
+https://github.com/encode/httpx
+
+httpx-sse
+---------
+Copyright (c) 2022 Florimond Manca
+Licensed under the MIT License
+https://github.com/florimondmanca/httpx-sse
+
+idna
+----
+Copyright (c) 2013-2026, Kim Davies and contributors
+Licensed under the BSD 3-Clause License
+https://github.com/kjd/idna
+
+jaraco.classes
+--------------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/jaraco.classes
+
+jaraco.context
+--------------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/jaraco.context
+
+jaraco.functools
+----------------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/jaraco.functools
+
+joserfc
+-------
+Copyright (c) 2023, Hsiaoming Yang
+Licensed under the BSD 3-Clause License
+https://github.com/authlib/joserfc
+
+jsonref
+-------
+Copyright (C) 2013 Chase Sterling
+Licensed under the MIT License
+https://github.com/gazpachoking/jsonref
+
+jsonschema
+----------
+Copyright (c) 2013 Julian Berman
+Licensed under the MIT License
+https://github.com/python-jsonschema/jsonschema
+
+jsonschema-path
+---------------
+Copyright (c) Artur Maciag
+Licensed under the Apache License 2.0
+https://github.com/p1c2u/jsonschema-path
+
+jsonschema-specifications
+-------------------------
+Copyright (c) 2022 Julian Berman
+Licensed under the MIT License
+https://github.com/python-jsonschema/jsonschema-specifications
+
+keyring
+-------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/keyring
+
+markdown-it-py
+--------------
+Copyright (c) 2020 ExecutableBookProject
+Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin
+Licensed under the MIT License
+https://github.com/executablebooks/markdown-it-py
+
+MCP Python SDK
+--------------
+Copyright (c) 2024 Anthropic, PBC
+Licensed under the MIT License
+https://github.com/modelcontextprotocol/python-sdk
+
+mdurl
+-----
+Copyright (c) 2021 Taneli Hukkinen
+Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin
+Copyright Joyent, Inc. and other Node contributors
+Licensed under the MIT License
+https://github.com/executablebooks/mdurl
+
+more-itertools
+--------------
+Copyright (c) 2012 Erik Rose
+Licensed under the MIT License
+https://github.com/more-itertools/more-itertools
+
+openapi-pydantic
+----------------
+Copyright (c) 2023 mike-oakley
+Copyright (c) 2020 Kuimono
+Licensed under the MIT License
+https://github.com/mike-oakley/openapi-pydantic
+
+OpenTelemetry API
+-----------------
+Copyright The OpenTelemetry Authors
+Licensed under the Apache License 2.0
+https://github.com/open-telemetry/opentelemetry-python
+
+packaging
+---------
+Copyright (c) Donald Stufft and individual contributors
+Dual-licensed under the Apache License 2.0 and the BSD 2-Clause License
+https://github.com/pypa/packaging
+
+pathable
+--------
+Copyright (c) Artur Maciag
+Licensed under the Apache License 2.0
+https://github.com/p1c2u/pathable
+
+platformdirs
+------------
+Copyright (c) 2010-202x The platformdirs developers
+Licensed under the MIT License
+https://github.com/tox-dev/platformdirs
+
+py-key-value-aio
+----------------
+Copyright 2025 strawgate
+Licensed under the Apache License 2.0
+https://github.com/strawgate/py-key-value
+
+pycparser
+---------
+Copyright (c) 2008-2027, Eli Bendersky
+Licensed under the BSD 3-Clause License
+https://github.com/eliben/pycparser
+
+pydantic-core
+-------------
+Copyright (c) 2022 Samuel Colvin
+Licensed under the MIT License
+https://github.com/pydantic/pydantic
+
+pydantic-settings
+-----------------
+Copyright (c) 2022 Samuel Colvin and other contributors
+Licensed under the MIT License
+https://github.com/pydantic/pydantic-settings
+
+Pygments
+--------
+Copyright (c) 2006-2022 by the respective authors (see AUTHORS file)
+Licensed under the BSD 2-Clause License
+https://github.com/pygments/pygments
+
+PyJWT
+-----
+Copyright (c) 2015-2022 José Padilla
+Licensed under the MIT License
+https://github.com/jpadilla/pyjwt
+
+pyperclip
+---------
+Copyright (c) 2014, Al Sweigart
+Licensed under the BSD 3-Clause License
+https://github.com/asweigart/pyperclip
+
+python-dateutil
+---------------
+Copyright (c) 2003-2011 Gustavo Niemeyer
+Copyright (c) 2012-2014 Tomi Pieviläinen
+Copyright (c) 2014-2016 Yaron de Leeuw
+Copyright (c) 2015- Paul Ganssle
+Dual-licensed under the Apache License 2.0 and the BSD 3-Clause License
+https://github.com/dateutil/dateutil
+
+python-multipart
+----------------
+Copyright (c) 2012 Andrew Dunham
+Licensed under the Apache License 2.0
+https://github.com/Kludex/python-multipart
+
+PyYAML
+------
+Copyright (c) 2017-2021 Ingy döt Net
+Copyright (c) 2006-2016 Kirill Simonov
+Licensed under the MIT License
+https://github.com/yaml/pyyaml
+
+referencing
+-----------
+Copyright (c) 2022 Julian Berman
+Licensed under the MIT License
+https://github.com/python-jsonschema/referencing
+
+Rich
+----
+Copyright (c) 2020 Will McGugan
+Licensed under the MIT License
+https://github.com/Textualize/rich
+
+rich-rst
+--------
+Copyright 2026 Wasi Master
+Licensed under the MIT License
+https://github.com/wasi-master/rich-rst
+
+rpds-py
+-------
+Copyright (c) 2023 Julian Berman
+Licensed under the MIT License
+https://github.com/crate-py/rpds
+
+six
+---
+Copyright (c) 2010-2024 Benjamin Peterson
+Licensed under the MIT License
+https://github.com/benjaminp/six
+
+sse-starlette
+-------------
+Copyright (c) 2020, sysid
+Licensed under the BSD 3-Clause License
+https://github.com/sysid/sse-starlette
+
+Starlette
+---------
+Copyright (c) 2018, Encode OSS Ltd
+Licensed under the BSD 3-Clause License
+https://github.com/Kludex/starlette
+
+typing_extensions
+-----------------
+Copyright (c) Python Software Foundation
+Licensed under the Python Software Foundation License 2.0
+https://github.com/python/typing_extensions
+
+typing-inspection
+-----------------
+Copyright (c) Pydantic Services Inc. 2025 to present
+Licensed under the MIT License
+https://github.com/pydantic/typing-inspection
+
+uncalled-for
+------------
+Copyright (c) 2025 Chris Guidry
+Licensed under the MIT License
+https://github.com/chrisguidry/uncalled-for
+
+urllib3
+-------
+Copyright (c) 2008-2020 Andrey Petrov and contributors
+Licensed under the MIT License
+https://github.com/urllib3/urllib3
+
+Uvicorn
+-------
+Copyright (c) 2017-present, Encode OSS Ltd
+Licensed under the BSD 3-Clause License
+https://github.com/Kludex/uvicorn
+
+watchfiles
+----------
+Copyright (c) 2017 to present Samuel Colvin
+Licensed under the MIT License
+https://github.com/samuelcolvin/watchfiles
+
+websockets
+----------
+Copyright (c) Aymeric Augustin and contributors
+Licensed under the BSD 3-Clause License
+https://github.com/python-websockets/websockets
+
+Platform- and Python-Version-Specific Dependencies
+==================================================
+
+These are installed only on the platforms or Python versions noted.
+
+backports.tarfile (Python < 3.12)
+---------------------------------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/backports.tarfile
+
+colorama (Windows)
+------------------
+Copyright (c) 2010 Jonathan Hartley
+Licensed under the BSD 3-Clause License
+https://github.com/tartley/colorama
+
+importlib_metadata (Python < 3.12)
+----------------------------------
+Copyright (c) Jason R. Coombs
+Licensed under the Apache License 2.0
+https://github.com/python/importlib_metadata
+
+Jeepney (Linux)
+---------------
+Copyright (c) 2017 Thomas Kluyver
+Licensed under the MIT License
+https://gitlab.com/takluyver/jeepney
+
+pywin32 (Windows)
+-----------------
+Copyright (c) Mark Hammond and contributors
+Licensed under the Python Software Foundation License 2.0
+https://github.com/mhammond/pywin32
+
+pywin32-ctypes (Windows)
+------------------------
+Copyright (c) 2014, Enthought, Inc.
+Licensed under the BSD 3-Clause License
+https://github.com/enthought/pywin32-ctypes
+
+SecretStorage (Linux)
+---------------------
+Copyright 2012-2025 Dmitry Shachnev
+Licensed under the BSD 3-Clause License
+https://github.com/mitya57/secretstorage
+
+tomli (Python < 3.11)
+---------------------
+Copyright (c) 2021 Taneli Hukkinen
+Licensed under the MIT License
+https://github.com/hukkin/tomli
+
+zipp (Python < 3.12)
+--------------------
+Copyright (c) Jason R. Coombs
+Licensed under the MIT License
+https://github.com/jaraco/zipp
+
+JavaScript Dependencies (Skill Templates)
+=========================================
+
+The Excel migration webapp template in skills/ loads the following library
+from a public CDN at runtime. It is referenced, not bundled.
+
+Chart.js
+--------
+Copyright (c) 2014-2024 Chart.js Contributors
+Licensed under the MIT License
+https://github.com/chartjs/Chart.js

@@ -9,7 +9,7 @@ description = "Headless Dataiku agent kit: a FastMCP server for operating Dataik
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Dataiku" }]
 keywords = ["dataiku", "mcp", "fastmcp", "agent", "llm"]
 classifiers = [

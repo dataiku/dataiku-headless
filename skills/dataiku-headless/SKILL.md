@@ -30,7 +30,7 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 6. If the task is a documented direct-write exception, follow the matching guide's direct-write path instead of forcing it through Cobuild.
 7. Keep the user's main object of work as the primary guide. Read supporting guides only when the primary guide tells you they are relevant.
 8. For tasks that span multiple object types, keep one primary guide and read supporting guides for dependent objects or job/run follow-up.
-9. Completion status is not enough. Validate by re-reading the changed object and using `./references/jobs.md` when execution may still be in progress.
+9. Completion status is not enough. Validate by re-reading the changed object and comparing it with what the user asked for. Where the request is specific about names, titles, or values, check them in the saved settings or a data sample, and mention any requirement you could not confirm. Use `./references/jobs.md` when execution may still be in progress.
 
 ## Guide Routing
 

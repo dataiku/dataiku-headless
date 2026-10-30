@@ -21,6 +21,7 @@ Page filters apply to a dashboard page, not to an individual tile. A page filter
 2. Use `get_dashboard_settings` to inspect a selected dashboard before asking Cobuild to change it.
 3. When a dashboard uses existing insights, use `./insights.md` to inspect those insights before preparing the Cobuild request. For greenfield work, define the required insights and dashboard relationship in the request.
 4. Route dashboard and underlying-insight creation, edits, and deletion through `./cobuild.md`.
+5. When the request specifies a title for a chart or table, the dashboard tile title is a reliable place to set it. Confirm it in the tile's title in `get_dashboard_settings`.
 
 ## Preferred Tools
 
@@ -30,3 +31,4 @@ Page filters apply to a dashboard page, not to an individual tile. A page filter
 ## Safety Rules
 
 - Inspect page-filter datasets and their affected insights before requesting a filter change.
+- If a saved insight cannot be renamed through Cobuild, setting the tile title is an alternative.
