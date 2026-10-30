@@ -1,11 +1,11 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, deployments, Govern, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, deployments, Govern, Agent Management, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
 ---
 
 # Dataiku Headless
 
-Start by identifying the configured instance type. The default project workflow is for Design. Inspect before acting, use Cobuild for project construction, and verify results.
+Start by identifying the configured instance type. The default project workflow is for Design and supporting projects on Agent Management. Inspect before acting, use Cobuild for project construction, and verify results.
 
 ## Instance Types
 
@@ -15,11 +15,11 @@ Start by identifying the configured instance type. The default project workflow 
 | `automation` | Production environment for running deployed project bundles, schedules and monitoring. | Inspect and execute existing assets; return to Design for project edits. |
 | `deployer` | Control plane for deploying published project bundles and API service versions. | Use [Deployer operations](./references/deployer.md), including for a local Deployer selected through its own profile. |
 | `govern` | Central governance of analytics, models and agents through governed items and sign-off workflows. | Use [Govern operations](./references/govern.md); stdio only. |
-| `agent-management` | Agent inventory, performance/value monitoring and risk management, with Design projects for supporting pipelines. | Instance controls only; product support is deferred. |
+| `agent-management` | Agent inventory, performance/value monitoring and risk management, with Design projects for supporting pipelines. | Use [Agent Management operations](./references/agent-management.md) for the estate and the Design workflow for supporting projects. |
 
 Descriptions follow Dataiku’s [deployment documentation](https://doc.dataiku.com/dss/latest/deployment/index.html), [deployment knowledge base](https://knowledge.dataiku.com/latest/deploy/project-deployment/concept-project-deployment.html), [Govern architecture knowledge base](https://knowledge.dataiku.com/latest/govern/overview/concept-govern-in-dataiku-architecture.html), and [Agent Management product reference](https://www.dataiku.com/product/agent-management).
 
-Configured type selects Headless policy; it does not establish live features or permissions. Use `list_instances` and `get_current_instance` first. Design, Automation and Deployer use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP. Agent Management remain configurable profiles with instance controls only and report unsupported without a backend call.
+Configured type selects Headless policy; it does not establish live features or permissions. Use `list_instances` and `get_current_instance` first. Design, Automation and Deployer and Agent Management use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP.
 
 ## Shared Operating Rules
 
@@ -36,7 +36,7 @@ Configured type selects Headless policy; it does not establish live features or 
 
 ## Default Workflow — Design Node
 
-Use this workflow on a Design node. For other types, follow the instance-type table.
+Use this workflow on a Design node or for supporting projects on an Agent Management node. For other types, follow the instance-type table.
 On Automation, use the relevant inspection/execution guide without creating or editing project definitions.
 
 1. Identify the target project and the user's main object of work.

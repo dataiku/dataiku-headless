@@ -18,18 +18,29 @@ from typing import get_args
 
 from .config.models import InstanceType
 
-# Instance types currently supported through DSSClient.
-SUPPORTED_DSS_INSTANCE_TYPES = frozenset({"design", "automation", "deployer"})
+# Types served by DSSClient; Govern uses its own SDK client.
+SUPPORTED_DSS_INSTANCE_TYPES = frozenset(
+    {"design", "automation", "agent-management", "deployer"}
+)
 
 # These are @mcp.tool metadata policies. V1 tools expose individual actions;
-# project authoring still routes through Cobuild and its fixed direct exceptions.
-V1_EXPLICIT_TOOL_PROJECT_READS = {"allowed_instance_types": ["design", "automation"]}
-V1_EXPLICIT_TOOL_PROJECT_EXECUTION = {
-    "allowed_instance_types": ["design", "automation"]
+# v2 tools discover and execute a fixed SDK operation catalog. Project authoring
+# still routes through Cobuild and its fixed direct exceptions.
+V1_EXPLICIT_TOOL_PROJECT_READS = {
+    "allowed_instance_types": ["design", "agent-management", "automation"]
 }
-V1_EXPLICIT_TOOL_ADMIN = {"allowed_instance_types": ["design", "automation"]}
-V1_EXPLICIT_TOOL_PROJECT_EDITS = {"allowed_instance_types": ["design"]}
-V2_GENERAL_API_OPERATIONS = {"allowed_instance_types": ["deployer", "govern"]}
+V1_EXPLICIT_TOOL_PROJECT_EXECUTION = {
+    "allowed_instance_types": ["design", "agent-management", "automation"]
+}
+V1_EXPLICIT_TOOL_ADMIN = {
+    "allowed_instance_types": ["design", "agent-management", "automation"]
+}
+V1_EXPLICIT_TOOL_PROJECT_EDITS = {
+    "allowed_instance_types": ["design", "agent-management"]
+}
+V2_GENERAL_API_OPERATIONS = {
+    "allowed_instance_types": ["agent-management", "deployer", "govern"]
+}
 INSTANCE_MANAGEMENT = {"allowed_instance_types": list(get_args(InstanceType))}
 
 

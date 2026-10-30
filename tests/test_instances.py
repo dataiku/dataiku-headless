@@ -96,13 +96,7 @@ def test_instance_tools_report_configured_type(monkeypatch, instance_type):
     monkeypatch.setattr(instances, "get_govern_client", lambda: client)
     current = asyncio.run(instances.get_current_instance(FakeContext()))
     assert json.loads(current)["instance_type"] == instance_type
-    unsupported = instance_type == "agent-management"
-    assert client.info_calls == (0 if unsupported else 1)
-    assert json.loads(current)["connection_status"] == (
-        "unsupported" if unsupported else "connected"
-    )
-    if unsupported:
-        assert "dataiku_version" not in json.loads(current)
+    assert client.info_calls == 1
     for response in (listing, switching, current):
         assert API_KEY not in response
         assert "api_key" not in response
@@ -153,10 +147,13 @@ def test_get_current_instance_reports_failed_connection(monkeypatch):
     assert client.info_calls == 0
 
 
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
+)
 @pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
 @pytest.mark.parametrize("connected", [False, True])
 def test_get_current_instance_never_returns_credentials(
-    monkeypatch, credential, connected
+    monkeypatch, credential, connected, instance_type
 ):
     secret = "do-not-return-this-credential"
     instance = DSSInstance(
@@ -165,7 +162,7 @@ def test_get_current_instance_never_returns_credentials(
         no_check_certificate=False,
         source="code-studio-environment" if credential == "api_ticket" else "config",
         encrypted_rpc_cert_path="/private/test-certificate.pem",
-        instance_type="design",
+        instance_type=instance_type,
         **{credential: secret},
     )
     monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
@@ -176,6 +173,7 @@ def test_get_current_instance_never_returns_credentials(
         return _FakeClient({"dssVersion": "14.7.2"})
 
     monkeypatch.setattr(instances, "get_dss_client", get_client)
+    monkeypatch.setattr(instances, "get_govern_client", get_client)
     response = asyncio.run(instances.get_current_instance(FakeContext()))
     result = json.loads(response)
 
@@ -187,3 +185,20 @@ def test_get_current_instance_never_returns_credentials(
     assert result["name"] == instance.name
     assert result["source"] == instance.source
     assert result["connection_status"] == ("connected" if connected else "failed")
+
+
+def test_govern_http_status_reports_unsupported_authentication(monkeypatch):
+    instance = replace(_instance("primary"), instance_type="govern")
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: True)
+
+    def unexpected_client():
+        pytest.fail("Govern HTTP status must not construct an SDK client")
+
+    monkeypatch.setattr(instances, "get_govern_client", unexpected_client)
+    monkeypatch.setattr(instances, "get_dss_client", unexpected_client)
+    response = asyncio.run(instances.get_current_instance(FakeContext()))
+    result = json.loads(response)
+    assert result["connection_status"] == "unsupported_authentication"
+    assert "dataiku_version" not in result
+    assert API_KEY not in response
