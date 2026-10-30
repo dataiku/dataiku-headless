@@ -128,9 +128,9 @@ and inspect health, governance codes and update history. They operate on already
 bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
 for node selection, production effects and coverage limits.
 
-Direct project reads, execution and administration support Design, Automation.
-Project edits and Cobuild require Design. The four shared operation tools expose
-99 public SDK actions for Deployer, Govern, restricted to their matching profiles.
+Direct project reads, execution and administration support Design, Automation, Agent Management.
+Project edits and Cobuild require Design and Agent Management. The four shared operation tools expose
+145 public SDK actions for Deployer, Govern, Agent Management, restricted to their matching profiles.
 Search and describe load schemas on demand; separate read/write tools execute them.
 See the [operation guide](skills/dataiku-headless/references/operations.md).
 
@@ -191,7 +191,7 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
 The declared type selects tool policy; backend features and permissions are validated by Dataiku. A local Deployer on a Design or Automation node requires a separate `deployer` profile for that URL.
-Design, Automation and Deployer use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP. Agent Management remain configurable profiles with instance controls only and report unsupported without a backend call.
+Design, Automation and Deployer and Agent Management use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -266,6 +266,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── dashboards.py      # Dashboard inspection tools
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
 │   │   ├── deployer.py        # Internal Deployer operation adapters
+│   │   ├── agent_management.py  # Fixed Agent Management operation adapters
 │   │   ├── govern.py          # Govern SDK operation adapters
 │   │   ├── operations.py      # Shared discovery/read/write MCP tools
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools

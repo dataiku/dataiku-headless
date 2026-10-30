@@ -25,7 +25,7 @@ from pydantic import Field
 from ..auth import get_dss_client, get_govern_client
 from ..config import request, stdio
 from ..executors import run_blocking
-from ..instance_policy import INSTANCE_MANAGEMENT, SUPPORTED_DSS_INSTANCE_TYPES
+from ..instance_policy import INSTANCE_MANAGEMENT
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -127,12 +127,6 @@ async def get_current_instance(ctx: Context) -> str:
     current_instance.pop("api_key", None)
     current_instance.pop("api_ticket", None)
     current_instance.pop("encrypted_rpc_cert_path", None)
-    if (
-        current_instance["instance_type"] != "govern"
-        and current_instance["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES
-    ):
-        current_instance["connection_status"] = "unsupported"
-        return compact_json(omit_empty(current_instance))
     if current_instance["instance_type"] == "govern" and request.is_http_request():
         current_instance["connection_status"] = "unsupported_authentication"
         return compact_json(omit_empty(current_instance))

@@ -1,6 +1,6 @@
 # Uploaded Files Datasets
 
-`create_upload_dataset` requires `design`; Automation cannot create uploaded datasets.
+`create_upload_dataset` requires `design` or `agent-management`; Automation cannot create uploaded datasets.
 
 Read this reference only when the user wants to bring supplied data into a project as a new Uploaded Files dataset.
 

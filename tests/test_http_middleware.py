@@ -240,7 +240,7 @@ def test_http_unknown_tool_fails_without_token_exchange(
     ]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["govern"])
 def test_http_unsupported_current_instance_skips_exchange(monkeypatch, instance_type):
     events = _call_middleware(
         monkeypatch, "get_current_instance", instance_type=instance_type
@@ -313,5 +313,12 @@ def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):
 def test_http_deployer_status_exchanges_token(monkeypatch):
     events = _call_middleware(
         monkeypatch, "get_current_instance", instance_type="deployer"
+    )
+    assert ("exchange", "mcp-token") in events
+
+
+def test_http_agent_management_status_exchanges_token(monkeypatch):
+    events = _call_middleware(
+        monkeypatch, "get_current_instance", instance_type="agent-management"
     )
     assert ("exchange", "mcp-token") in events

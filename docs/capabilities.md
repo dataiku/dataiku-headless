@@ -87,7 +87,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
-| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 99 operations: 13 Deployer, 86 Govern. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
+| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 145 operations: 13 Deployer, 86 Govern, 46 Agent Management. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
 | Plugins | `list_plugins`, `list_plugin_usages` | `update_plugin`, `delete_plugin` | Instance-level — `update_plugin` is stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
@@ -115,9 +115,9 @@ Local client configuration, not Dataiku objects.
 
 | Policy group | Allowed configured instance types |
 | --- | --- |
-| V1 explicit project reads, execution and administration | Design, Automation |
-| V1 explicit project edits and project Cobuild | Design |
-| V2 general API operation discovery and execution | Deployer, Govern |
+| V1 explicit project reads, execution and administration | Design, Automation, Agent Management |
+| V1 explicit project edits and project Cobuild | Design and Agent Management |
+| V2 general API operation discovery and execution | Deployer, Govern, Agent Management |
 | Instance management | All five types |
 
 All four v2 tools require a selected profile. Each catalogued operation requires its
@@ -126,7 +126,7 @@ a Design or Automation node requires a separate Deployer profile for that URL.
 The catalog remains stable across instance switches; new product actions are
 operation IDs rather than individually registered MCP tools.
 
-Design, Automation and Deployer use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP. Agent Management remain configurable profiles with instance controls only and report unsupported without a backend call.
+Design, Automation and Deployer and Agent Management use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP.
 
 Discovery exposes schemas, effects, backend requirements and transport restrictions.
 All adapters use public SDK methods; catalog presence does not verify live server
