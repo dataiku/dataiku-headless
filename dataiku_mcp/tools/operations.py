@@ -41,7 +41,7 @@ from .utils.serialization import compact_json
 )
 async def search_operations(
     query: str = "",
-    domain: Literal["deployer"] | None = None,
+    domain: Literal["deployer", "govern"] | None = None,
     effect: Literal["read", "write"] | None = None,
     limit: int = 10,
     offset: int = 0,

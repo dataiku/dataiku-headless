@@ -57,6 +57,31 @@ def get_dss_client() -> dataikuapi.DSSClient:
     return client
 
 
+def get_govern_client() -> dataikuapi.GovernClient:
+    """Construct a Govern client with the pinned profile’s request credentials."""
+    instance = request.get_pinned_instance()
+    if instance.instance_type != "govern":
+        raise ValueError(
+            "Select an instance of type govern before using Govern operations."
+        )
+    if request.is_http_request():
+        raise ValueError(
+            "Govern operations require stdio; HTTP authentication is unsupported."
+        )
+    client = dataikuapi.GovernClient(
+        instance.url,
+        api_key=instance.api_key,
+        internal_ticket=instance.api_ticket,
+        extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+    )
+    client._session.verify = (
+        False
+        if instance.no_check_certificate
+        else instance.encrypted_rpc_cert_path or True
+    )
+    return client
+
+
 def get_dataiku_version(client: dataikuapi.DSSClient) -> str:
     """Return the instance's Dataiku version, or an empty string if unavailable."""
     try:

@@ -169,7 +169,9 @@ def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
         return error.code, error.read().decode()
 
 
-@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern"]
+)
 def test_setup_server_requires_a_successful_test_before_saving(
     monkeypatch, instance_type
 ):
@@ -235,7 +237,7 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(
     )
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["agent-management"])
 def test_unsupported_profile_can_be_saved_after_unavailable_test(
     monkeypatch, instance_type
 ):

@@ -29,7 +29,7 @@ V1_EXPLICIT_TOOL_PROJECT_EXECUTION = {
 }
 V1_EXPLICIT_TOOL_ADMIN = {"allowed_instance_types": ["design", "automation"]}
 V1_EXPLICIT_TOOL_PROJECT_EDITS = {"allowed_instance_types": ["design"]}
-V2_GENERAL_API_OPERATIONS = {"allowed_instance_types": ["deployer"]}
+V2_GENERAL_API_OPERATIONS = {"allowed_instance_types": ["deployer", "govern"]}
 INSTANCE_MANAGEMENT = {"allowed_instance_types": list(get_args(InstanceType))}
 
 

@@ -110,7 +110,7 @@ The settings file has four sections:
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
-Instance types are operator-supplied and enforce the same [tool policy](capabilities.md#instance-policies-and-operation-discovery) as stdio. Unsupported tool calls fail before backend token exchange. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
+Instance types are operator-supplied and enforce the same [tool policy](capabilities.md#instance-policies-and-operation-discovery) as stdio. Unsupported tool calls fail before backend token exchange. Design, Automation and Deployer use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP. Agent Management remain configurable profiles with instance controls only and report unsupported without a backend call.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted
@@ -384,4 +384,4 @@ string-or-array format found in the exchanged token.
 
 ## Product authentication boundaries
 
-The shared operation catalog includes Deployer. Deployer supports delegated HTTP authentication. Agent Management and Govern product support is deferred.
+The shared operation catalog includes Deployer, Govern. Deployer supports delegated HTTP authentication. Govern execution is stdio-only and rejected before backend token exchange. Its HTTP connection status is unsupported_authentication.

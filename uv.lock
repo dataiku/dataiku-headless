@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
@@ -481,13 +481,13 @@ wheels = [
 
 [[package]]
 name = "dataiku-api-client"
-version = "14.7.2"
+version = "15.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/96/e1/336e135820f414301839e57b7d337925f955fd5bc02ba1eb39c4f46d21e0/dataiku_api_client-14.7.2.tar.gz", hash = "sha256:476efce84ce6fd69dd226c85690ea83fd7cbba77276c3d2c0afa00ce7dba5031", size = 416594, upload-time = "2026-07-22T07:54:50.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/0f/43d2be13e28c2278e2bfd88e4d35f412fb5f99b0839f8b539daa67cdcca0/dataiku_api_client-15.2.0.tar.gz", hash = "sha256:44e7d68339e7d5fb04f28eac0fc7117c9c434f2f349a688f9bb0b7043ba78517", size = 489461, upload-time = "2026-10-16T12:08:01.425Z" }
 
 [[package]]
 name = "dataiku-headless"
@@ -511,7 +511,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataiku-api-client", specifier = ">=14.7.2" },
+    { name = "dataiku-api-client", specifier = ">=15.2.0" },
     { name = "fastmcp", specifier = ">=3.4.5,<4" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "python-dotenv" },

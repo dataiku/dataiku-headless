@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audited operation declarations for the Project and API Deployer."""
+"""Audited operation declarations for Deployer and Govern."""
 
 from .operation_registry import Operation, arguments_for, make_catalog
-from .tools import deployer
+from .tools import deployer, govern
+from .operation_schemas import govern_arguments
 
 
 def _deployer(
@@ -97,4 +98,56 @@ _DEPLOYER_OPERATIONS = list(
 )
 
 
-OPERATIONS = make_catalog(_DEPLOYER_OPERATIONS)
+def _govern_operation(name, spec):
+    arguments = govern_arguments(name, spec)
+    example = {}
+    for param in spec.params:
+        if param.required:
+            example[param.name] = {
+                "string": "discovered-" + param.name.replace("_", "-"),
+                "object": {},
+                "list": [],
+                "boolean": False,
+                "integer": 1,
+                "any": "value",
+            }[param.kind]
+    if name == "delete_time_series_values":
+        example["delete_all"] = True
+    if "status" in example and name in {
+        "update_signoff_status",
+        "add_signoff_feedback",
+        "update_signoff_feedback",
+        "add_signoff_approval",
+        "update_signoff_approval",
+    }:
+        example["status"] = "APPROVED"
+    if "users_container" in example:
+        example["users_container"] = {"type": "user", "login": "discovered-user"}
+    return Operation(
+        operation_id="govern." + name,
+        domain="govern",
+        category=spec.domain,
+        description=spec.description,
+        effect="read" if spec.kind == "read" else "write",
+        allowed_instance_types=("govern",),
+        arguments=arguments,
+        handler=govern.operation_handler(spec),
+        backend="govern",
+        transports=("stdio",),
+        requirements="Requires a compatible Govern release and a configured Govern profile with stdio credentials. Govern HTTP authentication is unsupported. Blueprint-specific definitions remain backend-defined; inspect current definitions before replacing them.",
+        response_contract="Public Govern SDK JSON with credential fields recursively redacted. Write and delete actions operate on Govern records, not DSS projects. Definition replacements require preserving unrelated fields; inspect and re-read after mutations. No retry on uncertain outcome.",
+        example=example,
+        destructive=spec.kind != "read" and not name.startswith("create_"),
+        local_file_fields=("file_path", "output_path"),
+    )
+
+
+OPERATIONS = make_catalog(
+    [
+        *_DEPLOYER_OPERATIONS,
+        *[
+            _govern_operation(name, spec)
+            for name, spec in govern.GOVERN_OPERATIONS.items()
+        ],
+    ]
+)
