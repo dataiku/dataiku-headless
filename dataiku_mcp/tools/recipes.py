@@ -20,6 +20,7 @@ from typing import Any
 
 from fastmcp import Context
 
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -112,6 +113,7 @@ def _settings_view(settings, include_engine_params: bool = False) -> dict:
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Recipes",
     annotations={
         "readOnlyHint": True,
@@ -137,6 +139,7 @@ async def list_recipes(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Recipe Settings",
     annotations={
         "readOnlyHint": True,

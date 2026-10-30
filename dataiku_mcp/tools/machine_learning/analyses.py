@@ -21,6 +21,7 @@ from typing import Annotated, Any
 from fastmcp import Context
 from pydantic import Field
 
+from ...instance_policy import V1_EXPLICIT_TOOL_PROJECT_READS
 from ...server import mcp
 from ...auth import get_dss_client
 from ...executors import run_blocking
@@ -66,6 +67,7 @@ def slim_mltask_settings(raw_settings: dict) -> dict:
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List ML Analyses",
     annotations={
         "readOnlyHint": True,
@@ -144,6 +146,7 @@ async def list_ml_analyses(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get ML Analysis Summary",
     annotations={
         "readOnlyHint": True,
@@ -183,6 +186,7 @@ async def get_ml_analysis_summary(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get ML Analysis Settings",
     annotations={
         "readOnlyHint": True,
@@ -218,6 +222,7 @@ async def get_ml_analysis_settings(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List ML Analysis Models",
     annotations={
         "readOnlyHint": True,
@@ -261,6 +266,7 @@ async def list_ml_analysis_models(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get ML Model Details",
     annotations={
         "readOnlyHint": True,

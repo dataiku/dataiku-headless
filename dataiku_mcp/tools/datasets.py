@@ -23,6 +23,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import (
+    V1_EXPLICIT_TOOL_PROJECT_EDITS,
+    V1_EXPLICIT_TOOL_PROJECT_READS,
+)
 from ..config import request
 from ..server import mcp
 from ..auth import get_dss_client
@@ -225,6 +229,7 @@ def _resolve_export_columns(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_EDITS,
     title="Create Uploaded Files Dataset",
     annotations={
         "readOnlyHint": False,
@@ -317,6 +322,7 @@ async def create_upload_dataset(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="List Datasets",
     annotations={
         "readOnlyHint": True,
@@ -352,6 +358,7 @@ async def list_datasets(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Dataset Sample",
     annotations={
         "readOnlyHint": True,
@@ -429,6 +436,7 @@ async def get_dataset_sample(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Export Dataset to CSV",
     annotations={
         "readOnlyHint": False,
@@ -572,6 +580,7 @@ async def export_dataset(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Dataset Info",
     annotations={
         "readOnlyHint": True,
@@ -618,6 +627,7 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Dataset Column Descriptions",
     annotations={
         "readOnlyHint": True,
@@ -669,6 +679,7 @@ async def get_dataset_column_descriptions(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Profile Dataset Columns",
     annotations={
         "readOnlyHint": True,
@@ -836,6 +847,7 @@ async def get_dataset_profile(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_READS,
     title="Get Dataset Metrics",
     annotations={
         "readOnlyHint": True,

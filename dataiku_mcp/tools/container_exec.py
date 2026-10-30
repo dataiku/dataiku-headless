@@ -22,6 +22,7 @@ from typing import Annotated, Literal, get_args
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import V1_EXPLICIT_TOOL_PROJECT_EDITS
 from .. import mcp
 from .machine_learning.shared.common import require_single_ml_task
 from ..auth import get_dss_client
@@ -151,6 +152,7 @@ def _apply_selection(
 
 
 @mcp.tool(
+    meta=V1_EXPLICIT_TOOL_PROJECT_EDITS,
     title="Set Container Execution Config",
     annotations={
         "readOnlyHint": False,

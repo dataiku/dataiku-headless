@@ -92,6 +92,8 @@ export DKU_API_KEY="your-api-key"
 
 ## Tool Metadata
 
+- Every registered tool declares `meta.allowed_instance_types` using the shared presets in `dataiku_mcp/instance_policy.py`. Middleware enforces this declaration against the request-pinned instance before DSS token exchange or dispatch; missing or malformed declarations fail closed. Keep the complete catalog visible and extend the exact policy contract in `tests/test_instance_policy.py` when adding or changing a tool.
+
 - Give each tool a short human title and a one-line description of what it is for and when to reach for it.
 - The tool catalog is re-sent to the model on every turn of every session, used or not. Keep workflow detail and safety rules in the relevant `skills/**/references/` guide, which loads on demand, and describe only parameters whose correct use a name and type cannot convey.
 - Set `readOnlyHint`, `destructiveHint`, and `openWorldHint` explicitly, classified from the handler's actual code paths rather than its name. Omit `idempotentHint` where it cannot apply. A tool whose effect depends on a runtime argument is catalogued at its maximum possible effect.
@@ -109,6 +111,8 @@ export DKU_API_KEY="your-api-key"
 
 - `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
+- Classify explicit tools with `V1_EXPLICIT_TOOL_PROJECT_READS`, `V1_EXPLICIT_TOOL_PROJECT_EXECUTION`, `V1_EXPLICIT_TOOL_ADMIN` or `V1_EXPLICIT_TOOL_PROJECT_EDITS`; use `INSTANCE_MANAGEMENT` for connection controls. Execution includes status/polling, administration includes instance inspection and project folders, and project edits include project Cobuild. Only connection management is exempt from requiring a selected profile.
+- `SUPPORTED_DSS_INSTANCE_TYPES` defines the currently supported backend types independently of all valid `InstanceType` values. Agent Management, Govern and Deployer remain configurable profiles with instance controls only until their product support lands.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails

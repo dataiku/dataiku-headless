@@ -5,6 +5,8 @@ description: Understand and inspect Dataiku datasets, including their storage, s
 
 # Datasets
 
+Dataset inspection, export, and builds are available on `design` and `automation`. New dataset creation, including direct uploads and Cobuild, requires `design`.
+
 Use this guide to understand, inspect, and locally export Dataiku datasets, gather context for Cobuild, and handle the direct Uploaded Files creation exception.
 
 ## Dataset Concepts
