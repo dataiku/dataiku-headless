@@ -24,12 +24,12 @@ instance the local client targets.
 
 ## Surface
 
-**129 tools** · 93 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**130 tools** · 94 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 93 | Never mutates |
+| Read / inspect | 94 | Never mutates |
 | Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
@@ -68,6 +68,7 @@ empty managed folder, and select container execution for an existing object (see
 
 | Tool | Use |
 |---|---|
+| `get_cobuild_status` | Cobuild availability for these credentials |
 | `start_cobuild_conversation` | Open a retained conversation on a project |
 | `send_cobuild_message` | Ask Cobuild to inspect a project, or to build or change something — edits are opt-in via allow_edit_project |
 | `answer_cobuild_question` | Answer a question Cobuild asked, resuming its pending work |

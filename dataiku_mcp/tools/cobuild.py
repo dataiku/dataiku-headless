@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Process-local Cobuild conversations with safe retained turns."""
+"""Cobuild status check and process-local conversations with safe retained turns."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
 
@@ -253,6 +254,35 @@ async def _wait_for_turn(
         return _pending_turn_result(conversation_id, entry, turn)
     turn.observed = True
     return result
+
+
+@mcp.tool(
+    title="Get Cobuild Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def get_cobuild_status(ctx: Context) -> str:
+    """Check whether these credentials may use Cobuild on this instance."""
+    await ctx.info("Checking Cobuild status...")
+    instance = request.get_pinned_instance()
+    client = get_dss_client()
+
+    def _run():
+        try:
+            return client._perform_json("GET", "/cobuild/status")
+        except DataikuException as exc:
+            raise ValueError(
+                f"Cobuild status check failed: {exc}. Dataiku 14.7.5 and 15.0.2 "
+                "are the first releases with this check; on older instances, "
+                "start_cobuild_conversation on the target project reports any "
+                "refusal."
+            ) from exc
+
+    status = await run_blocking(_run)
+    return compact_json({**status, "instance_name": instance.name})
 
 
 @mcp.tool(

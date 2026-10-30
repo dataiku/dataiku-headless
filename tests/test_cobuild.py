@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 from dataiku_mcp.config import request
 from dataiku_mcp.tools import cobuild
+from dataikuapi.utils import DataikuException
 
 
 class Context:
@@ -110,9 +111,16 @@ class Conversation:
 class Client:
     def __init__(self, conversation=None):
         self.conversation = conversation or Conversation()
+        self.cobuild_status = {"enabled": True}
 
     def get_project(self, _project_key):
         return SimpleNamespace(new_cobuild_conversation=lambda: self.conversation)
+
+    def _perform_json(self, method, path):
+        assert (method, path) == ("GET", "/cobuild/status")
+        if isinstance(self.cobuild_status, Exception):
+            raise self.cobuild_status
+        return self.cobuild_status
 
 
 @pytest.fixture(autouse=True)
@@ -595,5 +603,28 @@ def test_project_url_tolerates_a_trailing_slash_in_the_instance_url(environment)
 
     async def scenario():
         assert (await start())["project_url"] == PROJECT_URL
+
+    run(scenario())
+
+
+def test_cobuild_status_passes_the_dataiku_verdict_through(environment):
+    client, _ = environment
+
+    async def scenario():
+        assert json.loads(await cobuild.get_cobuild_status(Context())) == {
+            "enabled": True,
+            "instance_name": "instance-a",
+        }
+
+        client.cobuild_status = {"enabled": False, "reason": "AI services are off"}
+        assert json.loads(await cobuild.get_cobuild_status(Context())) == {
+            "enabled": False,
+            "reason": "AI services are off",
+            "instance_name": "instance-a",
+        }
+
+        client.cobuild_status = DataikuException("NotFound: No handler")
+        with pytest.raises(ValueError, match="NotFound.*14.7.5 and 15.0.2"):
+            await cobuild.get_cobuild_status(Context())
 
     run(scenario())
