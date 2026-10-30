@@ -180,6 +180,8 @@ def test_dss_independent_tools_are_tagged():
         "switch_instance",
         "delete_instance",
         "configure_instance",
+        "search_operations",
+        "describe_operation",
         "get_cobuild_turn_status",
         "list_cobuild_conversations",
     }
@@ -238,7 +240,7 @@ def test_http_unknown_tool_fails_without_token_exchange(
     ]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
 def test_http_unsupported_current_instance_skips_exchange(monkeypatch, instance_type):
     events = _call_middleware(
         monkeypatch, "get_current_instance", instance_type=instance_type
@@ -306,3 +308,10 @@ def test_http_identity_is_reset_when_instance_pinning_fails(monkeypatch):
         asyncio.run(middleware.on_call_tool(context, call_next))
 
     assert events == [("reset_identity", "identity")]
+
+
+def test_http_deployer_status_exchanges_token(monkeypatch):
+    events = _call_middleware(
+        monkeypatch, "get_current_instance", instance_type="deployer"
+    )
+    assert ("exchange", "mcp-token") in events

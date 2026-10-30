@@ -110,9 +110,13 @@ export DKU_API_KEY="your-api-key"
 ## Fixed Tool Surface
 
 - `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
-- Register one directly visible tool catalog. Do not add an MCP search mode.
-- Classify explicit tools with `V1_EXPLICIT_TOOL_PROJECT_READS`, `V1_EXPLICIT_TOOL_PROJECT_EXECUTION`, `V1_EXPLICIT_TOOL_ADMIN` or `V1_EXPLICIT_TOOL_PROJECT_EDITS`; use `INSTANCE_MANAGEMENT` for connection controls. Execution includes status/polling, administration includes instance inspection and project folders, and project edits include project Cobuild. Only connection management is exempt from requiring a selected profile.
-- `SUPPORTED_DSS_INSTANCE_TYPES` defines the currently supported backend types independently of all valid `InstanceType` values. Agent Management, Govern and Deployer remain configurable profiles with instance controls only until their product support lands.
+- Register one stable, directly visible MCP tool catalog. Do not change registration when instances switch. The bounded operation-registry pilot exposes fixed search/describe/read/write tools; operation discovery does not dynamically register MCP tools.
+- Classify v1 tools with `V1_EXPLICIT_TOOL_PROJECT_READS`, `V1_EXPLICIT_TOOL_PROJECT_EXECUTION`, `V1_EXPLICIT_TOOL_ADMIN` or `V1_EXPLICIT_TOOL_PROJECT_EDITS`; use `V2_GENERAL_API_OPERATIONS` for shared operation tools and `INSTANCE_MANAGEMENT` for connection controls. The categories describe purpose: execution includes status/polling, administration includes instance inspection and project folders, and project edits include project Cobuild.
+- Only the `INSTANCE_MANAGEMENT` group is exempt from requiring a selected profile. All v1 and v2 Dataiku tools, including operation search/describe, require one. Read/write execution handlers validate their selected operation directly.
+- Every tool declares allowed_instance_types metadata. Middleware enforces it against the pinned request instance before backend token exchange. Operation handlers additionally enforce the selected operation’s instance policy, read/write effect, arguments and transport before invoking its SDK adapter; missing declarations fail closed.
+- `SUPPORTED_DSS_INSTANCE_TYPES` identifies types served by the DSS client independently of project-tool policies.
+- Product operations use public Python SDK methods only; do not call private transport helpers or add direct endpoint fallbacks. Deployer supports stdio and HTTP; other product support is deferred.
+- Operation arguments use one Pydantic model for discovery and execution. Never accept caller-supplied HTTP methods or paths. Keep backend requirements and response projections explicit; catalog presence does not verify live server support. Preserve Cobuild routing for in-project asset construction.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails

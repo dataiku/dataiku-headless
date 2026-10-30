@@ -164,6 +164,14 @@ EXPECTED_TOOLS_BY_MODULE = {
             "upload_file_to_managed_folder",
         }
     ),
+    "operations": frozenset(
+        {
+            "search_operations",
+            "describe_operation",
+            "run_read_operation",
+            "run_write_operation",
+        }
+    ),
     "plugins": frozenset(
         {
             "delete_plugin",

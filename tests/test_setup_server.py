@@ -169,7 +169,7 @@ def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
         return error.code, error.read().decode()
 
 
-@pytest.mark.parametrize("instance_type", ["design", "automation"])
+@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
 def test_setup_server_requires_a_successful_test_before_saving(
     monkeypatch, instance_type
 ):
@@ -235,7 +235,7 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(
     )
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
 def test_unsupported_profile_can_be_saved_after_unavailable_test(
     monkeypatch, instance_type
 ):
@@ -276,7 +276,8 @@ def test_unsupported_profile_can_be_saved_after_unavailable_test(
         session.close()
 
 
-def test_design_connection_test_uses_dss_client(monkeypatch):
+@pytest.mark.parametrize("instance_type", ["design", "deployer"])
+def test_supported_connection_test_uses_dss_client(monkeypatch, instance_type):
     calls = []
 
     class Client:
@@ -292,6 +293,8 @@ def test_design_connection_test_uses_dss_client(monkeypatch):
 
     monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", Client)
     setup_server._test_connection(
-        _validate_form({**_form("https://example.com"), "instance_type": ["design"]})
+        _validate_form(
+            {**_form("https://example.com"), "instance_type": [instance_type]}
+        )
     )
     assert calls == ["client", "auth"]

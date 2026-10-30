@@ -1,16 +1,30 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, deployments, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
 ---
 
 # Dataiku Headless
 
-Use this for any Dataiku task. Choose the right reference guide first, inspect the current state before acting, route project changes through Cobuild by default, and validate by re-reading the resulting state.
+Start by identifying the configured instance type. The default project workflow is for Design. Inspect before acting, use Cobuild for project construction, and verify results.
+
+## Instance Types
+
+| Configured type | Purpose | Headless workflow |
+| --- | --- | --- |
+| `design` | Development environment for building projects, pipelines, models, applications and agents. | Use the Design workflow below; project construction goes through Cobuild. |
+| `automation` | Production environment for running deployed project bundles, schedules and monitoring. | Inspect and execute existing assets; return to Design for project edits. |
+| `deployer` | Control plane for deploying published project bundles and API service versions. | Use [Deployer operations](./references/deployer.md), including for a local Deployer selected through its own profile. |
+| `govern` | Central governance of analytics, models and agents through governed items and sign-off workflows. | Instance controls only; product support is deferred. |
+| `agent-management` | Agent inventory, performance/value monitoring and risk management, with Design projects for supporting pipelines. | Instance controls only; product support is deferred. |
+
+Descriptions follow Dataiku’s [deployment documentation](https://doc.dataiku.com/dss/latest/deployment/index.html), [deployment knowledge base](https://knowledge.dataiku.com/latest/deploy/project-deployment/concept-project-deployment.html), [Govern architecture knowledge base](https://knowledge.dataiku.com/latest/govern/overview/concept-govern-in-dataiku-architecture.html), and [Agent Management product reference](https://www.dataiku.com/product/agent-management).
+
+Configured type selects Headless policy; it does not establish live features or permissions. Use `list_instances` and `get_current_instance` first. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
 
 ## Shared Operating Rules
 
 1. If the user asks to install, set up, connect, or repair Dataiku Headless, or its MCP tools are unavailable just after installation, read `../dataiku-headless-setup/SKILL.md`. Choose either local stdio or customer-managed HTTP setup and never enable both.
-2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. Check the configured `instance_type` against the policy below before choosing a tool. It controls dispatch; Dataiku permissions and API availability still apply.
+2. Ensure an instance is configured before any Dataiku work. In local stdio mode, if `get_current_instance` errors or `list_instances` is empty, run `configure_instance` first. In HTTP mode, use `list_instances` then `switch_instance`; the instance catalog is platform-managed. Keep the reported `dataiku_version` in context for version-sensitive requests. The required `instance_type` selects dispatch policy; follow the instance-type table rather than applying the Design workflow to every node.
 3. Discover project keys and object identifiers through tools; do not invent them.
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
@@ -20,28 +34,10 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
 10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
 
-## Instance Types
+## Default Workflow — Design Node
 
-| Configured type | Available work |
-| --- | --- |
-| `design` | All tools |
-| `automation` | Reads, execution of existing assets, instance administration, and all project-folder operations |
-| `agent-management`, `govern`, `deployer` | Instance controls only: list, switch, configure, delete, and current profile |
-
-Automation excludes all Cobuild tools, including conversation listing and polling,
-and project creation, project settings/variables updates, container placement,
-dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
-runs, and job aborts remain available and can change outputs. For project
-construction or edits, ask which Design instance to use and
-switch to it; do not bypass the policy through raw APIs.
-
-Agent Management, Govern and Deployer report `connection_status=unsupported` without a DSS probe.
-Explain that their API tools are not implemented, then switch to a supported
-configured instance for Dataiku work. Local configuration actions remain subject
-to the existing HTTP restrictions. The catalog stays visible across all types;
-unsupported calls fail before execution.
-
-## Default Workflow
+Use this workflow on a Design node. For other types, follow the instance-type table.
+On Automation, use the relevant inspection/execution guide without creating or editing project definitions.
 
 1. Identify the target project and the user's main object of work.
 2. Read the matching reference guide from the routing table below.
@@ -53,7 +49,7 @@ unsupported calls fail before execution.
 8. For tasks that span multiple object types, keep one primary guide and read supporting guides for dependent objects or job/run follow-up.
 9. Completion status is not enough. Validate by re-reading the changed object and comparing it with what the user asked for. Where the request is specific about names, titles, or values, check them in the saved settings or a data sample, and mention any requirement you could not confirm. Use `./references/jobs.md` when execution may still be in progress.
 
-## Guide Routing
+## Design Guide Routing
 
 | User intent | Guide to read next |
 | --- | --- |
@@ -88,4 +84,4 @@ unsupported calls fail before execution.
 
 - `./references/cobuild.md` is the default write path for in-project assets, but it should be grounded by the relevant guide first.
 - Direct writes may grow over time for documented non-project, cross-project, instance-level, or administrative operations that Cobuild does not handle.
-- `./references/jobs.md` is the follow-up guide after builds, runs, training, deployment, or other uncertain execution.
+- `./references/jobs.md` is the follow-up guide after builds, runs, training, or other uncertain execution. For Deployer updates, follow `./references/deployer.md` for future polling and deployment history.
