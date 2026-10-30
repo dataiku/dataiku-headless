@@ -127,7 +127,21 @@ class FakeFuture:
     def get_state(self):
         if self._pending:
             self.state = self._pending.pop(0)
+        self.read = True
         return self.state
+
+    def peek_state(self):
+        return self.peeked
+
+
+def _build_future(job_id, env_name, states):
+    """A plugin code-env build, whose peeked state names its target environment."""
+    future = FakeFuture(job_id, states)
+    future.peeked = {
+        "jobId": job_id,
+        "payload": {"action": "import_env", "displayName": f"Import env: {env_name}"},
+    }
+    return future
 
 
 class FakePluginSettings:
@@ -136,6 +150,12 @@ class FakePluginSettings:
 
     def get_raw(self):
         return self.raw
+
+    def set_code_env(self, name):
+        self.raw["codeEnvName"] = name
+
+    def save(self):
+        self.saves = getattr(self, "saves", 0) + 1
 
 
 class FakeUsages:
@@ -171,10 +191,21 @@ class FakePlugin:
         self.on_change()
         return self.futures["update"]
 
+    def update_from_git(self, repository_url, checkout, subpath):
+        self.git_update_args = (repository_url, checkout, subpath)
+        self.on_change()
+        return self.futures["update"]
+
     def start_update_from_zip(self, fp):
         self.uploaded = fp.read()
         self.on_change()
         return self.futures["update"]
+
+    def create_code_env(self, python_interpreter=None):
+        self.created_interpreter = python_interpreter
+        if getattr(self, "create_error", None):
+            raise self.create_error
+        return self.futures["create_code_env"]
 
     def update_code_env(self):
         return self.futures["update_code_env"]
@@ -187,7 +218,11 @@ class FakePlugin:
 
 
 class FakeClient:
-    def __init__(self, listing=None, plugins=None, listing_after_change=None):
+    def __init__(
+        self, listing=None, plugins=None, listing_after_change=None, code_envs=None
+    ):
+        self.code_envs = code_envs or []
+        self.futures = {}
         self.listing = listing or []
         self.plugins = plugins or {}
         self.listing_after_change = listing_after_change
@@ -204,6 +239,35 @@ class FakeClient:
 
     def get_plugin(self, plugin_id):
         return self.plugins[plugin_id]
+
+    def list_code_envs(self):
+        return self.code_envs
+
+    def install_plugin_from_store(self, plugin_id):
+        self.store_install_id = plugin_id
+        self._apply_change()
+        return self.futures["install"]
+
+    def install_plugin_from_git(self, repository_url, checkout, subpath):
+        self.git_install_args = (repository_url, checkout, subpath)
+        self._apply_change()
+        return self.futures["install"]
+
+    def start_install_plugin_from_archive(self, archive):
+        self.uploaded = archive.read()
+        self._apply_change()
+        return self.futures["install"]
+
+
+def _absent(plugin_id="geocoder", futures=None, version="1.0.0", **kwargs):
+    plugin = FakePlugin(plugin_id)
+    client = FakeClient(
+        plugins={plugin_id: plugin},
+        listing_after_change=[_listing_entry(plugin_id, version)],
+    )
+    client.futures.update(futures or {})
+    client.futures.update(kwargs)
+    return plugin, client
 
 
 def _installed(plugin_id="geocoder", version="1.0.0", **kwargs):
@@ -265,22 +329,13 @@ def _members(payload):
     return sorted(zipfile.ZipFile(io.BytesIO(payload)).namelist())
 
 
-@pytest.mark.parametrize(
-    ("source", "plugin_id", "local_path"),
-    [("store", "my-plugin", None), ("local_path", None, "/server/plugin.zip")],
-)
-def test_update_plugin_is_unavailable_in_http_mode(source, plugin_id, local_path):
+def test_update_plugin_local_path_is_unavailable_in_http_mode():
     token = request.bind_http_identity("https://idp.example", "alice")
     try:
-        with pytest.raises(
-            ValueError, match="update_plugin is unavailable in HTTP mode"
-        ):
+        with pytest.raises(ValueError, match="unavailable in HTTP mode"):
             asyncio.run(
                 tools.update_plugin(
-                    source,
-                    FakeContext(),
-                    plugin_id=plugin_id,
-                    local_path=local_path,
+                    "local_path", FakeContext(), local_path="/server/plugin.zip"
                 )
             )
     finally:
@@ -603,8 +658,6 @@ def test_update_plugin_rejects_arguments_that_do_not_match_the_source():
         asyncio.run(tools.update_plugin("store", FakeContext()))
     with pytest.raises(ValueError, match="local_path"):
         asyncio.run(tools.update_plugin("local_path", FakeContext()))
-    with pytest.raises(ValueError, match="source"):
-        asyncio.run(tools.update_plugin("git", FakeContext(), plugin_id="x"))
 
 
 def test_update_plugin_zips_a_directory_and_omits_version_control_files(tmp_path):
@@ -787,8 +840,8 @@ def test_update_plugin_reports_an_unbound_code_env_instead_of_failing():
 
     assert res["status"] == "completed"
     assert res["code_env_rebuild"]["status"] == "skipped"
-    assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
-    assert "does not establish" in res["code_env_rebuild"]["hint"]
+    assert "ensure_plugin_code_env" in res["code_env_rebuild"]["hint"]
+    assert "whether the plugin needs" in res["code_env_rebuild"]["hint"]
 
 
 def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
@@ -813,6 +866,7 @@ def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
     assert res["code_env_rebuild"]["status"] == "failed"
     assert "pip resolution failed" in res["code_env_rebuild"]["error"]
     assert "Dataiku UI" in res["code_env_rebuild"]["hint"]
+    assert "recreate" in res["code_env_rebuild"]["hint"]
     assert "update_plugin" not in res["code_env_rebuild"]["hint"]
 
 
@@ -1124,3 +1178,729 @@ def test_poll_interval_scales_with_the_wait_budget(monkeypatch):
     asyncio.run(tools._wait_for_future(future, 600))
 
     assert slept and all(interval == 10 for interval in slept)
+
+
+@pytest.mark.parametrize("http", [False, True])
+def test_install_plugin_from_store_reports_completion_and_restart_need(
+    monkeypatch, http
+):
+    monkeypatch.setattr(request, "is_http_request", lambda: http)
+    _, client = _absent(
+        version="1.3.1",
+        install=FakeFuture(
+            "F1", [_alive(), _done(needsRestart=True, needsReload=True)]
+        ),
+    )
+
+    with _patch_client(client):
+        res = _load(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+
+    assert res["status"] == "completed"
+    assert res["operation"] == "install"
+    assert res["source"] == "store"
+    assert res["needs_restart"] is True
+    assert res["needs_reload"] is True
+    assert res["plugin"]["version"] == "1.3.1"
+    assert client.store_install_id == "geocoder"
+
+
+def test_install_plugin_refuses_an_already_installed_plugin():
+    _, client = _installed(version="1.3.1")
+
+    with _patch_client(client), pytest.raises(ValueError) as excinfo:
+        asyncio.run(tools.install_plugin("store", FakeContext(), plugin_id="geocoder"))
+
+    assert "update_plugin" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+
+
+def test_local_install_is_disabled_in_http_before_any_io(monkeypatch):
+    monkeypatch.setattr(request, "is_http_request", lambda: True)
+    monkeypatch.setattr(
+        tools, "run_blocking", lambda *args: pytest.fail("must fail before IO")
+    )
+    with pytest.raises(ValueError, match="unavailable in HTTP"):
+        _load(
+            tools.install_plugin(
+                "local_path", FakeContext(), local_path="/server/plugin.zip"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("directory", "language"), [("python", "python"), ("R", "r"), (None, None)]
+)
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_install_reads_code_env_descriptors_in_normalized_archive(
+    tmp_path, directory, language, wrapped
+):
+    archive = tmp_path / "sample.zip"
+    prefix = "wrapper/" if wrapped else ""
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr(prefix + "plugin.json", json.dumps({"id": "sample"}))
+        if directory:
+            output.writestr(prefix + f"code-env/{directory}/desc.json", "{}")
+    _, client = _absent("sample", {"install": FakeFuture(None, [_done()])})
+    with _patch_client(client):
+        result = _load(
+            tools.install_plugin("local_path", FakeContext(), local_path=str(archive))
+        )
+    assert result["code_env"]["status"] == ("required" if language else "not_required")
+    assert result["code_env"]["languages"] == ([language] if language else [])
+
+
+def _creation(client=None, states=None):
+    if client is None:
+        plugin, client = _installed()
+    else:
+        plugin = client.get_plugin("geocoder")
+    future = FakeFuture("F4", states or [_code_env_done("plugin_geocoder_managed")])
+    plugin.futures["create_code_env"] = future
+    return plugin, client, future
+
+
+def test_ensure_plugin_code_env_creates_and_verifies_binding():
+    plugin, client, future = _creation()
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env(
+                "geocoder", FakeContext(), python_interpreter="PYTHON311"
+            )
+        )
+    assert result["status"] == "completed"
+    assert result["build"]["status"] == "completed"
+    assert plugin.settings.get_raw()["codeEnvName"] == result["code_env_name"]
+    assert plugin.created_interpreter == "PYTHON311"
+
+
+def test_plugin_interpreter_schema_advertises_the_plugin_default():
+    registered = asyncio.run(tools.mcp.list_tools())
+    tool = next(item for item in registered if item.name == "ensure_plugin_code_env")
+    interpreter = tool.parameters["properties"]["python_interpreter"]
+    assert "plugin's declared default" in interpreter["description"]
+    assert interpreter["default"] is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "com.dataiku.dip.exceptions.CodedException: ERR_PLUGIN_WITHOUT_CODEENV: no specification",
+        "com.dataiku.dip.exceptions.CodedException: The plugin geocoder doesn't specify a code env, cannot create it",
+    ],
+)
+def test_store_without_code_env_is_not_required(message):
+    from dataikuapi.utils import DataikuException
+
+    plugin, client, _ = _creation()
+    plugin.create_error = DataikuException(message)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == "not_required"
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "permission denied",
+        "ERR_PLUGIN_WITHOUT_CODEENV_EXTRA",
+        "cannot create code env for another reason",
+    ],
+)
+def test_other_creation_errors_remain_errors(message):
+    from dataikuapi.utils import DataikuException
+
+    plugin, client, _ = _creation()
+    plugin.create_error = DataikuException(message)
+    with _patch_client(client), pytest.raises(RuntimeError, match="refused") as excinfo:
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert message in str(excinfo.value)
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+def test_failed_build_is_preserved_beside_binding():
+    plugin, client, _ = _creation(
+        states=[_code_env_done("plugin_geocoder_managed", error="pip install failed")]
+    )
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["build"]["status"] == "failed"
+    assert result["code_env_name"] == plugin.settings.get_raw()["codeEnvName"]
+
+
+def test_bound_environment_does_not_create_or_claim_build_success():
+    plugin, client = _installed(settings={"codeEnvName": "already-bound"})
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert not result["created"]
+    assert result["build"]["status"] == "unknown"
+    assert not plugin.futures
+
+
+def _with_orphan(**kwargs):
+    return _installed(
+        code_envs=[
+            {"envName": "plugin_geocoder_managed", "deploymentMode": "PLUGIN_MANAGED"}
+        ],
+        **kwargs,
+    )
+
+
+def test_orphan_is_listed_instead_of_guessed_or_duplicated():
+    plugin, client = _with_orphan()
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == "recovery_required"
+    assert result["code_env_names"] == ["plugin_geocoder_managed"]
+    assert "code_env_name" in result["hint"]
+    assert not plugin.futures
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+def test_named_orphan_is_bound_without_claiming_a_build():
+    plugin, client = _with_orphan()
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env(
+                "geocoder", FakeContext(), code_env_name="plugin_geocoder_managed"
+            )
+        )
+    assert result["status"] == "completed"
+    assert result["created"] is False
+    assert result["build"]["status"] == "unknown"
+    assert plugin.settings.get_raw()["codeEnvName"] == "plugin_geocoder_managed"
+    assert not plugin.futures
+
+
+@pytest.mark.parametrize(
+    "name", ["plugin_other_managed", "plugin_geocoder_managed_1", "my-env"]
+)
+def test_named_environment_must_be_an_existing_managed_env_of_the_plugin(name):
+    plugin, client = _with_orphan()
+    with _patch_client(client), pytest.raises(ValueError, match="Candidates"):
+        _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), code_env_name=name)
+        )
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"code_env_name": "plugin_geocoder_managed"}, {"python_interpreter": "PYTHON311"}],
+)
+def test_bound_plugin_refuses_a_different_environment_request(kwargs):
+    plugin, client = _installed(settings={"codeEnvName": "already-bound"})
+    with _patch_client(client), pytest.raises(ValueError, match="already bound"):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), **kwargs))
+    assert plugin.settings.get_raw()["codeEnvName"] == "already-bound"
+
+
+def test_timeout_is_resumed_by_exact_future_and_then_bound(monkeypatch):
+    plugin, client, future = _creation(states=[_alive(), _alive()])
+    with _patch_client(client), _exhausted_clock() as mock_time:
+        mock_time.monotonic.side_effect = incrementing_monotonic()
+        result = _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), timeout_seconds=1)
+        )
+    assert result["status"] == "still_running"
+    assert result["future_id"] == "F4"
+    assert "codeEnvName" not in plugin.settings.get_raw()
+    resumed = _build_future(
+        "F4", "plugin_geocoder_managed", [_code_env_done("plugin_geocoder_managed")]
+    )
+    monkeypatch.setattr(tools, "DSSFuture", lambda client, future_id: resumed)
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4")
+        )
+    assert result["build"]["status"] == "completed"
+    assert result["created"] is True
+    assert plugin.settings.get_raw()["codeEnvName"] == "plugin_geocoder_managed"
+
+
+@pytest.mark.parametrize(
+    "peeked",
+    [
+        {
+            "payload": {
+                "action": "import_env",
+                "displayName": "Import env: plugin_other_managed",
+            }
+        },
+        {"payload": {"action": "update_plugin", "displayName": "Update: geocoder"}},
+        {"jobId": "wrong"},
+    ],
+)
+def test_resuming_another_operations_future_neither_reads_nor_binds(
+    monkeypatch, peeked
+):
+    plugin, client = _installed()
+    other = FakeFuture("wrong", [_code_env_done("plugin_other_managed")])
+    other.peeked = peeked
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: other)
+    with (
+        _patch_client(client),
+        pytest.raises(ValueError, match="not a code environment build"),
+    ):
+        _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="wrong")
+        )
+    assert not getattr(other, "read", False)
+    assert "codeEnvName" not in plugin.settings.get_raw()
+
+
+def test_forgotten_future_points_to_named_binding(monkeypatch):
+    from dataikuapi.utils import DataikuException
+
+    _, client = _installed()
+    gone = FakeFuture("F4", [_alive()])
+
+    def forgotten():
+        raise DataikuException(
+            "java.lang.IllegalArgumentException: No future by that id"
+        )
+
+    gone.peek_state = forgotten
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: gone)
+    with _patch_client(client), pytest.raises(ValueError, match="code_env_name"):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4"))
+
+
+def test_binding_failure_reports_the_reason_and_the_name_to_bind(monkeypatch):
+    from dataikuapi.utils import DataikuException
+
+    plugin, client, _ = _creation()
+
+    def fail_save():
+        raise DataikuException(
+            "com.dataiku.dip.exceptions.UnauthorizedException: Action forbidden"
+        )
+
+    monkeypatch.setattr(plugin.settings, "save", fail_save)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == "binding_failed"
+    assert result["code_env_name"] == "plugin_geocoder_managed"
+    assert result["error"] == "Action forbidden"
+
+
+def test_changed_binding_is_preserved(monkeypatch):
+    plugin, client, future = _creation(
+        states=[_alive(), _code_env_done("plugin_geocoder_managed")]
+    )
+    original = future.get_state
+
+    def switched():
+        plugin.settings.raw["codeEnvName"] = "chosen-elsewhere"
+        return original()
+
+    monkeypatch.setattr(future, "get_state", switched)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == "binding_changed"
+    assert result["bound_code_env_name"] == "chosen-elsewhere"
+    assert plugin.settings.raw["codeEnvName"] == "chosen-elsewhere"
+
+
+@pytest.mark.parametrize("no_spec", [True, False])
+def test_code_env_contract_through_real_sdk_http_serialization(monkeypatch, no_spec):
+    """The real SDK drops errorCode; exercise that boundary instead of a fake exception."""
+    import requests
+    from dataikuapi import DSSClient
+
+    client = DSSClient("https://synthetic.example.com", "synthetic-key")
+    settings = {}
+    calls = []
+
+    def respond(method, url, **kwargs):
+        path = url.split("/dip/publicapi", 1)[1]
+        calls.append((method, path))
+        status = 200
+        if path == "/plugins/":
+            value = [_listing_entry("geocoder")]
+        elif path == "/admin/code-envs/":
+            value = []
+        elif path.endswith("/settings"):
+            if method == "POST":
+                settings.update(json.loads(kwargs["data"]))
+            value = dict(settings)
+        elif path.endswith("/code-env/actions/create"):
+            body = json.loads(kwargs["data"])
+            assert body["deploymentMode"] == "PLUGIN_MANAGED"
+            assert body["pythonInterpreter"] is None
+            if no_spec:
+                status = 400
+                value = {
+                    "errorType": "com.dataiku.dip.exceptions.CodedException",
+                    "errorCode": "ERR_PLUGIN_WITHOUT_CODEENV",
+                    "detailedMessage": "The plugin geocoder doesn't specify a code env, cannot create it",
+                }
+            else:
+                value = _code_env_done("plugin_geocoder_managed")
+        else:
+            pytest.fail(f"Unexpected SDK call {method} {path}")
+        response = requests.Response()
+        response.status_code = status
+        response._content = json.dumps(value).encode()
+        return response
+
+    monkeypatch.setattr(client._session, "request", respond)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == ("not_required" if no_spec else "completed")
+    assert ("codeEnvName" in settings) is not no_spec
+    assert ("POST", "/plugins/geocoder/settings") in calls if not no_spec else True
+
+
+def test_environment_name_without_build_report_is_not_verified_success():
+    _, client, _ = _creation(
+        states=[{"hasResult": True, "result": {"envName": "plugin_geocoder_managed"}}]
+    )
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["build"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "plugin_geocoder-extra_managed",
+        "plugin_geocoder_managed_extra",
+        "plugin_other_managed",
+    ],
+)
+def test_similarly_named_environments_do_not_block_initial_creation(name):
+    _, client = _installed(
+        code_envs=[{"envName": name, "deploymentMode": "PLUGIN_MANAGED"}]
+    )
+    _, client, _ = _creation(client)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["created"] is True
+
+
+_GIT_URL = "https://git.example.com/team/plugin.git"
+
+
+def _git_done(**kwargs):
+    return _done(pluginDesc={"desc": {"id": "geocoder"}}, **kwargs)
+
+
+@pytest.mark.parametrize("wait", [False, True])
+def test_git_install_keeps_future_when_plugin_id_is_not_known(wait):
+    _, client = _absent(install=FakeFuture("G2", [_alive(), _alive()]))
+    with _patch_client(client), _exhausted_clock() as mock_time:
+        mock_time.monotonic.side_effect = incrementing_monotonic()
+        result = _load(
+            tools.install_plugin(
+                "git",
+                FakeContext(),
+                repository_url=_GIT_URL,
+                checkout="main",
+                wait_for_completion=wait,
+                timeout_seconds=1,
+            )
+        )
+    assert result["status"] == ("still_running" if wait else "started")
+    assert result["future_id"] == "G2"
+    assert "plugin_id" not in result
+
+
+def test_git_install_reports_uncertain_verification_without_restarting():
+    _, client = _absent(install=FakeFuture(None, [_git_done()]))
+    client.listing_after_change = []
+    with _patch_client(client):
+        result = _load(
+            tools.install_plugin(
+                "git",
+                FakeContext(),
+                repository_url=_GIT_URL,
+                checkout="main",
+            )
+        )
+    assert result["status"] == "verification_required"
+    assert "list_plugins" in result["hint"]
+
+
+@pytest.mark.parametrize("operation", ["install", "update"])
+def test_git_contract_with_real_sdk(monkeypatch, operation):
+    import requests
+    from dataikuapi import DSSClient
+
+    monkeypatch.setattr(request, "is_http_request", lambda: True)
+    client = DSSClient("https://synthetic.example.com", "synthetic-key")
+    calls = []
+    endpoint = (
+        "/plugins/actions/installFromGit"
+        if operation == "install"
+        else "/plugins/geocoder/actions/updateFromGit"
+    )
+    checkout = "v1.0" if operation == "install" else _GIT_COMMIT
+
+    def respond(method, url, **kwargs):
+        path = url.split("/dip/publicapi", 1)[1]
+        calls.append((method, path))
+        if path == endpoint:
+            assert json.loads(kwargs["data"]) == {
+                "gitRepositoryUrl": _GIT_URL,
+                "gitCheckout": checkout,
+                "gitSubpath": "plugin",
+            }
+            value = {"jobId": "G4", **_alive()}
+        elif path == "/futures/G4":
+            value = _git_done(needsReload=True)
+            value["result"]["settings"] = {"secret": "do-not-return"}
+        elif path == "/plugins/":
+            value = [_listing_entry("geocoder")]
+        else:
+            pytest.fail(f"Unexpected SDK call {method} {path}")
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(value).encode()
+        return response
+
+    monkeypatch.setattr(client._session, "request", respond)
+    with _patch_client(client):
+        result = _load(
+            getattr(tools, f"{operation}_plugin")(
+                "git",
+                FakeContext(),
+                repository_url=_GIT_URL,
+                checkout=checkout,
+                **({"plugin_id": "geocoder"} if operation == "update" else {}),
+                subpath="plugin",
+            )
+        )
+    assert result["status"] == "completed"
+    assert result["plugin_id"] == result["plugin"]["id"] == "geocoder"
+    assert result["needs_reload"] is True
+    if operation == "install":
+        assert result["code_env"] == {"status": "unknown"}
+    assert "do-not-return" not in json.dumps(result)
+    assert calls == ([("GET", "/plugins/")] if operation == "update" else []) + [
+        ("POST", endpoint),
+        ("GET", "/futures/G4"),
+        ("GET", "/plugins/"),
+    ]
+
+
+_GIT_COMMIT = "a1" * 20
+
+
+@pytest.mark.parametrize(
+    "http,rebuild,checkout,subpath",
+    [
+        (True, True, "release/1.0", "plugins/geocoder"),
+        (False, False, "v2.0", None),
+        (False, False, _GIT_COMMIT, None),
+    ],
+)
+def test_git_update_uses_chosen_revision_and_path(
+    monkeypatch, http, rebuild, checkout, subpath
+):
+    monkeypatch.setattr(request, "is_http_request", lambda: http)
+    plugin, client = _installed(
+        settings={"codeEnvName": "plugin_geocoder_managed"},
+        futures={
+            "update": FakeFuture("GU1", [_alive(), _git_done(needsReload=True)]),
+            "update_code_env": FakeFuture(
+                None, [_code_env_done("plugin_geocoder_managed")]
+            ),
+        },
+        listing_after_change=[_listing_entry("geocoder", "2.0.0")],
+    )
+    with _patch_client(client):
+        result = _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout=checkout,
+                subpath=subpath,
+                rebuild_code_env=rebuild,
+            )
+        )
+    assert plugin.git_update_args == (_GIT_URL, checkout, subpath)
+    assert result["plugin"]["version"] == "2.0.0"
+    assert result["needs_reload"] is True
+    assert result["status"] == "completed"
+    assert ("code_env_rebuild" in result) is rebuild
+    if rebuild:
+        assert result["code_env_rebuild"]["status"] == "completed"
+
+
+@pytest.mark.parametrize("wait", [False, True])
+def test_git_update_preserves_future_and_defers_rebuild(wait):
+    _, client = _installed(futures={"update": FakeFuture("GU2", [_alive(), _alive()])})
+    with _patch_client(client), _exhausted_clock() as mock_time:
+        mock_time.monotonic.side_effect = incrementing_monotonic()
+        result = _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout=_GIT_COMMIT,
+                wait_for_completion=wait,
+                rebuild_code_env=wait,
+                timeout_seconds=1,
+            )
+        )
+    assert result["future_id"] == "GU2"
+    assert result["status"] == ("still_running" if wait else "started")
+    if wait:
+        assert result["code_env_rebuild"]["status"] == "not_started"
+
+
+@pytest.mark.parametrize("actual_id", [None, "other-plugin"])
+def test_git_update_unexpected_result_requires_verification_and_skips_rebuild(
+    actual_id,
+):
+    _, client = _installed(
+        futures={
+            "update": FakeFuture(None, [_done(pluginDesc={"desc": {"id": actual_id}})])
+        }
+    )
+    with _patch_client(client):
+        result = _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout=_GIT_COMMIT,
+                rebuild_code_env=True,
+            )
+        )
+    assert result["status"] == "verification_required"
+    assert "code_env_rebuild" not in result
+    assert result.get("reported_plugin_id") == actual_id
+
+
+def test_git_update_refuses_missing_target_before_mutation():
+    _, client = _absent()
+    with _patch_client(client), pytest.raises(ValueError, match="not installed"):
+        _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout=_GIT_COMMIT,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "operation,stage", [("install", "start"), ("install", "poll"), ("update", "result")]
+)
+def test_git_access_failure_provides_help_and_recovery(monkeypatch, operation, stage):
+    from dataikuapi.utils import DataikuException
+
+    plugin, client = _installed() if operation == "update" else _absent()
+    future = FakeFuture("G-auth", [_alive()])
+    futures = plugin.futures if operation == "update" else client.futures
+    futures[operation] = future
+    secret = "synthetic-token"
+    message = f"Authentication failed https://user:{secret}@git.example.com/plugin"
+
+    def fail(*args, **kwargs):
+        raise DataikuException(message)
+
+    if stage == "start":
+        monkeypatch.setattr(client, "install_plugin_from_git", fail)
+    elif stage == "poll":
+        monkeypatch.setattr(future, "get_state", fail)
+    else:
+        futures[operation] = FakeFuture(
+            "G-auth", [_done(success=False, installationError={"message": message})]
+        )
+    with _patch_client(client), pytest.raises(RuntimeError) as error:
+        _load(
+            getattr(tools, f"{operation}_plugin")(
+                "git",
+                FakeContext(),
+                repository_url=_GIT_URL,
+                checkout="main",
+                **({"plugin_id": "geocoder"} if operation == "update" else {}),
+            )
+        )
+    assert "Dataiku's Git settings" in str(error.value)
+    assert "Credentials on the Headless machine do not apply" in str(error.value)
+    assert secret not in str(error.value)
+    if stage != "start":
+        assert "G-auth" in str(error.value)
+
+
+def test_git_non_auth_failure_does_not_claim_missing_credentials():
+    _, client = _absent(
+        install=FakeFuture(
+            None,
+            [
+                _done(
+                    success=False,
+                    installationError={"message": "Remote branch does not exist"},
+                )
+            ],
+        )
+    )
+    with _patch_client(client), pytest.raises(RuntimeError) as error:
+        _load(
+            tools.install_plugin(
+                "git", FakeContext(), repository_url=_GIT_URL, checkout="missing"
+            )
+        )
+    assert "could not authenticate" not in str(error.value)
+    assert "checkout" in str(error.value)
+    assert "list_plugins" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "operation,source,overrides",
+    [
+        ("install", "git", {"repository_url": None}),
+        ("update", "git", {"checkout": " "}),
+        ("update", "git", {"plugin_id": None}),
+        ("install", "git", {"plugin_id": "geocoder"}),
+        ("update", "git", {"local_path": "/tmp/plugin"}),
+        ("install", "git", {"subpath": "../plugin"}),
+        ("update", "git", {"subpath": "/plugin"}),
+        (
+            "install",
+            "git",
+            {"repository_url": "https://user:synthetic-token@git.example.com/plugin"},
+        ),
+        (
+            "update",
+            "git",
+            {"repository_url": "https://git.example.com/plugin?token=synthetic-token"},
+        ),
+        ("install", "git", {"repository_url": "file:///server/plugin"}),
+        ("install", "store", {}),
+        ("update", "local_path", {}),
+    ],
+)
+def test_git_source_validation_rejects_invalid_arguments_before_io(
+    operation, source, overrides
+):
+    arguments = dict(repository_url=_GIT_URL, checkout="main")
+    if operation == "update":
+        arguments["plugin_id"] = "geocoder"
+    arguments.update(overrides)
+    with pytest.raises(ValueError) as error:
+        _load(getattr(tools, f"{operation}_plugin")(source, FakeContext(), **arguments))
+    assert "synthetic-token" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "git@git.example.com:team/plugin.git",
+        "ssh://git@git.example.com/team/plugin.git",
+    ],
+)
+def test_git_ssh_remote_forms_are_accepted(url):
+    assert tools._require_git_repository_url(url) == url

@@ -19,6 +19,10 @@ Agent tools are project-level Dataiku objects that agents call during execution.
 
 Additional tool types can be added through plugins or pre-configured connections. Examples include SQL Question Answering, Semantic Model Query, Google Search, Jira, Salesforce, ServiceNow, Snowflake Cortex, and Databricks Genie. Custom plugin tools use a `Custom_agent_tool_<plugin>_<tool>` type name. Inspect available tools rather than assuming a plugin or connection exists.
 
+To author a reusable agent-tool plugin component from local source, read
+`../plugin-development.md`, then its agent-tool component reference. Creating or
+configuring the project-level tool that uses it still goes through Cobuild.
+
 ## Interpretation Notes
 
 - `additionalDescriptionForLLM` is the primary signal for tool selection. It should name the tool's purpose, appropriate inputs, and intended situations.
