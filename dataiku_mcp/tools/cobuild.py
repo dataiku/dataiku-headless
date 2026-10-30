@@ -36,6 +36,7 @@ from .utils.validation import require_non_empty_string as _require_non_empty_str
 TURN_WAIT_TIMEOUT_SECONDS = 240
 
 ProjectKey = Annotated[str, Field(description="Must match the conversation's project.")]
+ClientApplication = Literal["dataiku-headless", "dataiku-migrate"]
 
 
 @dataclass
@@ -54,6 +55,7 @@ class _Conversation:
     project_key: str
     sdk_conversation: object
     created_at: str
+    client_application: ClientApplication = "dataiku-headless"
     turn: _Turn | None = None
 
 
@@ -264,13 +266,20 @@ async def _wait_for_turn(
         "openWorldHint": False,
     },
 )
-async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
+async def start_cobuild_conversation(
+    project_key: str,
+    ctx: Context,
+    client_application: Annotated[
+        ClientApplication,
+        Field(description="Application that Dataiku records for this conversation."),
+    ] = "dataiku-headless",
+) -> str:
     """Open a Cobuild conversation on a project, if no retained one applies."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
     instance = request.get_pinned_instance()
-    client = get_dss_client()
+    client = get_dss_client(client_application)
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
@@ -281,6 +290,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         project_key,
         conversation,
         created_at=datetime.now(timezone.utc).isoformat(),
+        client_application=client_application,
     )
     _conversations[conversation.conversation_id] = entry
     return compact_json(
@@ -290,6 +300,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             "project_key": entry.project_key,
             "project_url": _project_url(entry),
             "created_at": entry.created_at,
+            "client_application": entry.client_application,
         }
     )
 
@@ -340,7 +351,7 @@ async def send_cobuild_message(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.send_message(
             message, allow_edit_project=allow_edit_project
         )
@@ -388,7 +399,7 @@ async def answer_cobuild_confirmation(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.answer_confirmation(choice)
 
     turn = _start_turn(conversation_id, entry, check, call)
@@ -439,7 +450,7 @@ async def answer_cobuild_question(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.answer_question(
             answers,
             rejected=rejected,

@@ -120,7 +120,7 @@ def environment(monkeypatch):
     cobuild._conversations.clear()
     active_instance = {"name": "instance-a", "url": "https://a.example.com"}
     client = Client()
-    monkeypatch.setattr(cobuild, "get_dss_client", lambda: client)
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *_: client)
     monkeypatch.setattr(
         request,
         "get_pinned_instance",
@@ -470,7 +470,7 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
     monkeypatch.setattr(
         cobuild,
         "get_dss_client",
-        lambda: (
+        lambda *_: (
             clients[0] if "conversation-1" not in cobuild._conversations else clients[1]
         ),
     )
@@ -499,6 +499,38 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
         ] == "completed"
 
     run(scenario())
+
+
+@pytest.mark.parametrize("client_application", ["dataiku-headless", "dataiku-migrate"])
+def test_client_application_is_kept_for_every_conversation_call(
+    environment, monkeypatch, client_application
+):
+    client, _ = environment
+    client.conversation.next_send = Response("delete?", is_confirmation_request=True)
+    applications = []
+
+    def get_client(application="dataiku-headless"):
+        applications.append(application)
+        return client
+
+    monkeypatch.setattr(cobuild, "get_dss_client", get_client)
+
+    async def scenario():
+        kwargs = (
+            {}
+            if client_application == "dataiku-headless"
+            else {"client_application": client_application}
+        )
+        started = json.loads(
+            await cobuild.start_cobuild_conversation("PROJECT", Context(), **kwargs)
+        )
+        assert started["client_application"] == client_application
+        turn = await send()
+        await poll(turn["turn_id"])
+        await answer(turn["turn_id"])
+
+    run(scenario())
+    assert applications == [client_application] * 3
 
 
 def test_ownership_and_sdk_contract(environment):

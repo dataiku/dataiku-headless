@@ -70,6 +70,24 @@ def test_client_uses_selected_authentication(
     assert client._session.verify is not no_check_certificate
 
 
+def test_client_sends_the_requested_client_application(monkeypatch):
+    instance = DSSInstance(
+        name="local",
+        url="https://dss.example.com",
+        no_check_certificate=False,
+        source="environment",
+        api_key="api-key",
+        instance_type="design",
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+
+    # SDK construction is local: no HTTP request is made.
+    client = auth.get_dss_client("dataiku-migrate")
+
+    assert client._session.headers["X-DKU-Client-Application"] == "dataiku-migrate"
+
+
 def test_client_ticket_uses_sdk_ticket_header(monkeypatch):
     instance = DSSInstance(
         name="studio",
