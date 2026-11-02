@@ -154,8 +154,9 @@ could not be verified. Inspect `list_plugins` before retrying or preparing its e
   plugin declares no environment; install scripts, system packages, and presets may
   still need the Dataiku UI.
 - `python_interpreter`, `future_id`, and `code_env_name` are mutually exclusive.
-  `python_interpreter` only applies to a new environment. An already-bound plugin is
-  returned as is and refuses a different environment or interpreter.
+  Omit `python_interpreter` to let Dataiku select an interpreter based on the plugin's
+  accepted versions and server availability. It only applies to a new environment.
+  An already-bound plugin is returned as is and refuses a different environment or interpreter.
 - On `still_running`, resume with the same `plugin_id` and `future_id` on the same
   instance; never start another build. Dataiku forgets a build once its result is
   read, so a `future_id` only resumes a build that has not been reported finished.

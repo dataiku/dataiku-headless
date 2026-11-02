@@ -1278,11 +1278,12 @@ def test_ensure_plugin_code_env_creates_and_verifies_binding():
     assert plugin.created_interpreter == "PYTHON311"
 
 
-def test_plugin_interpreter_schema_advertises_the_plugin_default():
+def test_plugin_interpreter_schema_explains_dataiku_selection():
     registered = asyncio.run(tools.mcp.list_tools())
     tool = next(item for item in registered if item.name == "ensure_plugin_code_env")
     interpreter = tool.parameters["properties"]["python_interpreter"]
-    assert "plugin's declared default" in interpreter["description"]
+    assert "accepted versions" in interpreter["description"]
+    assert "server availability" in interpreter["description"]
     assert interpreter["default"] is None
 
 

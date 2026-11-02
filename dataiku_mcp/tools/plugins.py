@@ -1125,7 +1125,8 @@ async def ensure_plugin_code_env(
     python_interpreter: Annotated[
         PythonInterpreter,
         Field(
-            description="Uses the plugin's declared default when omitted; only applies to a new environment."
+            description="Omit to let Dataiku select an interpreter based on the plugin's "
+            "accepted versions and server availability. Only applies to a new environment."
         ),
     ] = None,
     future_id: str | None = None,
@@ -1136,8 +1137,9 @@ async def ensure_plugin_code_env(
 
     Args:
         plugin_id: Installed plugin id.
-        python_interpreter: Uses the plugin's declared default when omitted;
-            only applies to a new environment.
+        python_interpreter: Omit to let Dataiku select an interpreter based on the
+            plugin's accepted versions and server availability. Only applies to a
+            new environment.
         future_id: Resume a build this tool returned as still_running. Dataiku
             forgets a build once its result is read, so this works only while it runs.
         code_env_name: Bind this existing, unbound PLUGIN_MANAGED environment of the
