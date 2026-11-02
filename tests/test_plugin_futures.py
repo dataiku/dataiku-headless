@@ -100,3 +100,28 @@ def test_other_future_results_are_preserved():
             asyncio.run(jobs.get_future_status("F", FakeContext(), fetch_result=True))
         )
     assert result["state"] == state
+
+
+def test_plugin_future_preserves_progress_without_exposing_other_details():
+    client = DSSClient("https://synthetic.example.com", "synthetic-key")
+    progress = {"name": "Building CDE image", "unit": "images", "cur": 2, "target": 5}
+    state = {
+        "alive": True,
+        "hasResult": False,
+        "runningTime": 600000,
+        "payload": {"action": "plugin_install", "targets": ["SYNTHETIC_SECRET"]},
+        "progress": {
+            "states": [{**progress, "details": "SYNTHETIC_SECRET"}],
+            "extra": "SYNTHETIC_SECRET",
+        },
+        "log": "SYNTHETIC_SECRET",
+    }
+    with (
+        patch.object(client, "_perform_json", return_value=state),
+        patch.object(jobs, "get_dss_client", return_value=client),
+    ):
+        result = json.loads(asyncio.run(jobs.get_future_status("F", FakeContext())))
+    assert result["state"]["runningTime"] == 600000
+    assert result["state"]["progress"] == {"states": [progress]}
+    assert result["state"]["alive"] is True
+    assert "SYNTHETIC_SECRET" not in json.dumps(result)

@@ -34,7 +34,6 @@ from .utils.job_summaries import (
     summarize_listed_job as _summarize_listed_job,
 )
 from .utils.serialization import columnar, compact_json
-from .utils.plugin_futures import plugin_future_state
 from .utils.validation import (
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
@@ -407,6 +406,49 @@ async def run_recipe(
     )
 
 
+def _plugin_future_state(state: dict) -> dict:
+    """Compact plugin receipts without settings, logs, or Git subprocess errors."""
+    safe = {
+        key: state[key]
+        for key in ("jobId", "alive", "hasResult", "aborted", "runningTime")
+        if key in state
+    }
+    progress_states = (state.get("progress") or {}).get("states") or []
+    if progress_states:
+        safe["progress"] = {
+            "states": [
+                {
+                    key: progress[key]
+                    for key in ("name", "unit", "cur", "target")
+                    if key in progress
+                }
+                for progress in progress_states
+            ]
+        }
+    result = state.get("result")
+    if isinstance(result, dict):
+        receipt = {
+            key: result[key]
+            for key in ("success", "needsReload", "needsRestart")
+            if key in result
+        }
+        desc = (result.get("pluginDesc") or {}).get("desc") or {}
+        if desc.get("id"):
+            receipt["pluginDesc"] = {
+                "desc": {key: desc[key] for key in ("id", "version") if key in desc}
+            }
+        if (
+            result.get("success") is False
+            or result.get("installationError")
+            or result.get("errorMessage")
+        ):
+            receipt["error"] = (
+                "Plugin operation failed. Inspect the plugin and Dataiku server logs before retrying; raw error details are omitted because they may contain credentials."
+            )
+        safe["result"] = receipt
+    return safe
+
+
 @mcp.tool(
     title="Get Future Status",
     annotations={
@@ -450,7 +492,7 @@ async def get_future_status(
                     "Could not retrieve the plugin operation result. Inspect installed plugins before retrying; raw error details are omitted because they may contain credentials."
                 ) from None
         if plugin_action:
-            state = plugin_future_state(state)
+            state = _plugin_future_state(state)
         return {"future_id": future_id, "state": state}
 
     return compact_json(await run_blocking(_run))

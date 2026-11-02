@@ -41,9 +41,10 @@ Use `get_future_status` on the same instance; project job tools do not track fut
 - For initial plugin environment setup, resume through `ensure_plugin_code_env`
   with the original `plugin_id` and `future_id` instead of fetching its result here.
   That tool needs the result to finish binding; follow `./administration/plugins.md`.
-- Plugin future responses retain completion flags, plugin ID/version, and a safe
-  failure notice. Settings, logs, and raw errors are omitted because they may contain
-  credentials. Inspect server logs in Dataiku when diagnosis needs those details.
+- Plugin future responses retain completion flags, plugin ID/version, elapsed time
+  (`runningTime`, in milliseconds), and phase/progress values in `progress.states`,
+  plus a safe failure notice. Settings, logs, and raw errors are omitted because they
+  may contain credentials. Inspect server logs in Dataiku when diagnosis needs those details.
 - Keep supervising the existing future; do not repeat the operation to poll it.
 
 ## Preferred Tools
