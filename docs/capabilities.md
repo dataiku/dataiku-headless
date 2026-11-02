@@ -24,15 +24,15 @@ instance the local client targets.
 
 ## Surface
 
-**129 tools** · 93 read · 22 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**135 tools** · 96 read · 22 direct Dataiku write · 6 Cobuild · 7 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 93 | Never mutates |
+| Read / inspect | 96 | Never mutates |
 | Direct Dataiku write | 22 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
-| Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
+| Execute | 7 | `build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
 | Connection test | 1 | `test_connection` |
 
@@ -92,6 +92,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
+| Macros | `list_macros`, `get_macro_definition`, `get_macro_status` | `run_macro`, `get_macro_result`, `abort_macro_run` | Execution — installed macros; includes status, result retrieval, and cancellation. Effects depend on the macro and can extend beyond the project. |
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
