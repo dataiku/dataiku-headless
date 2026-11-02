@@ -25,6 +25,7 @@ dependencies = [
     "pydantic>=2.11,<3",
     "python-dotenv",
     "requests>=2.32",
+    "six>=1.17,<2",
 ]
 
 [project.urls]
