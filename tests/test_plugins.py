@@ -873,6 +873,54 @@ def test_update_plugin_keeps_a_landed_update_when_the_rebuild_fails():
     assert "update_plugin" not in res["code_env_rebuild"]["hint"]
 
 
+@pytest.mark.parametrize("stage", ["inspect", "start", "poll", "terminal"])
+def test_update_plugin_keeps_landed_update_after_rebuild_exception(monkeypatch, stage):
+    from requests.exceptions import Timeout
+
+    future = FakeFuture("F3", [_alive()])
+    plugin, client = _installed(
+        settings={"codeEnvName": "plugin_geocoder"},
+        listing_after_change=[_listing_entry("geocoder", version="1.4.0")],
+        futures={"update": FakeFuture("F2", [_done()]), "update_code_env": future},
+    )
+
+    def fail():
+        raise Timeout("sensitive transport detail")
+
+    if stage == "inspect":
+        monkeypatch.setattr(plugin, "get_settings", fail)
+    elif stage == "start":
+        monkeypatch.setattr(plugin, "update_code_env", fail)
+    elif stage == "poll":
+        monkeypatch.setattr(future, "get_state", fail)
+    else:
+        future.state = {"alive": False, "aborted": True, "hasResult": False}
+
+    with _patch_client(client):
+        result = _load(
+            tools.update_plugin(
+                "store",
+                FakeContext(),
+                plugin_id="geocoder",
+                rebuild_code_env=True,
+            )
+        )
+
+    assert result["status"] == "completed"
+    assert result["plugin"]["version"] == "1.4.0"
+    rebuild = result["code_env_rebuild"]
+    assert rebuild["status"] == "unknown"
+    assert "Do not repeat update_plugin" in rebuild["hint"]
+    assert "sensitive" not in json.dumps(result)
+    if stage != "inspect":
+        assert rebuild["code_env_name"] == "plugin_geocoder"
+    if stage in ("poll", "terminal"):
+        assert rebuild["future_id"] == "F3"
+        assert "get_future_status" in rebuild["hint"]
+    else:
+        assert "future_id" not in rebuild
+
+
 def test_update_plugin_timeout_says_the_requested_rebuild_never_started():
     """Absent code_env_rebuild would read as a rebuild that quietly succeeded."""
     _, client = _installed(

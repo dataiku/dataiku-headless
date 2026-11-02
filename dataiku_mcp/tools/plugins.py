@@ -958,31 +958,53 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
     reported alongside the successful update instead of discarding it.
     """
 
-    def _start():
-        plugin = client.get_plugin(plugin_id)
-        bound = plugin.get_settings().get_raw().get("codeEnvName")
-        return bound, plugin.update_code_env() if bound else None
+    bound = None
+    future = None
 
-    bound, future = await run_blocking(_start)
-    if not bound:
-        return {
-            "status": "skipped",
-            "reason": "No code environment is bound to this plugin.",
-            "hint": (
-                "Call ensure_plugin_code_env to check whether the plugin needs an "
-                "environment and create or recover its managed environment."
-            ),
-        }
-    timed_out, state = await _wait_for_future(future, timeout_seconds)
-    if timed_out:
-        return {
-            "status": "still_running",
-            "code_env_name": bound,
-            "future_id": future.job_id,
-            "hint": _FOLLOW_HINT,
-        }
-    result = _terminal_result("rebuild_code_env", plugin_id, state)
-    return _build_outcome(result, bound)
+    def _inspect():
+        plugin = client.get_plugin(plugin_id)
+        return plugin, plugin.get_settings().get_raw().get("codeEnvName")
+
+    try:
+        plugin, bound = await run_blocking(_inspect)
+        if not bound:
+            return {
+                "status": "skipped",
+                "reason": "No code environment is bound to this plugin.",
+                "hint": (
+                    "Call ensure_plugin_code_env to check whether the plugin needs an "
+                    "environment and create or recover its managed environment."
+                ),
+            }
+        future = await run_blocking(plugin.update_code_env)
+        timed_out, state = await _wait_for_future(future, timeout_seconds)
+        if timed_out:
+            return {
+                "status": "still_running",
+                "code_env_name": bound,
+                "future_id": future.job_id,
+                "hint": _FOLLOW_HINT,
+            }
+        result = _terminal_result("rebuild_code_env", plugin_id, state)
+        return _build_outcome(result, bound)
+    except Exception:
+        future_id = future.job_id if future is not None else None
+        return omit_empty(
+            {
+                "status": "unknown",
+                "code_env_name": bound,
+                "future_id": future_id,
+                "error": "The plugin update completed, but its code-environment rebuild could not be verified.",
+                "hint": (
+                    "Do not repeat update_plugin. "
+                    + (
+                        "Check this future_id with get_future_status before taking further action."
+                        if future_id
+                        else "Inspect the plugin's bound environment in Dataiku before rebuilding; a rebuild may already have started."
+                    )
+                ),
+            }
+        )
 
 
 def _without_code_env(exc: DataikuException, plugin_id: str) -> bool:

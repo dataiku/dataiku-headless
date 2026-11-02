@@ -141,6 +141,9 @@ could not be verified. Inspect `list_plugins` before retrying or preparing its e
 - If `code_env_rebuild.status` is `not_started`, follow the update to successful
   completion, then ask the user to rebuild in the Dataiku UI. If the rebuild is already
   running, follow its own `future_id`.
+- If `code_env_rebuild.status` is `unknown`, the plugin update succeeded but the
+  rebuild outcome could not be verified. Follow its `future_id` when present;
+  otherwise inspect the bound environment in Dataiku before rebuilding.
 - Do not repeat `update_plugin` solely to start or retry an environment rebuild.
 - Dataiku reports a failed action as an ordinary successful response, so the absence of
   an error is not evidence of success. Update and delete check the reported
