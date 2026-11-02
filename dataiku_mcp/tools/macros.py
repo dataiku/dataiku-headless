@@ -35,18 +35,6 @@ def _without_defaults(value):
     return value
 
 
-def _macro(client, project_key, macro_id):
-    return client.get_project(project_key).get_macro(macro_id)
-
-
-def _run_identity(project_key, macro_id, run_id):
-    return {
-        "project_key": require_non_empty_string(project_key, "project_key"),
-        "macro_id": require_non_empty_string(macro_id, "macro_id"),
-        "run_id": require_non_empty_string(run_id, "run_id"),
-    }
-
-
 def _status(state):
     # Errors may contain arbitrary plugin output, including credentials.
     return {
@@ -101,7 +89,7 @@ async def get_macro_definition(project_key: str, macro_id: str) -> str:
     macro_id = require_non_empty_string(macro_id, "macro_id")
     client = get_dss_client()
     raw = await run_blocking(
-        lambda: _macro(client, project_key, macro_id).get_definition()
+        lambda: client.get_project(project_key).get_macro(macro_id).get_definition()
     )
     return compact_json(
         _without_defaults(
@@ -149,10 +137,14 @@ async def run_macro(
     client = get_dss_client()
     try:
         run_id = await run_blocking(
-            lambda: _macro(client, project_key, macro_id).run(
-                params=params,
-                admin_params=admin_params,
-                wait=False,
+            lambda: (
+                client.get_project(project_key)
+                .get_macro(macro_id)
+                .run(
+                    params=params,
+                    admin_params=admin_params,
+                    wait=False,
+                )
             )
         )
     except Exception:
@@ -180,13 +172,16 @@ async def run_macro(
 )
 async def get_macro_status(project_key: str, macro_id: str, run_id: str) -> str:
     """Check a macro run without fetching its result or removing its run record."""
-    identity = _run_identity(project_key, macro_id, run_id)
+    project_key = require_non_empty_string(project_key, "project_key")
+    macro_id = require_non_empty_string(macro_id, "macro_id")
+    run_id = require_non_empty_string(run_id, "run_id")
+    identity = {"project_key": project_key, "macro_id": macro_id, "run_id": run_id}
     client = get_dss_client()
     try:
         state = await run_blocking(
-            lambda: _macro(
-                client, identity["project_key"], identity["macro_id"]
-            ).get_status(identity["run_id"])
+            lambda: (
+                client.get_project(project_key).get_macro(macro_id).get_status(run_id)
+            )
         )
     except Exception:
         raise RuntimeError(
@@ -205,18 +200,21 @@ async def get_macro_status(project_key: str, macro_id: str, run_id: str) -> str:
 )
 async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
     """Fetch a completed macro's output; Dataiku removes the run record after retrieval."""
-    identity = _run_identity(project_key, macro_id, run_id)
+    project_key = require_non_empty_string(project_key, "project_key")
+    macro_id = require_non_empty_string(macro_id, "macro_id")
+    run_id = require_non_empty_string(run_id, "run_id")
+    identity = {"project_key": project_key, "macro_id": macro_id, "run_id": run_id}
     client = get_dss_client()
 
     def _read():
-        macro = _macro(client, identity["project_key"], identity["macro_id"])
-        state = macro.get_status(identity["run_id"])
+        macro = client.get_project(project_key).get_macro(macro_id)
+        state = macro.get_status(run_id)
         response = {**identity, "state": _status(state)}
         if not state.get("exists") or state.get("running"):
             return response
         if response["state"]["failed"]:
             raise ValueError("Macro failed; inspect its error in the Dataiku UI.")
-        with macro.get_result(identity["run_id"]) as stream:
+        with macro.get_result(run_id) as stream:
             content = stream.read()
         if state.get("type") in ("RESULT_TABLE", "JSON_OBJECT"):
             try:
@@ -258,13 +256,14 @@ async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
 )
 async def abort_macro_run(project_key: str, macro_id: str, run_id: str) -> str:
     """Request cancellation of a macro run; earlier effects are not undone."""
-    identity = _run_identity(project_key, macro_id, run_id)
+    project_key = require_non_empty_string(project_key, "project_key")
+    macro_id = require_non_empty_string(macro_id, "macro_id")
+    run_id = require_non_empty_string(run_id, "run_id")
+    identity = {"project_key": project_key, "macro_id": macro_id, "run_id": run_id}
     client = get_dss_client()
     try:
         await run_blocking(
-            lambda: _macro(client, identity["project_key"], identity["macro_id"]).abort(
-                identity["run_id"]
-            )
+            lambda: client.get_project(project_key).get_macro(macro_id).abort(run_id)
         )
     except Exception:
         raise RuntimeError(
