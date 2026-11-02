@@ -102,9 +102,7 @@ analytic logic. None of them build recipe logic, a model, or an agent.
 The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
 explains how to write, test, and package plugins locally with the agent's file and
 command tools. Headless can upload a package over stdio or install and update from Git over
-either transport. Git updates verify the remote manifest and pin its commit before
-writing; they require Git and repository read access on the Headless host as well
-as on Dataiku. It cannot create a
+either transport. It cannot create a
 development plugin or edit its files on the instance.
 
 ## Local instance targeting

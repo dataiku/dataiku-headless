@@ -130,8 +130,6 @@ limited direct actions Headless supports, see the
 
 To build or update a Dataiku plugin, follow the
 [plugin development guide](skills/dataiku-headless/references/plugin-development.md).
-Git updates require Git and repository read access on the Headless host so it can
-verify the plugin ID and pin the commit before Dataiku applies the update.
 
 ## MCP Server
 

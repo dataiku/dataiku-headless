@@ -18,10 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import re
-import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Annotated, Literal
@@ -668,50 +665,6 @@ def _git_error(operation: str, exc: Exception, future) -> RuntimeError:
     )
 
 
-def _verified_git_checkout(
-    repository_url: str, checkout: str, subpath: str | None, plugin_id: str
-) -> str:
-    """Check the manifest and pin the exact commit DSS will fetch before updating."""
-    with tempfile.TemporaryDirectory(prefix="headless-plugin-") as directory:
-
-        def git(*args):
-            try:
-                return subprocess.run(
-                    ["git", "-c", "core.hooksPath=/dev/null", "-C", directory, *args],
-                    env={
-                        **os.environ,
-                        "GIT_TERMINAL_PROMPT": "0",
-                        "GIT_ASKPASS": "",
-                        "GCM_INTERACTIVE": "never",
-                        "GIT_SSH_COMMAND": os.environ.get("GIT_SSH_COMMAND", "ssh")
-                        + " -oBatchMode=yes",
-                    },
-                    capture_output=True,
-                    check=True,
-                    timeout=120,
-                ).stdout
-            except (OSError, subprocess.SubprocessError):
-                raise ValueError(
-                    "Cannot verify the Git plugin before updating. Install Git and configure "
-                    "repository read access on the Headless host, check the checkout and subpath, "
-                    "or use a checked local ZIP. "
-                    "No update was started."
-                ) from None
-
-        git("init", "--quiet")
-        git(
-            "fetch", "--quiet", "--depth=1", "--no-tags", "--", repository_url, checkout
-        )
-        commit = git("rev-parse", "FETCH_HEAD^{commit}").decode().strip()
-        manifest_path = f"{subpath}/plugin.json" if subpath else "plugin.json"
-        actual_id = _read_manifest_id(git("show", f"{commit}:{manifest_path}"))
-        if actual_id != plugin_id:
-            raise ValueError(
-                "The Git manifest does not match 'plugin_id'. No update was started."
-            )
-        return commit
-
-
 async def _install_git(
     repository_url: str,
     checkout: str,
@@ -940,9 +893,6 @@ async def update_plugin(
     if source == "git":
         client = await run_blocking(get_dss_client)
         await run_blocking(_installed_plugin, client, plugin_id)
-        checkout = await run_blocking(
-            _verified_git_checkout, repository_url, checkout, subpath, plugin_id
-        )
         resolved_id = plugin_id
         future = None
         try:

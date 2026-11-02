@@ -88,18 +88,12 @@ For a Git update:
 
 1. Use the local agent's Git or GitHub access to read `plugin.json` at the chosen
    branch, tag, or commit and `subpath`.
-2. Confirm its ID matches the installed plugin. Headless also fetches the manifest,
-   checks its ID before updating, and pins the resolved commit for Dataiku.
+2. Confirm its ID matches the installed plugin.
 3. Call `update_plugin(source="git", plugin_id=..., repository_url=...,
    checkout=...)` with the same revision and `subpath`. Use a commit SHA when you
    need to ensure the revision cannot move after inspection.
 4. Verify the installed ID and version. The tool also checks Dataiku's reported ID
    before starting any requested environment rebuild.
-
-Git updates require Git installed and repository read access on the Headless host
-as well as on Dataiku. Verification never prompts for credentials. If the host
-cannot read the repository, no update starts; use a checked local ZIP over stdio
-or configure host access. Git installation needs only Dataiku access.
 
 If the agent cannot read the repository, explain which access is missing and help
 the user set it up before updating. Local Git access is separate from Dataiku's
