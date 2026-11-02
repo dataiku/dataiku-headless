@@ -1,0 +1,273 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Discover and execute installed Dataiku macros."""
+
+import base64
+import json
+
+from ..auth import get_dss_client
+from ..executors import run_blocking
+from ..server import mcp
+from .utils.serialization import columnar, compact_json
+from .utils.validation import require_non_empty_string
+
+
+def _without_defaults(value):
+    """Keep parameter schemas without returning potentially sensitive defaults."""
+    if isinstance(value, dict):
+        return {
+            k: _without_defaults(v) for k, v in value.items() if k != "defaultValue"
+        }
+    if isinstance(value, list):
+        return [_without_defaults(v) for v in value]
+    return value
+
+
+def _macro(client, project_key, macro_id):
+    return client.get_project(project_key).get_macro(macro_id)
+
+
+def _run_identity(project_key, macro_id, run_id):
+    return {
+        "project_key": require_non_empty_string(project_key, "project_key"),
+        "macro_id": require_non_empty_string(macro_id, "macro_id"),
+        "run_id": require_non_empty_string(run_id, "run_id"),
+    }
+
+
+def _status(state):
+    # Errors may contain arbitrary plugin output, including credentials.
+    return {
+        **{k: state[k] for k in ("exists", "running", "empty", "type") if k in state},
+        "failed": bool(state.get("resultError") or state.get("storedError")),
+    }
+
+
+@mcp.tool(
+    title="List Macros",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def list_macros(project_key: str) -> str:
+    """Find installed macros available in a project."""
+    project_key = require_non_empty_string(project_key, "project_key")
+    client = get_dss_client()
+    items = await run_blocking(lambda: client.get_project(project_key).list_macros())
+    return compact_json(
+        {
+            "macros": columnar(
+                [
+                    {
+                        "macro_id": m.get("runnableType"),
+                        "plugin_id": m.get("ownerPluginId"),
+                        "label": m.get("meta", {}).get("label"),
+                        "description": m.get("meta", {}).get("description"),
+                        "result_type": m.get("resultType"),
+                    }
+                    for m in items
+                ],
+                ["macro_id", "plugin_id", "label", "description", "result_type"],
+            )
+        }
+    )
+
+
+@mcp.tool(
+    title="Get Macro Definition",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def get_macro_definition(project_key: str, macro_id: str) -> str:
+    """Inspect a macro's parameters, permissions, and result type before running it."""
+    project_key = require_non_empty_string(project_key, "project_key")
+    macro_id = require_non_empty_string(macro_id, "macro_id")
+    client = get_dss_client()
+    raw = await run_blocking(
+        lambda: _macro(client, project_key, macro_id).get_definition()
+    )
+    return compact_json(
+        _without_defaults(
+            {
+                k: raw[k]
+                for k in (
+                    "runnableType",
+                    "ownerPluginId",
+                    "meta",
+                    "longDescription",
+                    "params",
+                    "adminParams",
+                    "permissions",
+                    "requiresGlobalAdmin",
+                    "impersonate",
+                    "resultType",
+                    "resultLabel",
+                    "mimeType",
+                    "extension",
+                )
+                if k in raw
+            }
+        )
+    )
+
+
+@mcp.tool(
+    title="Run Macro",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def run_macro(
+    project_key: str,
+    macro_id: str,
+    params: dict | None = None,
+    admin_params: dict | None = None,
+) -> str:
+    """Start an installed macro, which may modify or delete data, and return its run ID."""
+    project_key = require_non_empty_string(project_key, "project_key")
+    macro_id = require_non_empty_string(macro_id, "macro_id")
+    client = get_dss_client()
+    try:
+        run_id = await run_blocking(
+            lambda: _macro(client, project_key, macro_id).run(
+                params=params,
+                admin_params=admin_params,
+                wait=False,
+            )
+        )
+    except Exception:
+        raise RuntimeError(
+            "Dataiku did not return a macro run ID. Check the macro in the UI "
+            "before retrying: the request may have started a run."
+        ) from None
+    return compact_json(
+        {
+            "project_key": project_key,
+            "macro_id": macro_id,
+            "run_id": run_id,
+            "status": "started",
+        }
+    )
+
+
+@mcp.tool(
+    title="Get Macro Status",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
+)
+async def get_macro_status(project_key: str, macro_id: str, run_id: str) -> str:
+    """Check a macro run without fetching its result or removing its run record."""
+    identity = _run_identity(project_key, macro_id, run_id)
+    client = get_dss_client()
+    try:
+        state = await run_blocking(
+            lambda: _macro(
+                client, identity["project_key"], identity["macro_id"]
+            ).get_status(identity["run_id"])
+        )
+    except Exception:
+        raise RuntimeError(
+            "Macro status lookup failed. Inspect the run in the Dataiku UI; do not restart the macro."
+        ) from None
+    return compact_json({**identity, "state": _status(state)})
+
+
+@mcp.tool(
+    title="Get Macro Result",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "openWorldHint": False,
+    },
+)
+async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
+    """Fetch a completed macro's output; Dataiku removes the run record after retrieval."""
+    identity = _run_identity(project_key, macro_id, run_id)
+    client = get_dss_client()
+
+    def _read():
+        macro = _macro(client, identity["project_key"], identity["macro_id"])
+        state = macro.get_status(identity["run_id"])
+        response = {**identity, "state": _status(state)}
+        if not state.get("exists") or state.get("running"):
+            return response
+        if response["state"]["failed"]:
+            raise ValueError("Macro failed; inspect its error in the Dataiku UI.")
+        with macro.get_result(identity["run_id"]) as stream:
+            content = stream.read()
+        if state.get("type") in ("RESULT_TABLE", "JSON_OBJECT"):
+            try:
+                content = json.loads(content)
+                encoding = "json"
+            except (ValueError, UnicodeError):
+                content = base64.b64encode(content).decode("ascii")
+                encoding = "base64"
+        else:
+            try:
+                content = content.decode("utf-8")
+                encoding = "utf-8"
+            except UnicodeError:
+                content = base64.b64encode(content).decode("ascii")
+                encoding = "base64"
+        return {
+            **response,
+            "result": content,
+            "encoding": encoding,
+            "run_consumed": True,
+        }
+
+    try:
+        return compact_json(await run_blocking(_read))
+    except Exception:
+        raise RuntimeError(
+            "Macro result retrieval failed. Inspect the run and any error in the Dataiku UI. "
+            "Fetching a result may already have removed the run; do not restart the macro."
+        ) from None
+
+
+@mcp.tool(
+    title="Abort Macro Run",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "openWorldHint": False,
+    },
+)
+async def abort_macro_run(project_key: str, macro_id: str, run_id: str) -> str:
+    """Request cancellation of a macro run; earlier effects are not undone."""
+    identity = _run_identity(project_key, macro_id, run_id)
+    client = get_dss_client()
+    try:
+        await run_blocking(
+            lambda: _macro(client, identity["project_key"], identity["macro_id"]).abort(
+                identity["run_id"]
+            )
+        )
+    except Exception:
+        raise RuntimeError(
+            "Macro cancellation failed. Check its status before retrying."
+        ) from None
+    return compact_json({**identity, "status": "abort_requested"})
