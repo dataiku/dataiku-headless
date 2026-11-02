@@ -32,7 +32,9 @@ tool might accept:
 - If the tool needs credentials, get them from a configured connection or preset.
   Do not ask the model to supply credentials or choose the user identity.
 - If the tool needs to run as the Dataiku end user, use `context.dkuCallerTicket`
-  with the documented impersonation mechanism. If the ticket is required but missing, return an error.
+  with `TicketImpersonationContext`, following the
+  [end-user impersonation example](https://developer.dataiku.com/latest/concepts-and-examples/agents.html#impersonate-end-user-identity-in-a-custom-agent-tool).
+  If the ticket is required but missing, return an error.
   Running as the tool runner instead must be an explicit setting.
 - Put the answer in `output`, supporting evidence in `sources`, and displayable
   results such as tables in `artifacts`. Follow the [sources and artifacts reference](https://developer.dataiku.com/latest/concepts-and-examples/agents.html).
