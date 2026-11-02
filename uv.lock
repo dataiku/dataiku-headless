@@ -499,6 +499,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "six" },
 ]
 
 [package.dev-dependencies]
@@ -516,6 +517,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "python-dotenv" },
     { name = "requests", specifier = ">=2.32" },
+    { name = "six", specifier = ">=1.17,<2" },
 ]
 
 [package.metadata.requires-dev]

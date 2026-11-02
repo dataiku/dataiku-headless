@@ -7,6 +7,7 @@
 #     "pydantic==2.13.4",
 #     "python-dotenv==1.2.2",
 #     "requests==2.34.2",
+#     "six==1.17.0",
 # ]
 # ///
 
