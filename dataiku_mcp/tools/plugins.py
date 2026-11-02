@@ -329,39 +329,6 @@ async def _wait_for_future(future, timeout_seconds: int) -> tuple[bool, dict]:
     return False, state
 
 
-def _action_failure(result: dict) -> str | None:
-    """Return the failure message an update or delete result reports.
-
-    Dataiku answers a failed plugin action with HTTP 200 and ``success: false``, so an
-    absent transport error is not evidence of success. Only the message is surfaced;
-    the accompanying stack trace is not.
-    """
-    if result.get("success") is not False:
-        return None
-    error = result.get("installationError") or result.get("error") or {}
-    return error.get("message") or "Dataiku reported no error detail."
-
-
-def _report_failure(result: dict) -> str | None:
-    """Return the failure message a nested Dataiku ``messages`` report carries.
-
-    Code-environment actions carry no top-level ``success`` flag, so a missing one must
-    not be read as success. That nested report's own ``success`` field is not an
-    operation-success flag either: a successful environment creation returns
-    ``messages.success: false`` alongside an INFO-only ``INFO_CODEENV_IMPORT_OK`` entry.
-    Only ``error`` and ``fatal`` separate a real failure from that.
-    """
-    messages = result.get("messages") or {}
-    if not (messages.get("error") or messages.get("fatal")):
-        return None
-    reported = [
-        str(item.get("message") or item.get("details") or item.get("title") or "")
-        for item in messages.get("messages") or []
-        if item.get("severity") == "ERROR"
-    ]
-    return "; ".join(filter(None, reported)) or "Dataiku reported no error detail."
-
-
 def _terminal_result(operation: str, plugin_id: str | None, state: dict) -> dict:
     """Return a finished future's result, raising when it never produced one."""
     noun = _OPERATION_NOUNS[operation]
@@ -379,8 +346,10 @@ def _terminal_result(operation: str, plugin_id: str | None, state: dict) -> dict
 def _successful_result(operation: str, plugin_id: str | None, state: dict) -> dict:
     """Return a completed action's result, raising when Dataiku reports it failed."""
     result = _terminal_result(operation, plugin_id, state)
-    detail = _action_failure(result)
-    if detail:
+    # Plugin actions can fail with HTTP 200 and success: false.
+    if result.get("success") is False:
+        error = result.get("installationError") or result.get("error") or {}
+        detail = error.get("message") or "Dataiku reported no error detail."
         noun = _OPERATION_NOUNS[operation]
         message = (
             f"Dataiku reported the {noun} of plugin '{plugin_id}' failed: {detail}"
@@ -400,9 +369,15 @@ def _build_outcome(result: dict, code_env_name: str) -> dict:
         key in messages for key in ("error", "fatal", "messages", "maxSeverity")
     ):
         return {"status": "unknown", "code_env_name": code_env_name}
-    detail = _report_failure(result)
-    if detail is None:
+    # messages.success can be false even on success; use error/fatal instead.
+    if not (messages.get("error") or messages.get("fatal")):
         return {"status": "completed", "code_env_name": code_env_name}
+    reported = [
+        str(item.get("message") or item.get("details") or item.get("title") or "")
+        for item in messages.get("messages") or []
+        if item.get("severity") == "ERROR"
+    ]
+    detail = "; ".join(filter(None, reported)) or "Dataiku reported no error detail."
     return {
         "status": "failed",
         "code_env_name": code_env_name,
@@ -1007,15 +982,6 @@ async def _rebuild_code_env(client, plugin_id: str, timeout_seconds: int) -> dic
         )
 
 
-def _without_code_env(exc: DataikuException, plugin_id: str) -> bool:
-    # The SDK drops Dataiku's error code from DataikuException, so the endpoint's
-    # exact message is matched as well.
-    message = dataiku_message(exc)
-    return bool(re.search(r"\bERR_PLUGIN_WITHOUT_CODEENV\b", message)) or message == (
-        f"The plugin {plugin_id} doesn't specify a code env, cannot create it"
-    )
-
-
 def _managed_env_name(plugin_id: str, env_name: str) -> bool:
     return bool(
         re.fullmatch(
@@ -1037,15 +1003,14 @@ def _build_owner_key(client, future_id: str) -> tuple:
     return (request.get_request_owner(), client.host, future_id)
 
 
-def _require_plugin_build(
-    future, plugin_id: str, retained_owner: str | None = None
-) -> None:
-    """Refuse a future that is not this plugin's build, without consuming it.
+def _resume_build(
+    client, plugin_id: str, future_id: str, retained_owner: str | None = None
+) -> DSSFuture:
+    """Verify this plugin's build before reading its result.
 
-    Dataiku forgets a finished future once its result is read, so only peek here.
-    Dataiku labels a plugin build as an ``import_env`` action whose display name
-    ends with ": <environment name>".
+    Dataiku forgets a finished future once its result is read, so peek first.
     """
+    future = DSSFuture(client, future_id)
     try:
         state = future.peek_state()
     except DataikuException as exc:
@@ -1066,12 +1031,6 @@ def _require_plugin_build(
             f"'{plugin_id}'."
         )
 
-
-def _resume_build(
-    client, plugin_id: str, future_id: str, retained_owner: str | None = None
-) -> DSSFuture:
-    future = DSSFuture(client, future_id)
-    _require_plugin_build(future, plugin_id, retained_owner)
     future.get_state()
     return future
 
@@ -1081,10 +1040,14 @@ def _start_build(plugin, plugin_id: str, python_interpreter: str | None):
     try:
         return plugin.create_code_env(python_interpreter=python_interpreter)
     except DataikuException as exc:
-        if _without_code_env(exc, plugin_id):
+        # The SDK may omit the error code, leaving only the endpoint's message.
+        message = dataiku_message(exc)
+        if re.search(r"\bERR_PLUGIN_WITHOUT_CODEENV\b", message) or message == (
+            f"The plugin {plugin_id} doesn't specify a code env, cannot create it"
+        ):
             return None
         raise RuntimeError(
-            f"Dataiku refused plugin code-environment creation: {dataiku_message(exc)}"
+            f"Dataiku refused plugin code-environment creation: {message}"
         ) from None
 
 
