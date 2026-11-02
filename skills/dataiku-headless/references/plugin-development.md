@@ -48,7 +48,7 @@ Read the reference for the component you are building.
 | Prediction algorithm | A Visual ML estimator | [Visual ML extensions](./plugin-development/machine-learning.md#prediction-algorithms) |
 | Feature preprocessor | Preparing features for training and scoring | [Visual ML extensions](./plugin-development/machine-learning.md#feature-preprocessors) |
 | Custom LLM | A model provider in the LLM Mesh | [Custom LLMs](./plugin-development/llms.md) |
-| Custom agent | Reusable agent logic across projects | [Custom agents](./plugin-development/agents.md) |
+| Custom agent | Reusable agent logic | [Custom agents](./plugin-development/agents.md) |
 | Guardrail | Checking or modifying LLM inputs and outputs | [Guardrails](./plugin-development/guardrails.md) |
 | Structured-agent block | A Structured Visual Agent step | [Structured-agent blocks](./plugin-development/structured-agent-blocks.md) |
 | Parameter set | Shared configuration and credentials | [Settings and checks](./plugin-development/settings-checks.md#parameter-sets) |
