@@ -19,8 +19,10 @@ import time
 from typing import Annotated, Literal
 
 from dataikuapi.dss.future import DSSFuture
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
+from requests.exceptions import RequestException
 
 from ..server import mcp
 from ..auth import get_dss_client
@@ -32,6 +34,7 @@ from .utils.job_summaries import (
     summarize_listed_job as _summarize_listed_job,
 )
 from .utils.serialization import columnar, compact_json
+from .utils.plugin_futures import plugin_future_state
 from .utils.validation import (
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
@@ -427,7 +430,27 @@ async def get_future_status(
 
     def _run():
         future = DSSFuture(get_dss_client(), future_id)
-        state = future.get_state() if fetch_result else future.peek_state()
+        try:
+            state = future.peek_state()
+        except (DataikuException, RequestException):
+            raise RuntimeError(
+                "Could not inspect this future. It may have failed or its result may already have been read. Inspect the affected object before retrying; raw errors are omitted because they may contain credentials."
+            ) from None
+        plugin_action = (state.get("payload") or {}).get("action") in {
+            "plugin_install",
+            "plugin_delete",
+        }
+        if fetch_result:
+            try:
+                state = future.get_state()
+            except Exception:
+                if not plugin_action:
+                    raise
+                raise RuntimeError(
+                    "Could not retrieve the plugin operation result. Inspect installed plugins before retrying; raw error details are omitted because they may contain credentials."
+                ) from None
+        if plugin_action:
+            state = plugin_future_state(state)
         return {"future_id": future_id, "state": state}
 
     return compact_json(await run_blocking(_run))

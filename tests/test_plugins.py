@@ -33,6 +33,7 @@ from dataiku_mcp.config import request
 from dataiku_mcp.tools import plugins as tools
 from tests.utils.fakes import FakeContext, incrementing_monotonic
 
+_VERIFY_GIT_CHECKOUT = tools._verified_git_checkout
 _MANIFEST = "plugin.json"
 _UNRESOLVED = (
     "com.dataiku.dip.exceptions.CodedException: Types were missing when looking for "
@@ -218,6 +219,8 @@ class FakePlugin:
 
 
 class FakeClient:
+    host = "https://synthetic.example.com"
+
     def __init__(
         self, listing=None, plugins=None, listing_after_change=None, code_envs=None
     ):
@@ -303,6 +306,12 @@ def _isolated(monkeypatch):
     monkeypatch.setattr(tools, "_MIN_POLL_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(tools, "_MAX_POLL_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(tools, "get_dss_client", _no_client)
+    tools._BUILD_OWNERS.clear()
+    monkeypatch.setattr(
+        tools,
+        "_verified_git_checkout",
+        lambda url, checkout, subpath, plugin_id: checkout,
+    )
 
 
 def _patch_client(client):
@@ -1904,3 +1913,158 @@ def test_git_source_validation_rejects_invalid_arguments_before_io(
 )
 def test_git_ssh_remote_forms_are_accepted(url):
     assert tools._require_git_repository_url(url) == url
+
+
+@pytest.mark.parametrize("after_save", [False, True])
+def test_binding_transport_timeout_keeps_build_and_supports_retry(
+    monkeypatch, after_save
+):
+    from requests.exceptions import Timeout
+
+    plugin, client, _ = _creation()
+    original = plugin.settings.save
+
+    def save():
+        if after_save:
+            original()
+        else:
+            plugin.settings.raw.pop("codeEnvName", None)
+        raise Timeout("sensitive transport detail")
+
+    monkeypatch.setattr(plugin.settings, "save", save)
+    with _patch_client(client):
+        result = _load(tools.ensure_plugin_code_env("geocoder", FakeContext()))
+    assert result["status"] == "binding_unknown"
+    assert result["build"]["status"] == "completed"
+    assert result["code_env_name"] == "plugin_geocoder_managed"
+    assert "sensitive" not in json.dumps(result)
+    assert bool(plugin.settings.raw.get("codeEnvName")) is after_save
+    client.code_envs = [
+        {"deploymentMode": "PLUGIN_MANAGED", "envName": result["code_env_name"]}
+    ]
+    monkeypatch.setattr(plugin.settings, "save", original)
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env(
+                "geocoder", FakeContext(), code_env_name=result["code_env_name"]
+            )
+        )
+    assert result["status"] == "completed"
+
+
+def test_automation_build_resumes_only_for_retained_owner(monkeypatch):
+    plugin, client, _ = _creation(states=[_alive(), _alive()])
+    with _patch_client(client), _exhausted_clock() as clock:
+        clock.monotonic.side_effect = incrementing_monotonic()
+        _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), timeout_seconds=1)
+        )
+    resumed = _build_future(
+        "F4", "plugin_geocoder_managed", [_code_env_done("plugin_geocoder_managed")]
+    )
+    resumed.peeked["payload"]["displayName"] = "Import env"
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: resumed)
+    with _patch_client(client):
+        result = _load(
+            tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4")
+        )
+    assert result["status"] == "completed"
+    assert not tools._BUILD_OWNERS
+
+
+@pytest.mark.parametrize("scope", ["plugin", "instance", "caller", "restart"])
+def test_automation_build_does_not_consume_an_unowned_future(monkeypatch, scope):
+    _, client = _installed()
+    key = tools._build_owner_key(client, "F4")
+    tools._BUILD_OWNERS[key] = "other" if scope == "plugin" else "geocoder"
+    if scope == "instance":
+        client.host = "https://other.example.com"
+    elif scope == "caller":
+        monkeypatch.setattr(request, "get_request_owner", lambda: ("oidc", "other"))
+    elif scope == "restart":
+        tools._BUILD_OWNERS.clear()
+    future = _build_future(
+        "F4", "plugin_geocoder_managed", [_code_env_done("plugin_geocoder_managed")]
+    )
+    future.peeked["payload"]["displayName"] = "Import env"
+    monkeypatch.setattr(tools, "DSSFuture", lambda *args: future)
+    with (
+        _patch_client(client),
+        pytest.raises(ValueError, match="not a code environment build"),
+    ):
+        _load(tools.ensure_plugin_code_env("geocoder", FakeContext(), future_id="F4"))
+    assert not getattr(future, "read", False)
+
+
+def test_git_update_verifies_manifest_and_pins_before_write(tmp_path, monkeypatch):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(repo), *args]).decode().strip()
+
+    git("init", "--quiet")
+    (repo / "plugin.json").write_text('{"id":"other-plugin", "version":"1.0.0"}')
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    )
+    commit = git("rev-parse", "HEAD")
+    original_run = tools.subprocess.run
+
+    def local_remote(args, **kwargs):
+        args = [str(repo) if arg == _GIT_URL else arg for arg in args]
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(tools.subprocess, "run", local_remote)
+    monkeypatch.setattr(tools, "_verified_git_checkout", _VERIFY_GIT_CHECKOUT)
+    plugin, client = _installed(futures={"update": FakeFuture(None, [_git_done()])})
+    with (
+        _patch_client(client),
+        pytest.raises(ValueError, match="No update was started"),
+    ):
+        _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout="HEAD",
+            )
+        )
+    assert not hasattr(plugin, "git_update_args")
+    assert _VERIFY_GIT_CHECKOUT(_GIT_URL, "HEAD", None, "other-plugin") == commit
+    (repo / "plugin.json").write_text('{"id":"geocoder", "version":"1.0.0"}')
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "matching",
+    )
+    commit = git("rev-parse", "HEAD")
+    with _patch_client(client):
+        result = _load(
+            tools.update_plugin(
+                "git",
+                FakeContext(),
+                plugin_id="geocoder",
+                repository_url=_GIT_URL,
+                checkout="HEAD",
+            )
+        )
+    assert result["status"] == "completed"
+    assert plugin.git_update_args[1] == commit

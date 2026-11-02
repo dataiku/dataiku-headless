@@ -88,13 +88,18 @@ For a Git update:
 
 1. Use the local agent's Git or GitHub access to read `plugin.json` at the chosen
    branch, tag, or commit and `subpath`.
-2. Confirm its ID matches the installed plugin. Dataiku takes the update target
-   from the fetched manifest, so this check belongs to the agent.
+2. Confirm its ID matches the installed plugin. Headless also fetches the manifest,
+   checks its ID before updating, and pins the resolved commit for Dataiku.
 3. Call `update_plugin(source="git", plugin_id=..., repository_url=...,
    checkout=...)` with the same revision and `subpath`. Use a commit SHA when you
    need to ensure the revision cannot move after inspection.
 4. Verify the installed ID and version. The tool also checks Dataiku's reported ID
    before starting any requested environment rebuild.
+
+Git updates require Git installed and repository read access on the Headless host
+as well as on Dataiku. Verification never prompts for credentials. If the host
+cannot read the repository, no update starts; use a checked local ZIP over stdio
+or configure host access. Git installation needs only Dataiku access.
 
 If the agent cannot read the repository, explain which access is missing and help
 the user set it up before updating. Local Git access is separate from Dataiku's
@@ -136,7 +141,8 @@ could not be verified. Inspect `list_plugins` before retrying or preparing its e
   For Git installation, the plugin ID may only become known on completion. If you
   fetch a Git operation's result yourself, check `pluginDesc.desc.id` (against the
   expected ID for updates) and verify it with `list_plugins`.
-- Git errors omit raw subprocess output, which may contain secrets. Follow any
+- Git errors and plugin future results omit raw subprocess output, logs, and settings,
+  which may contain secrets. Follow any
   returned future ID or inspect installed plugins before retrying after a failure.
 - If `code_env_rebuild.status` is `not_started`, follow the update to successful
   completion, then ask the user to rebuild in the Dataiku UI. If the rebuild is already
@@ -164,6 +170,12 @@ could not be verified. Inspect `list_plugins` before retrying or preparing its e
 - `recovery_required` means an unbound managed environment already exists and may
   still be building. Resume its future while it runs; otherwise check
   `code_env_names` with `list_code_envs` and pass one as `code_env_name`.
+- Automation futures omit the environment name. Headless can resume them only
+  when it retained the build for the same caller, instance, and plugin. After a
+  server restart, inspect the finished environment and recover with `code_env_name`.
+- `binding_unknown` means the binding request lost its connection. The environment
+  name and build outcome are retained. Inspect the plugin binding before retrying
+  with that `code_env_name`.
 - `binding_changed` means someone else bound another environment during the build.
   That binding is kept; ask the user which environment the plugin should use.
 - Top-level `completed` means the environment is bound, not that it works. Read

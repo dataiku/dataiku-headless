@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import re
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Annotated, Literal
@@ -28,6 +31,7 @@ from dataikuapi.dss.future import DSSFuture
 from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
+from requests.exceptions import RequestException
 
 from ..auth import get_dss_client
 from ..config import request
@@ -53,6 +57,9 @@ _MAX_TIMEOUT_SECONDS = 3600
 # Store updates unpack an archive; code-environment rebuilds also install dependencies.
 _DEFAULT_TIMEOUT_SECONDS = 120
 _BUILD_TIMEOUT_SECONDS = 600
+# Automation futures omit their target. Retain only builds started by this process,
+# scoped by caller and instance; after a restart, recover by environment name.
+_BUILD_OWNERS: dict[tuple, str] = {}
 _MIN_POLL_INTERVAL_SECONDS = 2
 _MAX_POLL_INTERVAL_SECONDS = 30
 # A deletion refusal provides a compact sample; list_plugin_usages paginates the
@@ -661,6 +668,50 @@ def _git_error(operation: str, exc: Exception, future) -> RuntimeError:
     )
 
 
+def _verified_git_checkout(
+    repository_url: str, checkout: str, subpath: str | None, plugin_id: str
+) -> str:
+    """Check the manifest and pin the exact commit DSS will fetch before updating."""
+    with tempfile.TemporaryDirectory(prefix="headless-plugin-") as directory:
+
+        def git(*args):
+            try:
+                return subprocess.run(
+                    ["git", "-c", "core.hooksPath=/dev/null", "-C", directory, *args],
+                    env={
+                        **os.environ,
+                        "GIT_TERMINAL_PROMPT": "0",
+                        "GIT_ASKPASS": "",
+                        "GCM_INTERACTIVE": "never",
+                        "GIT_SSH_COMMAND": os.environ.get("GIT_SSH_COMMAND", "ssh")
+                        + " -oBatchMode=yes",
+                    },
+                    capture_output=True,
+                    check=True,
+                    timeout=120,
+                ).stdout
+            except (OSError, subprocess.SubprocessError):
+                raise ValueError(
+                    "Cannot verify the Git plugin before updating. Install Git and configure "
+                    "repository read access on the Headless host, check the checkout and subpath, "
+                    "or use a checked local ZIP. "
+                    "No update was started."
+                ) from None
+
+        git("init", "--quiet")
+        git(
+            "fetch", "--quiet", "--depth=1", "--no-tags", "--", repository_url, checkout
+        )
+        commit = git("rev-parse", "FETCH_HEAD^{commit}").decode().strip()
+        manifest_path = f"{subpath}/plugin.json" if subpath else "plugin.json"
+        actual_id = _read_manifest_id(git("show", f"{commit}:{manifest_path}"))
+        if actual_id != plugin_id:
+            raise ValueError(
+                "The Git manifest does not match 'plugin_id'. No update was started."
+            )
+        return commit
+
+
 async def _install_git(
     repository_url: str,
     checkout: str,
@@ -889,6 +940,9 @@ async def update_plugin(
     if source == "git":
         client = await run_blocking(get_dss_client)
         await run_blocking(_installed_plugin, client, plugin_id)
+        checkout = await run_blocking(
+            _verified_git_checkout, repository_url, checkout, subpath, plugin_id
+        )
         resolved_id = plugin_id
         future = None
         try:
@@ -1007,7 +1061,13 @@ def _managed_env_names(client, plugin_id: str) -> list[str]:
     )
 
 
-def _require_plugin_build(future, plugin_id: str) -> None:
+def _build_owner_key(client, future_id: str) -> tuple:
+    return (request.get_request_owner(), client.host, future_id)
+
+
+def _require_plugin_build(
+    future, plugin_id: str, retained_owner: str | None = None
+) -> None:
     """Refuse a future that is not this plugin's build, without consuming it.
 
     Dataiku forgets a finished future once its result is read, so only peek here.
@@ -1025,18 +1085,21 @@ def _require_plugin_build(future, plugin_id: str) -> None:
         ) from None
     payload = state.get("payload") or {}
     target = str(payload.get("displayName", "")).rpartition(": ")[2]
-    if payload.get("action") != "import_env" or not _managed_env_name(
-        plugin_id, target
-    ):
+    identified = _managed_env_name(plugin_id, target) or (
+        payload.get("displayName") == "Import env" and retained_owner == plugin_id
+    )
+    if payload.get("action") != "import_env" or not identified:
         raise ValueError(
             f"Future '{future.job_id}' is not a code environment build of plugin "
             f"'{plugin_id}'."
         )
 
 
-def _resume_build(client, plugin_id: str, future_id: str) -> DSSFuture:
+def _resume_build(
+    client, plugin_id: str, future_id: str, retained_owner: str | None = None
+) -> DSSFuture:
     future = DSSFuture(client, future_id)
-    _require_plugin_build(future, plugin_id)
+    _require_plugin_build(future, plugin_id, retained_owner)
     future.get_state()
     return future
 
@@ -1074,6 +1137,13 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
             "build": build,
             "error": dataiku_message(exc),
             "hint": "Fix the cause, then retry with this code_env_name.",
+        }
+    except RequestException:
+        return {
+            "status": "binding_unknown",
+            "code_env_name": env_name,
+            "build": build,
+            "hint": "The binding request lost its connection. Inspect the plugin binding, then retry with this code_env_name if needed.",
         }
     if changed:
         return {
@@ -1153,7 +1223,13 @@ async def ensure_plugin_code_env(
     client, plugin, bound = await run_blocking(_inspect)
     common = {"operation": "ensure_plugin_code_env", "plugin_id": plugin_id}
     if future_id:
-        future = await run_blocking(_resume_build, client, plugin_id, future_id)
+        future = await run_blocking(
+            _resume_build,
+            client,
+            plugin_id,
+            future_id,
+            _BUILD_OWNERS.get(_build_owner_key(client, future_id)),
+        )
     elif bound:
         if python_interpreter or code_env_name not in (None, bound):
             raise ValueError(
@@ -1201,6 +1277,11 @@ async def ensure_plugin_code_env(
                 }
             )
 
+        if future.job_id:
+            if len(_BUILD_OWNERS) >= 256:
+                _BUILD_OWNERS.pop(next(iter(_BUILD_OWNERS)))
+            _BUILD_OWNERS[_build_owner_key(client, future.job_id)] = plugin_id
+
     timed_out, state = await _wait_for_future(future, timeout_seconds)
     if timed_out:
         return compact_json(
@@ -1212,9 +1293,14 @@ async def ensure_plugin_code_env(
             }
         )
     result = _terminal_result("ensure_plugin_code_env", plugin_id, state)
+    _BUILD_OWNERS.pop(_build_owner_key(client, future.job_id), None)
     env_name = _require_non_empty_string(
         str(result.get("envName", "")), "created code environment name"
     )
+    if not _managed_env_name(plugin_id, env_name):
+        raise ValueError(
+            "The build returned another plugin's environment; no binding was changed."
+        )
     build = _build_outcome(result, env_name)
     return compact_json(
         {**common, **await _bind_code_env(plugin, env_name, build, created=True)}
