@@ -24,7 +24,7 @@ explain how users should migrate if you need to change them.
 For a new plugin, identify its purpose, ID, Dataiku version, and local folder. Choose
 a test instance before installation. Start from a template the user supplies or the
 [official component tutorials](https://developer.dataiku.com/latest/tutorials/plugins/index.html)
-for that Dataiku version. You do not need Dataiku's internal templates or infrastructure.
+for that Dataiku version.
 
 The plugin code can use documented Dataiku APIs. To change the instance, use
 Headless tools; to build project assets, use [Cobuild](./cobuild.md). If the tools
