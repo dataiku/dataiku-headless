@@ -43,3 +43,9 @@ Test input validation, outputs, and failures, plus any identity settings, limits
 or service responses the tool uses. In Dataiku, check that the agent selects the tool
 appropriately and displays its results, including any citations and artifacts.
 Use the tool test UI when Headless cannot run the tool.
+
+## Example
+
+[ServiceNow](https://github.com/dataiku/dss-plugin-servicenow) provides external-service
+examples in `python-agent-tools/`: `incident-lookup` reads incidents and `create-issue`
+creates them. They share a client and use presets for authentication.
