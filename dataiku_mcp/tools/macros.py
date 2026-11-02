@@ -25,9 +25,20 @@ from .utils.validation import require_non_empty_string
 
 
 def _status(state):
-    # Errors may contain arbitrary plugin output, including credentials.
     return {
-        **{k: state[k] for k in ("exists", "running", "empty", "type") if k in state},
+        **{
+            k: state[k]
+            for k in (
+                "exists",
+                "running",
+                "empty",
+                "type",
+                "progress",
+                "resultError",
+                "storedError",
+            )
+            if k in state
+        },
         "failed": bool(state.get("resultError") or state.get("storedError")),
     }
 
@@ -197,10 +208,12 @@ async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
         macro = client.get_project(project_key).get_macro(macro_id)
         state = macro.get_status(run_id)
         response = {**identity, "state": _status(state)}
-        if not state.get("exists") or state.get("running"):
+        if (
+            not state.get("exists")
+            or state.get("running")
+            or response["state"]["failed"]
+        ):
             return response
-        if response["state"]["failed"]:
-            raise ValueError("Macro failed; inspect its error in the Dataiku UI.")
         with macro.get_result(run_id) as stream:
             content = stream.read()
         if state.get("type") in ("RESULT_TABLE", "JSON_OBJECT"):

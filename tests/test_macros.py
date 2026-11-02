@@ -137,14 +137,17 @@ def test_failed_or_missing_run_does_not_fetch_result(sdk):
     macro.get_status.return_value = {
         "exists": True,
         "running": False,
-        "storedError": "credential=secret",
+        "storedError": {"message": "Input dataset is missing"},
+        "resultError": {"message": "Macro execution failed"},
+        "progress": {"states": [{"name": "Reading input", "cur": 1, "target": 2}]},
     }
     status = call(macros.get_macro_status("PROJECT", "example", "RUN"))
     assert status["state"]["failed"] is True
-    assert "secret" not in json.dumps(status)
-    with pytest.raises(RuntimeError, match="Dataiku UI") as error:
-        call(macros.get_macro_result("PROJECT", "example", "RUN"))
-    assert "secret" not in str(error.value)
+    assert status["state"]["storedError"] == {"message": "Input dataset is missing"}
+    assert status["state"]["resultError"] == {"message": "Macro execution failed"}
+    assert status["state"]["progress"] == macro.get_status.return_value["progress"]
+    result = call(macros.get_macro_result("PROJECT", "example", "RUN"))
+    assert result == status
     macro.get_status.return_value = {"exists": False}
     assert (
         call(macros.get_macro_result("PROJECT", "example", "RUN"))["state"]["exists"]
