@@ -48,10 +48,8 @@ def test_discovery_and_definition(sdk):
         "meta": {"label": "Example"},
         "permissions": ["ADMIN"],
         "requiresGlobalAdmin": True,
-        "params": [
-            {"name": "credential", "type": "PASSWORD", "defaultValue": "secret"}
-        ],
-        "adminParams": [{"name": "options", "params": [{"defaultValue": "secret"}]}],
+        "params": [{"name": "limit", "type": "INT", "defaultValue": 5}],
+        "adminParams": [{"name": "options", "params": [{"defaultValue": "example"}]}],
     }
     project.list_macros.return_value = [definition]
     macro.get_definition.return_value = definition
@@ -59,9 +57,8 @@ def test_discovery_and_definition(sdk):
     assert result["macros"]["rows"][0][:3] == ["example", "plugin", "Example"]
     result = call(macros.get_macro_definition("PROJECT", "example"))
     assert result["permissions"] == ["ADMIN"]
-    assert result["params"][0]["type"] == "PASSWORD"
-    assert "secret" not in json.dumps(result)
-    assert definition["params"][0]["defaultValue"] == "secret"
+    assert result["params"] == definition["params"]
+    assert result["adminParams"] == definition["adminParams"]
 
 
 def test_run_lifecycle_is_nonblocking_and_polling_does_not_consume(sdk):

@@ -7,8 +7,8 @@ description: Discover installed macros, inspect their parameters, and manage mac
 
 Use `list_macros(project_key)` to discover installed macros, then
 `get_macro_definition(project_key, macro_id)` to inspect a macro’s description,
-parameter schemas, permissions, and result type. Parameter defaults are omitted. Admin parameter schemas are
-visible only to administrators.
+parameter schemas and defaults, permissions, and result type. Admin parameter
+schemas are visible only to administrators.
 
 Read the definition before running a macro. Macros can modify or delete data,
 including resources outside the target project. Check that its effects match the

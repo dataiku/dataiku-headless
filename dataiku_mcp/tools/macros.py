@@ -24,17 +24,6 @@ from .utils.serialization import columnar, compact_json
 from .utils.validation import require_non_empty_string
 
 
-def _without_defaults(value):
-    """Keep parameter schemas without returning potentially sensitive defaults."""
-    if isinstance(value, dict):
-        return {
-            k: _without_defaults(v) for k, v in value.items() if k != "defaultValue"
-        }
-    if isinstance(value, list):
-        return [_without_defaults(v) for v in value]
-    return value
-
-
 def _status(state):
     # Errors may contain arbitrary plugin output, including credentials.
     return {
@@ -92,27 +81,25 @@ async def get_macro_definition(project_key: str, macro_id: str) -> str:
         lambda: client.get_project(project_key).get_macro(macro_id).get_definition()
     )
     return compact_json(
-        _without_defaults(
-            {
-                k: raw[k]
-                for k in (
-                    "runnableType",
-                    "ownerPluginId",
-                    "meta",
-                    "longDescription",
-                    "params",
-                    "adminParams",
-                    "permissions",
-                    "requiresGlobalAdmin",
-                    "impersonate",
-                    "resultType",
-                    "resultLabel",
-                    "mimeType",
-                    "extension",
-                )
-                if k in raw
-            }
-        )
+        {
+            k: raw[k]
+            for k in (
+                "runnableType",
+                "ownerPluginId",
+                "meta",
+                "longDescription",
+                "params",
+                "adminParams",
+                "permissions",
+                "requiresGlobalAdmin",
+                "impersonate",
+                "resultType",
+                "resultLabel",
+                "mimeType",
+                "extension",
+            )
+            if k in raw
+        }
     )
 
 
