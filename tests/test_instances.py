@@ -270,3 +270,86 @@ def test_connection_manager_tool_completion(monkeypatch, elicitation):
     else:
         assert result["status"] == "completed"
         assert result["state"]["active_instance"] == "sandbox"
+
+
+@pytest.mark.parametrize("elicitation", ["unsupported", "accept", "decline"])
+@pytest.mark.parametrize("cancellation", ["task", "scope"])
+def test_connection_manager_cancellation_during_startup(
+    monkeypatch, elicitation, cancellation
+):
+    import threading
+    from types import SimpleNamespace
+
+    import anyio
+
+    started = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    starts = []
+    session = SimpleNamespace(close=closed.set, url="http://127.0.0.1:1234/token")
+
+    def start(**kwargs):
+        starts.append(kwargs)
+        if elicitation != "decline" or len(starts) == 2:
+            started.set()
+            if not release.wait(5):
+                raise TimeoutError("Test did not release server startup")
+        return session
+
+    class Session:
+        client_params = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                elicitation=(
+                    None if elicitation == "unsupported" else SimpleNamespace(url={})
+                )
+            )
+        )
+
+        async def elicit_url(self, **kwargs):
+            return SimpleNamespace(action="decline")
+
+    monkeypatch.setattr(instances, "start_setup_server", start)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+    ctx = FakeContext()
+    ctx.session = Session()
+    ctx.request_id = "request"
+
+    async def invoke():
+        scope = None
+
+        async def configure():
+            nonlocal scope
+            with anyio.CancelScope() as scope:
+                await instances.configure_instance(ctx)
+
+        task = asyncio.create_task(
+            configure()
+            if cancellation == "scope"
+            else instances.configure_instance(ctx)
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            if cancellation == "scope":
+                scope.cancel()
+            else:
+                task.cancel()
+            # Let cancellation reach the tool while startup is still blocked.
+            await asyncio.sleep(0)
+            release.set()
+            if cancellation == "scope":
+                await task
+            else:
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            assert closed.is_set()
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    asyncio.run(invoke())
+    assert len(starts) == (2 if elicitation == "decline" else 1)

@@ -26,7 +26,7 @@ from ..auth import get_dss_client
 from ..config import request, stdio
 from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
+from ..setup_server import SESSION_LIFETIME_SECONDS, SetupSession, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
 
 InstanceName = Annotated[
@@ -138,6 +138,32 @@ async def get_current_instance(ctx: Context) -> str:
     return compact_json(result)
 
 
+async def _start_connection_manager(*, open_browser: bool = True) -> SetupSession:
+    # Executor work keeps running after cancellation. Retain its result so the
+    # newly created manager can be closed before propagating cancellation.
+    startup = asyncio.create_task(
+        run_blocking(lambda: start_setup_server(open_browser=open_browser))
+    )
+    try:
+        return await asyncio.shield(startup)
+    except asyncio.CancelledError:
+
+        async def cleanup():
+            session = await startup
+            await run_blocking(session.close)
+
+        closing = asyncio.create_task(cleanup())
+        # MCP cancellation scopes can cancel each subsequent await as well.
+        # Keep cleanup independent until it has reclaimed the server.
+        while not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                pass
+        closing.result()
+        raise
+
+
 @mcp.tool(
     title="Manage Dataiku Connections",
     annotations={
@@ -167,7 +193,7 @@ async def configure_instance(ctx: Context) -> str:
             "This MCP client does not advertise URL elicitation; opening the "
             "local configuration page directly."
         )
-        session = await run_blocking(start_setup_server)
+        session = await _start_connection_manager()
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
@@ -179,7 +205,7 @@ async def configure_instance(ctx: Context) -> str:
         )
 
     await ctx.info("Requesting permission to open the Dataiku configuration page...")
-    session = await run_blocking(lambda: start_setup_server(open_browser=False))
+    session = await _start_connection_manager(open_browser=False)
     elicitation_id = secrets.token_urlsafe(18)
     try:
         elicitation = await ctx.session.elicit_url(
@@ -199,7 +225,7 @@ async def configure_instance(ctx: Context) -> str:
         # Some clients advertise URL elicitation but decline the request because
         # the capability is gated behind an unreleased feature flag (e.g. Codex,
         # openai/codex#29344). Fall back to opening the local setup page directly.
-        fallback = await run_blocking(start_setup_server)
+        fallback = await _start_connection_manager()
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
