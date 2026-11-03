@@ -35,7 +35,7 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
-To manage connections later, ask **Manage Dataiku connections**. The local browser manager lists connections by instance type and lets you add, edit, delete, switch the active instance, or choose a saved startup default. Test a connection before saving, then select **Done** when finished. Existing credentials stay hidden when editing; leave the API key blank to keep the saved credential. Environment and Code Studio connections are read-only and take precedence at startup. The page expires after ten minutes.
+To manage saved connections later, ask **Manage Dataiku connections**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. Test before saving, then select **Done**. Saved credentials stay hidden; environment and Code Studio connections are read-only.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 

@@ -413,9 +413,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
             except (UnicodeDecodeError, ValueError, RuntimeError) as error:
                 # Validation errors are deliberately authored here. Never return raw
                 # Pydantic/settings errors, which can contain profile or secret data.
-                if type(error) is ValueError and not isinstance(
-                    error, UnicodeDecodeError
-                ):
+                if type(error) is ValueError:
                     message = str(error)
                     if message.startswith("Invalid stdio settings"):
                         message = "Could not read the saved connections. Check your local profile file."

@@ -569,9 +569,9 @@ limitations under the License.
           text-align: left;
         }
         #environment-note {
-        margin-bottom: 20px;
-      }
-      .toolbar {
+          margin-bottom: 20px;
+        }
+        .toolbar {
           gap: 15px;
         }
         .search {
@@ -878,6 +878,47 @@ limitations under the License.
           $("save").disabled = !validationId;
         }
       }
+      function connectionRow(connection) {
+        const name = esc(connection.name);
+        const active = state.active === connection.name;
+        const isDefault = state.default === connection.name;
+        const managed = connection.source !== "config";
+        const badges = [];
+        const actions = [];
+        if (active) badges.push('<span class="badge">Active</span>');
+        if (isDefault)
+          badges.push('<span class="badge default">Startup default</span>');
+        if (managed)
+          badges.push('<span class="badge managed">Environment</span>');
+        if (!active)
+          actions.push(
+            `<button data-action="switch" data-name="${name}">Use now</button>`,
+          );
+        if (managed) {
+          const source =
+            connection.source === "code-studio-environment"
+              ? "Code Studio"
+              : "environment variables";
+          actions.push(`<span class="readonly">Managed by ${source}</span>`);
+        } else {
+          if (!isDefault)
+            actions.push(
+              `<button class="text" data-action="default" data-name="${name}">Set default</button>`,
+            );
+          actions.push(
+            `<button class="iconbutton" data-action="edit" data-name="${name}" aria-label="Edit ${name}">${icon("edit")}</button>`,
+            `<button class="iconbutton danger" data-action="delete" data-name="${name}" aria-label="Delete ${name}">${icon("trash")}</button>`,
+          );
+        }
+        return `<div class="row ${active ? "active" : ""}">
+          <div class="info">
+            <div class="namebar"><span class="name">${name}</span>${badges.join("")}</div>
+            <div class="url">${esc(connection.url)}</div>
+          </div>
+          <div class="rowactions">${actions.join("")}</div>
+          ${deleteName === connection.name ? deletion(connection) : ""}
+        </div>`;
+      }
       function render() {
         const connections = state.connections;
         $("context").innerHTML =
@@ -895,25 +936,50 @@ limitations under the License.
           Object.entries(types)
             .map(([type, label]) => {
               const rows = matches.filter((c) => c.instance_type === type);
-              return rows.length
-                ? `<section class="group"><div class="grouphead"><h2>${label}</h2><span class="groupcount">${rows.length}</span></div><div class="rows">${rows
-                    .map((c) => {
-                      const managed = c.source !== "config";
-                      const attr = `data-name="${esc(c.name)}"`;
-                      return `<div class="row ${state.active === c.name ? "active" : ""}"><div class="info"><div class="namebar"><span class="name">${esc(c.name)}</span>${state.active === c.name ? '<span class="badge">Active</span>' : ""}${state.default === c.name ? '<span class="badge default">Startup default</span>' : ""}${managed ? '<span class="badge managed">Environment</span>' : ""}</div><div class="url">${esc(c.url)}</div></div><div class="rowactions">${state.active !== c.name ? `<button data-action="switch" ${attr}>Use now</button>` : ""}${managed ? `<span class="readonly">${c.source === "code-studio-environment" ? "Managed by Code Studio" : "Managed by environment variables"}</span>` : `${state.default !== c.name ? `<button class="text" data-action="default" ${attr}>Set default</button>` : ""}<button class="iconbutton" data-action="edit" ${attr} aria-label="Edit ${esc(c.name)}">${icon("edit")}</button><button class="iconbutton danger" data-action="delete" ${attr} aria-label="Delete ${esc(c.name)}">${icon("trash")}</button>`}</div>${deleteName === c.name ? deletion(c) : ""}</div>`;
-                    })
-                    .join("")}</div></section>`
-                : "";
+              if (!rows.length) return "";
+              return `<section class="group">
+                <div class="grouphead"><h2>${label}</h2><span class="groupcount">${rows.length}</span></div>
+                <div class="rows">${rows.map(connectionRow).join("")}</div>
+              </section>`;
             })
             .join("") ||
           `<div class="empty"><h2>${connections.length ? "No matching connections" : "Add your first connection"}</h2><p>${connections.length ? "Try a different name, URL, or instance type." : "Connect a Dataiku instance to start working with your agent."}</p><button data-action="${connections.length ? "clear" : "add"}">${connections.length ? "Clear search" : "Add connection"}</button></div>`;
       }
-      function deletion(c) {
+      function deletion(connection) {
+        const name = esc(connection.name);
         const replacements = state.connections.filter(
-          (i) => i.name !== c.name && i.source === "config",
+          (item) => item.name !== connection.name && item.source === "config",
         );
-        const affected = state.active === c.name || state.default === c.name;
-        return `<div class="deletebox" style="flex-basis:100%"><strong>Delete ${esc(c.name)}?</strong><p>This removes the saved connection from Headless. The Dataiku instance and its data stay in place.</p>${affected ? `<p>This connection is ${[state.active === c.name ? "active now" : "", state.default === c.name ? "the startup default" : ""].filter(Boolean).join(" and ")}.</p>${replacements.length ? `<label for="replacement">Use this connection instead</label><select id="replacement">${replacements.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join("")}</select>` : "<p>No other saved connection remains. You will need to add or select one before continuing.</p>"}` : ""}<div class="choices"><button class="primary" data-action="confirmdelete" data-name="${esc(c.name)}">Delete connection</button><button data-action="canceldelete">Cancel</button></div></div>`;
+        const roles = [];
+        if (state.active === connection.name) roles.push("active now");
+        if (state.default === connection.name)
+          roles.push("the startup default");
+        let fallback = "";
+        if (roles.length) {
+          fallback = `<p>This connection is ${roles.join(" and ")}.</p>`;
+          if (replacements.length) {
+            const options = replacements
+              .map(
+                (item) =>
+                  `<option value="${esc(item.name)}">${esc(item.name)}</option>`,
+              )
+              .join("");
+            fallback += `<label for="replacement">Use this connection instead</label>
+              <select id="replacement">${options}</select>`;
+          } else {
+            fallback +=
+              "<p>No other saved connection remains. You will need to add or select one before continuing.</p>";
+          }
+        }
+        return `<div class="deletebox" style="flex-basis:100%">
+          <strong>Delete ${name}?</strong>
+          <p>This removes the saved connection from Headless. The Dataiku instance and its data stay in place.</p>
+          ${fallback}
+          <div class="choices">
+            <button class="primary" data-action="confirmdelete" data-name="${name}">Delete connection</button>
+            <button data-action="canceldelete">Cancel</button>
+          </div>
+        </div>`;
       }
       function canDiscard() {
         return (
