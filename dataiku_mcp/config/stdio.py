@@ -231,9 +231,14 @@ def set_current_instance(instance: DSSInstance) -> None:
 
 
 def get_profile_config() -> StdioConfig:
-    """Read a detached profile snapshot for the local connection manager."""
+    """Refresh cached profiles and return a detached manager snapshot."""
+    global _config, _current_instance
     with _settings_lock:
-        return _load_config()
+        config = _load_config()
+        _config = config
+        if _current_instance is not None and _current_instance.source == "config":
+            _current_instance = get_instances().get(_current_instance.name)
+        return config.model_copy(deep=True)
 
 
 def _require_editable_name(name: str) -> None:
@@ -368,12 +373,17 @@ def delete_instance_from_config(
             and _current_instance.name == name
         )
         instances.pop(name)
+        environment_names = {instance.name for instance in _environment_instances}
         if config.default_instance == name:
-            config.default_instance = replacement or next(iter(instances), None)
+            config.default_instance = replacement or next(
+                (name for name in instances if name not in environment_names), None
+            )
         _save_config(config)
         _config = config
         if was_current:
             next_name = replacement or config.default_instance
+            if next_name in environment_names:
+                next_name = None
             _current_instance = (
                 instances[next_name].to_instance(next_name) if next_name else None
             )

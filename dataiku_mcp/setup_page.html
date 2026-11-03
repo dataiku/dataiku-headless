@@ -1016,6 +1016,11 @@ limitations under the License.
           return;
         const result = await action(values);
         if (!result) return;
+        if ($("workspace").classList.contains("open")) {
+          if (operation === "default")
+            $("default").checked = state.default === editing?.name;
+          if (operation === "switch") $("activate").checked = false;
+        }
         if (operation === "confirmdelete") {
           deleteName = null;
           if (editing?.name === name) closeEditor({ discard: false });

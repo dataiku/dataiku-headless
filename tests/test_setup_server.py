@@ -264,18 +264,50 @@ def test_duplicate_name_is_not_an_implicit_edit(manager):
 
 
 def test_stale_editor_and_stale_delete_are_rejected(manager):
-    assert save(manager, **candidate())[0] == 200
+    assert save(manager, **candidate(activate="on"))[0] == 200
     row = record(manager, "sandbox")
-    stdio.add_instance_to_config(
-        "sandbox", "https://updated.example.com", "other", instance_type="design"
+    path = stdio.get_settings_path()
+    config = json.loads(path.read_text())
+    config["dss_instances"]["sandbox"].update(
+        url="https://updated.example.com", api_key="other"
     )
+    path.write_text(json.dumps(config))
     form = candidate(original_name="sandbox", revision=row["revision"], api_key="")
     assert post(manager, action="test", **form)[0] == 400
     assert (
         post(manager, action="delete", name="sandbox", revision=row["revision"])[0]
         == 400
     )
-    assert stdio.get_profile_config().dss_instances["sandbox"].api_key == "other"
+    assert stdio.get_instances()["sandbox"].api_key == "other"
+    assert stdio.get_current_instance().url == "https://updated.example.com"
+
+
+def test_delete_does_not_activate_a_profile_hidden_by_environment(manager, monkeypatch):
+    assert save(manager, **candidate(name="shadowed"))[0] == 200
+    assert save(manager, **candidate(activate="on", set_default="on"))[0] == 200
+    monkeypatch.setattr(
+        stdio,
+        "_environment_instances",
+        [
+            DSSInstance(
+                name="shadowed",
+                url="https://environment.example.com",
+                api_key="environment-key",
+                instance_type="design",
+                no_check_certificate=False,
+                source="environment",
+            )
+        ],
+    )
+    row = record(manager, "sandbox")
+    status, result = post(
+        manager, action="delete", name="sandbox", revision=row["revision"]
+    )
+    assert status == 200
+    assert result["state"]["active"] is None
+    assert result["state"]["default"] is None
+    assert result["state"]["connections"][0]["source"] == "environment"
+    assert stdio.get_current_instance() is None
 
 
 def test_profile_changed_after_test_cannot_be_saved(manager):

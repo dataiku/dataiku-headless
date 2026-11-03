@@ -182,22 +182,36 @@ def test_get_current_instance_never_returns_credentials(
     assert result["connection_status"] == ("connected" if connected else "failed")
 
 
-@pytest.mark.parametrize("elicitation", ["unsupported", "accept", "decline", "expire"])
+@pytest.mark.parametrize(
+    "elicitation", ["unsupported", "accept", "decline", "expire", "cancel"]
+)
 def test_connection_manager_tool_completion(monkeypatch, elicitation):
     import threading
     from types import SimpleNamespace
 
     completed = threading.Event()
-    completed.set()
+    waiting = threading.Event()
+    closed = []
+    if elicitation != "cancel":
+        completed.set()
+
+    def wait(timeout):
+        waiting.set()
+        return completed.wait(timeout)
+
+    def close():
+        closed.append(True)
+        completed.set()
+
     session = SimpleNamespace(
         url="http://127.0.0.1:1234/token",
         browser_opened=False,
-        completed=completed,
+        completed=SimpleNamespace(wait=wait),
         result=None
         if elicitation == "expire"
         else {"active_instance": "sandbox", "connection_count": 2},
         expired=elicitation == "expire",
-        close=lambda: None,
+        close=close,
     )
     starts = []
 
@@ -228,7 +242,25 @@ def test_connection_manager_tool_completion(monkeypatch, elicitation):
     ctx = FakeContext()
     ctx.session = Session()
     ctx.request_id = "request"
-    result = json.loads(asyncio.run(instances.configure_instance(ctx)))
+
+    async def invoke():
+        task = asyncio.create_task(instances.configure_instance(ctx))
+        if elicitation == "cancel":
+            try:
+                assert await asyncio.to_thread(waiting.wait, 2)
+                task.cancel()
+                await task
+            finally:
+                # A failed cleanup assertion must not leave the test runner waiting.
+                completed.set()
+        return await task
+
+    if elicitation == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(invoke())
+        assert closed == [True]
+        return
+    result = json.loads(asyncio.run(invoke()))
     if elicitation in {"unsupported", "decline"}:
         assert result["interaction_mode"] == "direct_local_url"
         assert result["setup_url"] == session.url

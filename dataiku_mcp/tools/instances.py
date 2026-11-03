@@ -181,15 +181,19 @@ async def configure_instance(ctx: Context) -> str:
     await ctx.info("Requesting permission to open the Dataiku configuration page...")
     session = await run_blocking(lambda: start_setup_server(open_browser=False))
     elicitation_id = secrets.token_urlsafe(18)
-    elicitation = await ctx.session.elicit_url(
-        message=(
-            "Open the local Dataiku connection manager to manage saved connections, "
-            "then select Done to return to your agent."
-        ),
-        url=session.url,
-        elicitation_id=elicitation_id,
-        related_request_id=ctx.request_id,
-    )
+    try:
+        elicitation = await ctx.session.elicit_url(
+            message=(
+                "Open the local Dataiku connection manager to manage saved connections, "
+                "then select Done to return to your agent."
+            ),
+            url=session.url,
+            elicitation_id=elicitation_id,
+            related_request_id=ctx.request_id,
+        )
+    except BaseException:
+        await run_blocking(session.close)
+        raise
 
     if elicitation.action != "accept":
         # Some clients advertise URL elicitation but decline the request because
@@ -210,28 +214,29 @@ async def configure_instance(ctx: Context) -> str:
             }
         )
 
-    await asyncio.to_thread(
-        session.completed.wait,
-        SESSION_LIFETIME_SECONDS + 1,
-    )
-    if session.result is None:
-        await run_blocking(session.close)
+    try:
+        await asyncio.to_thread(
+            session.completed.wait,
+            SESSION_LIFETIME_SECONDS + 1,
+        )
+        if session.result is None:
+            return compact_json(
+                {
+                    "interaction_mode": "mcp_url_elicitation",
+                    "status": "expired" if session.expired else "incomplete",
+                }
+            )
+
+        await ctx.session.send_elicit_complete(
+            elicitation_id,
+            related_request_id=ctx.request_id,
+        )
         return compact_json(
             {
                 "interaction_mode": "mcp_url_elicitation",
-                "status": "expired" if session.expired else "incomplete",
+                "status": "completed",
+                "state": session.result,
             }
         )
-
-    await ctx.session.send_elicit_complete(
-        elicitation_id,
-        related_request_id=ctx.request_id,
-    )
-    await run_blocking(session.close)
-    return compact_json(
-        {
-            "interaction_mode": "mcp_url_elicitation",
-            "status": "completed",
-            "state": session.result,
-        }
-    )
+    finally:
+        await run_blocking(session.close)
