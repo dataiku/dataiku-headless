@@ -35,6 +35,8 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
+To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. Test before saving, then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
+
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
 ![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
@@ -153,7 +155,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-Outside a Code Studio, configure a connection using a personal API key:
+Outside a Code Studio, configure an instance using a personal API key:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
@@ -207,7 +209,7 @@ empty ones. Direct package imports do not load `.env`.
 3. The saved profiles' `default_instance`.
 
 All sources remain available through `list_instances` and `switch_instance`;
-use `get_current_instance` to verify the active connection. Environment instances
+use `get_current_instance` to verify the active instance. Environment instances
 take precedence over profiles with the same name. The explicit target must have
 a different name from `dataiku-from-code-studio` when both exist. Missing required
 credentials or environment types, unsupported types, and duplicate environment names fail startup.
