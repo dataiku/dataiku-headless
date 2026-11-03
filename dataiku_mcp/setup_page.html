@@ -1,0 +1,1096 @@
+<!--
+Copyright 2026 Dataiku SAS
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Connections · Dataiku Headless</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #202e31;
+        --muted: #58686c;
+        --teal: #007b7d;
+        --line: #dce3e1;
+        --paper: #fffef9;
+        --soft: #f2f6f4;
+        --danger: #a92c3a;
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        border-top: 4px solid #00a6a6;
+      }
+      ::selection {
+        background: #c9eae6;
+        color: #123b3c;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button,
+      a,
+      input,
+      select {
+        outline-offset: 4px;
+      }
+      :focus-visible {
+        outline: 2px solid var(--teal);
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 6px;
+        padding: 8px 13px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      button:hover {
+        background: var(--soft);
+        border-color: #a5b7b3;
+      }
+      button:active {
+        background: #e4efeb;
+      }
+      button.primary {
+        background: var(--teal);
+        color: white;
+        border-color: var(--teal);
+      }
+      button.primary:hover {
+        background: #006567;
+      }
+      button:disabled,
+      button:disabled:hover {
+        color: #52615d;
+        background: #e5ebe8;
+        border-color: #e5ebe8;
+        cursor: not-allowed;
+      }
+      button.text {
+        background: transparent;
+        border-color: transparent;
+        color: var(--teal);
+      }
+      button.danger {
+        color: var(--danger);
+      }
+      svg {
+        width: 18px;
+        height: 18px;
+        vertical-align: middle;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      header {
+        height: 91px;
+        max-width: 1200px;
+        margin: auto;
+        padding: 0 36px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+      }
+      .bird {
+        width: 37px;
+        height: 37px;
+        fill: currentColor;
+        stroke: none;
+      }
+      .brand strong {
+        font-size: 21px;
+        letter-spacing: -0.025em;
+      }
+      .brand .product {
+        border-left: 1px solid #bbc8c4;
+        padding-left: 14px;
+        margin-left: 2px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .demo {
+        font-size: 12px;
+        color: #556763;
+        background: #edf3ef;
+        padding: 5px 10px;
+        border-radius: 4px;
+      }
+      main {
+        max-width: 1128px;
+        margin: 48px auto;
+        padding: 0 0 36px;
+      }
+      .titlebar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+      }
+      h1 {
+        font-size: 32px;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
+        margin: 0 0 9px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .primary svg {
+        margin-right: 7px;
+      }
+      .context {
+        margin: 29px 0 25px;
+        padding: 16px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .context strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        background: var(--teal);
+        border-radius: 50%;
+        flex: none;
+      }
+      .context .explain {
+        margin-left: auto;
+        color: var(--muted);
+      }
+      #environment-note {
+        margin-bottom: 20px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 28px;
+      }
+      .search {
+        position: relative;
+        width: 330px;
+      }
+      .search svg {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        color: var(--muted);
+      }
+      input,
+      select {
+        width: 100%;
+        border: 1px solid #bac8c3;
+        border-radius: 6px;
+        padding: 10px 12px;
+        background: white;
+        color: var(--ink);
+        caret-color: var(--teal);
+      }
+      input::placeholder {
+        color: #657571;
+      }
+      .search input {
+        padding-left: 39px;
+      }
+      input:hover,
+      select:hover {
+        border-color: #829a92;
+      }
+      input:focus,
+      select:focus {
+        border-color: var(--teal);
+      }
+      .count {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .group {
+        margin: 0 0 27px;
+      }
+      .grouphead {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 9px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 650;
+      }
+      .groupcount {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .rows {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 19px 20px;
+        min-height: 91px;
+      }
+      .row:has(.deletebox) {
+        flex-wrap: wrap;
+      }
+      .row + .row {
+        border-top: 1px solid var(--line);
+      }
+      .row.active {
+        background: #f2f9f7;
+      }
+      .info {
+        flex: 1;
+        min-width: 0;
+      }
+      .namebar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+      }
+      .name {
+        font-weight: 650;
+        font-size: 15px;
+      }
+      .url {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+      }
+      .badge {
+        font-size: 11px;
+        padding: 2px 7px;
+        background: #e4f1ed;
+        color: #215b50;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+      .badge.default {
+        background: #edf0ed;
+        color: #4b5e57;
+      }
+      .badge.managed {
+        background: #f0f2f1;
+        color: #58655e;
+      }
+      .rowactions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .iconbutton {
+        padding: 8px;
+        line-height: 1;
+      }
+      .readonly {
+        font-size: 12px;
+        color: var(--muted);
+        max-width: 220px;
+        text-align: right;
+      }
+      .footer {
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        gap: 16px;
+        color: var(--muted);
+      }
+      .footer button {
+        font-size: 12px;
+        padding: 0;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 30px;
+      }
+      .workspace.open {
+        grid-template-columns: minmax(0, 1fr) 380px;
+      }
+      .workspace.open .row {
+        padding: 16px;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .workspace.open .rowactions {
+        width: 100%;
+        justify-content: flex-end;
+      }
+      .panel {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 25px;
+        align-self: start;
+        position: sticky;
+        top: 24px;
+        display: none;
+      }
+      .open .panel {
+        display: block;
+      }
+      .panelhead {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 7px;
+      }
+      .panel h2 {
+        font-size: 21px;
+        letter-spacing: -0.02em;
+      }
+      .panel .sub {
+        font-size: 13px;
+        margin-bottom: 25px;
+      }
+      .field {
+        margin-top: 17px;
+      }
+      .field label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 5px;
+      }
+      .check {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        font-size: 13px;
+        margin-top: 18px;
+      }
+      .check input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--teal);
+        flex: none;
+        margin: 2px 0;
+      }
+      .panel details {
+        font-size: 13px;
+        margin-top: 20px;
+      }
+      .panel summary {
+        cursor: pointer;
+        color: var(--muted);
+      }
+      .panelactions {
+        display: flex;
+        gap: 9px;
+        margin-top: 24px;
+        justify-content: space-between;
+      }
+      .notice {
+        font-size: 13px;
+        padding: 11px;
+        background: #edf7f2;
+        color: #275c4c;
+        border-radius: 5px;
+        margin-top: 17px;
+      }
+      .notice.error {
+        background: #fff1ef;
+        color: #a92c3a;
+      }
+      .toast {
+        position: fixed;
+        bottom: 25px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #203b34;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 7px;
+        box-shadow: 0 8px 24px #172e3426;
+        font-size: 14px;
+        z-index: 10;
+        max-width: 90vw;
+      }
+      .empty {
+        padding: 45px 20px;
+        text-align: center;
+        border: 1px dashed #bccdc5;
+        border-radius: 8px;
+      }
+      .empty h2 {
+        font-size: 18px;
+        margin-bottom: 8px;
+      }
+      .empty p {
+        margin-bottom: 18px;
+      }
+      .deletebox {
+        border: 1px solid #e0b3b7;
+        border-radius: 7px;
+        background: #fff8f6;
+        padding: 16px;
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      .deletebox p {
+        margin: 7px 0 13px;
+      }
+      .deletebox .choices {
+        display: flex;
+        gap: 8px;
+      }
+      .deletebox select {
+        margin: 4px 0 12px;
+      }
+      .deletebox label {
+        display: block;
+        margin-top: 8px;
+      }
+      .deletebox button.primary {
+        background: var(--danger);
+        border-color: var(--danger);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 1200px) {
+        main {
+          margin: 36px;
+          padding-bottom: 30px;
+        }
+      }
+      @media (max-width: 980px) {
+        .workspace.open {
+          grid-template-columns: minmax(0, 1fr) 350px;
+        }
+        .context .explain {
+          max-width: 260px;
+          text-align: right;
+        }
+        .workspace.open .readonly {
+          text-align: left;
+        }
+      }
+      @media (max-width: 760px) {
+        header {
+          height: 75px;
+          padding: 0 20px;
+        }
+        .brand .product {
+          font-size: 12px;
+        }
+        .brand strong {
+          font-size: 19px;
+        }
+        .bird {
+          width: 29px;
+          height: 29px;
+        }
+        .demo {
+          font-size: 12px;
+        }
+        main {
+          margin: 28px 20px;
+        }
+        .titlebar {
+          align-items: flex-start;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        h1 {
+          font-size: 28px;
+        }
+        .titlebar p {
+          font-size: 14px;
+        }
+        .context {
+          align-items: flex-start;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .context .explain {
+          margin: 0;
+          width: 100%;
+          max-width: none;
+          text-align: left;
+        }
+        #environment-note {
+        margin-bottom: 20px;
+      }
+      .toolbar {
+          gap: 15px;
+        }
+        .search {
+          width: 100%;
+        }
+        .row {
+          flex-wrap: wrap;
+          padding: 16px;
+          gap: 13px;
+        }
+        .info {
+          flex-basis: 100%;
+        }
+        .rowactions {
+          width: 100%;
+          justify-content: flex-end;
+        }
+        .readonly {
+          max-width: none;
+          text-align: left;
+        }
+        .workspace.open {
+          display: flex;
+          flex-direction: column;
+        }
+        .workspace.open .panel {
+          order: -1;
+          position: static;
+          width: 100%;
+          padding: 21px;
+        }
+        .workspace.open .list {
+          width: 100%;
+        }
+        .footer {
+          flex-direction: column;
+          gap: 9px;
+        }
+        .count {
+          white-space: nowrap;
+        }
+        .panelactions button {
+          flex: 1;
+        }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .panel {
+          animation: reveal 0.18s ease-out;
+        }
+        @keyframes reveal {
+          from {
+            transform: translateX(8px);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <noscript
+      >This connection manager requires JavaScript. Enable it and reopen this
+      page.</noscript
+    >
+    <header>
+      <div class="brand">
+        __BIRD__<strong>Dataiku</strong><span class="product">Headless</span>
+      </div>
+      <button id="done">Done</button>
+    </header>
+    <main>
+      <div class="titlebar">
+        <div>
+          <h1>Connections</h1>
+          <p>Manage the Dataiku instances your agent can use.</p>
+        </div>
+        <button class="primary" id="add">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" /></svg
+          >Add connection
+        </button>
+      </div>
+      <div class="context" id="context"></div>
+      <p id="environment-note" class="hint" hidden>
+        Environment connections take precedence over the saved default when
+        Headless starts.
+      </p>
+      <div id="error" class="notice error" role="alert" hidden></div>
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="m16 16 4 4" /></svg
+          ><input
+            type="search"
+            id="search"
+            aria-label="Search connections"
+            placeholder="Find a connection…"
+          />
+        </div>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="workspace" id="workspace">
+        <div class="list" id="list"></div>
+        <aside class="panel" id="panel" aria-labelledby="paneltitle">
+          <div class="panelhead">
+            <h2 id="paneltitle">Add connection</h2>
+            <button
+              class="iconbutton"
+              id="close"
+              aria-label="Close connection editor"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+          <p class="sub">Connect an instance using its URL and API key.</p>
+          <form id="form">
+            <div class="field">
+              <label for="name">Connection name</label
+              ><input
+                id="name"
+                required
+                maxlength="80"
+                placeholder="e.g. Design sandbox"
+              />
+            </div>
+            <div class="field">
+              <label for="type">Instance type</label
+              ><select id="type" required>
+                <option value="">Choose a type</option>
+                <option>Design</option>
+                <option>Automation</option>
+                <option>Deployer</option>
+                <option>Govern</option>
+                <option>Agent Management</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="url">Instance URL</label
+              ><input
+                id="url"
+                type="url"
+                required
+                placeholder="https://your-instance.dataiku.com"
+              />
+            </div>
+            <div class="field">
+              <label for="key">API key</label
+              ><input
+                id="key"
+                type="password"
+                autocomplete="new-password"
+                required
+                placeholder="Paste your API key"
+              />
+              <div class="hint" id="keyhint">
+                Find it in Dataiku under Profile &amp; Settings → API keys.
+              </div>
+            </div>
+            <div class="field">
+              <label for="description"
+                >Description
+                <span style="font-weight: 400; color: var(--muted)"
+                  >(optional)</span
+                ></label
+              ><input
+                id="description"
+                placeholder="What is this connection for?"
+              />
+            </div>
+            <label class="check"
+              ><input id="default" type="checkbox" /><span
+                >Use by default when Headless starts</span
+              ></label
+            ><label class="check"
+              ><input id="activate" type="checkbox" /><span
+                >Switch to this connection after saving</span
+              ></label
+            >
+            <details>
+              <summary>Advanced options</summary>
+              <label class="check"
+                ><input type="checkbox" id="skip" /><span
+                  >Skip certificate verification</span
+                ></label
+              >
+              <p class="hint">
+                Only for trusted instances with self-signed certificates.
+              </p>
+            </details>
+            <div id="teststatus" role="status" hidden></div>
+            <div class="panelactions">
+              <button type="button" id="test">Test connection</button
+              ><button class="primary" id="save" type="submit" disabled>
+                Save connection
+              </button>
+            </div>
+            <p class="hint" style="margin-top: 14px">
+              Your API key is saved locally with user-only (0600) file
+              permissions.
+            </p>
+          </form>
+        </aside>
+      </div>
+      <div class="footer">
+        <span
+          >Credentials stay on this machine · Local page expires after 10
+          minutes</span
+        ><span>Saved with user-only file permissions</span>
+      </div>
+    </main>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <script nonce="__NONCE__" id="initial-state" type="application/json">
+      __STATE__
+    </script>
+    <script nonce="__NONCE__">
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+      const types = {
+        design: "Design",
+        automation: "Automation",
+        deployer: "Deployer",
+        govern: "Govern",
+        "agent-management": "Agent Management",
+      };
+      for (const [value, label] of Object.entries(types)) {
+        // Use the same canonical type values as the server.
+        const option = [...$("type").options].find(
+          (o) => o.textContent === label,
+        );
+        option.value = value;
+      }
+      let state = JSON.parse($("initial-state").textContent),
+        editing = null,
+        deleteName = null;
+      let validationId = "",
+        busy = false,
+        dirty = false,
+        toastTimer;
+      const esc = (s) =>
+        String(s ?? "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const icon = (name) =>
+        `<svg viewBox="0 0 24 24" aria-hidden="true">${name === "edit" ? '<path d="m15 5 4 4M4 20l4-1 12-12a2.1 2.1 0 0 0-3-3L5 16z"/>' : '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'}</svg>`;
+      function showError(message) {
+        $("error").textContent = message;
+        $("error").hidden = false;
+      }
+      function toast(message) {
+        clearTimeout(toastTimer);
+        $("toast").textContent = message;
+        $("toast").hidden = false;
+        toastTimer = setTimeout(() => {
+          $("toast").hidden = true;
+        }, 5000);
+      }
+      async function action(values) {
+        if (busy) return null;
+        busy = true;
+        $("error").hidden = true;
+        const enabled = [
+          ...document.querySelectorAll("button,input,select"),
+        ].filter((e) => !e.disabled);
+        for (const element of enabled) element.disabled = true;
+        $("workspace").setAttribute("aria-busy", "true");
+        try {
+          const response = await fetch(location.pathname, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(values),
+            cache: "no-store",
+            redirect: "error",
+          });
+          const result = await response.json();
+          if (!response.ok)
+            throw new Error(
+              result.error || "The operation could not be completed.",
+            );
+          if (result.state) state = result.state;
+          return result;
+        } catch (error) {
+          showError(
+            error instanceof TypeError || error instanceof SyntaxError
+              ? "The connection manager is unavailable. Reopen it from your agent before trying again."
+              : error.message,
+          );
+          return null;
+        } finally {
+          for (const element of enabled) element.disabled = false;
+          busy = false;
+          $("workspace").removeAttribute("aria-busy");
+          $("save").disabled = !validationId;
+        }
+      }
+      function render() {
+        const connections = state.connections;
+        $("context").innerHTML =
+          `<span class="dot"></span><span>Active now: <strong>${esc(state.active || "None selected")}</strong></span><span class="explain">Startup default: <strong>${esc(state.default || "None selected")}</strong></span>`;
+        $("environment-note").hidden = !state.environment_precedence;
+        const query = $("search").value.trim().toLowerCase();
+        const matches = connections.filter((c) =>
+          `${c.name} ${c.url} ${c.description} ${types[c.instance_type]}`
+            .toLowerCase()
+            .includes(query),
+        );
+        $("count").textContent =
+          `${matches.length} connection${matches.length === 1 ? "" : "s"}`;
+        $("list").innerHTML =
+          Object.entries(types)
+            .map(([type, label]) => {
+              const rows = matches.filter((c) => c.instance_type === type);
+              return rows.length
+                ? `<section class="group"><div class="grouphead"><h2>${label}</h2><span class="groupcount">${rows.length}</span></div><div class="rows">${rows
+                    .map((c) => {
+                      const managed = c.source !== "config";
+                      const attr = `data-name="${esc(c.name)}"`;
+                      return `<div class="row ${state.active === c.name ? "active" : ""}"><div class="info"><div class="namebar"><span class="name">${esc(c.name)}</span>${state.active === c.name ? '<span class="badge">Active</span>' : ""}${state.default === c.name ? '<span class="badge default">Startup default</span>' : ""}${managed ? '<span class="badge managed">Environment</span>' : ""}</div><div class="url">${esc(c.url)}</div></div><div class="rowactions">${state.active !== c.name ? `<button data-action="switch" ${attr}>Use now</button>` : ""}${managed ? `<span class="readonly">${c.source === "code-studio-environment" ? "Managed by Code Studio" : "Managed by environment variables"}</span>` : `${state.default !== c.name ? `<button class="text" data-action="default" ${attr}>Set default</button>` : ""}<button class="iconbutton" data-action="edit" ${attr} aria-label="Edit ${esc(c.name)}">${icon("edit")}</button><button class="iconbutton danger" data-action="delete" ${attr} aria-label="Delete ${esc(c.name)}">${icon("trash")}</button>`}</div>${deleteName === c.name ? deletion(c) : ""}</div>`;
+                    })
+                    .join("")}</div></section>`
+                : "";
+            })
+            .join("") ||
+          `<div class="empty"><h2>${connections.length ? "No matching connections" : "Add your first connection"}</h2><p>${connections.length ? "Try a different name, URL, or instance type." : "Connect a Dataiku instance to start working with your agent."}</p><button data-action="${connections.length ? "clear" : "add"}">${connections.length ? "Clear search" : "Add connection"}</button></div>`;
+      }
+      function deletion(c) {
+        const replacements = state.connections.filter(
+          (i) => i.name !== c.name && i.source === "config",
+        );
+        const affected = state.active === c.name || state.default === c.name;
+        return `<div class="deletebox" style="flex-basis:100%"><strong>Delete ${esc(c.name)}?</strong><p>This removes the saved connection from Headless. The Dataiku instance and its data stay in place.</p>${affected ? `<p>This connection is ${[state.active === c.name ? "active now" : "", state.default === c.name ? "the startup default" : ""].filter(Boolean).join(" and ")}.</p>${replacements.length ? `<label for="replacement">Use this connection instead</label><select id="replacement">${replacements.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join("")}</select>` : "<p>No other saved connection remains. You will need to add or select one before continuing.</p>"}` : ""}<div class="choices"><button class="primary" data-action="confirmdelete" data-name="${esc(c.name)}">Delete connection</button><button data-action="canceldelete">Cancel</button></div></div>`;
+      }
+      function canDiscard() {
+        return (
+          !dirty || window.confirm("Discard your unsaved connection changes?")
+        );
+      }
+      function closeEditor({ discard = true } = {}) {
+        if (busy || (discard && !canDiscard())) return false;
+        $("key").value = "";
+        $("workspace").classList.remove("open");
+        editing = null;
+        dirty = false;
+        validationId = "";
+        $("save").disabled = true;
+        $("add").focus();
+        return true;
+      }
+      function openEditor(name = null) {
+        if (!canDiscard()) return;
+        const c = state.connections.find((i) => i.name === name);
+        editing = c ? { ...c } : null;
+        $("form").reset();
+        $("name").value = c?.name || "";
+        $("type").value = c?.instance_type || "";
+        $("url").value = c?.url || "";
+        $("description").value = c?.description || "";
+        $("skip").checked = c?.no_check_certificate || false;
+        $("default").checked = c
+          ? state.default === name
+          : !state.connections.some((i) => i.source === "config");
+        $("activate").checked = !state.active;
+        $("key").required = !c;
+        $("key").placeholder = c
+          ? "Leave blank to keep the saved credential"
+          : "Paste your API key";
+        $("keyhint").textContent = c
+          ? "Your saved credential stays hidden. Enter a new API key only to replace it."
+          : "Find it in Dataiku under Profile & Settings → API keys.";
+        $("paneltitle").textContent = c ? "Edit connection" : "Add connection";
+        $("teststatus").hidden = true;
+        validationId = "";
+        dirty = false;
+        $("save").disabled = true;
+        $("workspace").classList.add("open");
+        deleteName = null;
+        render();
+        $("name").focus();
+      }
+      function formValues() {
+        const values = {
+          original_name: editing?.name || "",
+          revision: editing?.revision || "",
+          name: $("name").value,
+          instance_type: $("type").value,
+          url: $("url").value,
+          api_key: $("key").value,
+          description: $("description").value,
+        };
+        if ($("skip").checked) values.no_check_certificate = "on";
+        if ($("default").checked) values.set_default = "on";
+        if ($("activate").checked) values.activate = "on";
+        return values;
+      }
+      $("list").addEventListener("click", async (event) => {
+        const button = event.target.closest("button");
+        if (!button || busy) return;
+        const name = button.dataset.name;
+        const operation = button.dataset.action;
+        if (operation === "edit") return openEditor(name);
+        if (operation === "add") return openEditor();
+        if (operation === "clear") {
+          $("search").value = "";
+          render();
+          return;
+        }
+        if (operation === "delete") {
+          deleteName = name;
+          render();
+          document.querySelector('[data-action="canceldelete"]').focus();
+          return;
+        }
+        if (operation === "canceldelete") {
+          deleteName = null;
+          render();
+          return;
+        }
+        const connection = state.connections.find((i) => i.name === name);
+        const values = {
+          action: operation === "confirmdelete" ? "delete" : operation,
+          name,
+          revision: connection?.revision || "",
+        };
+        if (operation === "confirmdelete")
+          values.replacement = $("replacement")?.value || "";
+        if (
+          operation === "confirmdelete" &&
+          editing?.name === name &&
+          !canDiscard()
+        )
+          return;
+        const result = await action(values);
+        if (!result) return;
+        if (operation === "confirmdelete") {
+          deleteName = null;
+          if (editing?.name === name) closeEditor({ discard: false });
+          toast("Connection deleted.");
+        } else
+          toast(
+            operation === "switch"
+              ? `Now using ${name}. Future agent actions use this connection.`
+              : `${name} is the saved startup default.`,
+          );
+        render();
+      });
+      $("search").addEventListener("input", render);
+      $("add").onclick = () => openEditor();
+      $("close").onclick = () => closeEditor();
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && $("workspace").classList.contains("open"))
+          closeEditor();
+      });
+      $("form").addEventListener("input", (event) => {
+        dirty = true;
+        if (["url", "key", "skip", "type"].includes(event.target.id)) {
+          validationId = "";
+          $("save").disabled = true;
+          $("teststatus").hidden = true;
+        }
+      });
+      $("test").onclick = async () => {
+        if (!$("form").reportValidity()) return;
+        validationId = "";
+        $("save").disabled = true;
+        $("test").textContent = "Testing…";
+        $("teststatus").hidden = false;
+        $("teststatus").className = "notice";
+        $("teststatus").textContent = "Checking connection…";
+        const result = await action({ ...formValues(), action: "test" });
+        $("test").textContent = "Test connection";
+        $("teststatus").hidden = !result;
+        if (result) {
+          validationId = result.validation_id;
+          $("teststatus").textContent = "Connection successful. Ready to save.";
+          $("save").disabled = false;
+        }
+      };
+      $("form").onsubmit = async (event) => {
+        event.preventDefault();
+        if (!validationId || !$("form").reportValidity()) return;
+        const result = await action({
+          ...formValues(),
+          action: "save",
+          validation_id: validationId,
+        });
+        if (!result) return;
+        closeEditor({ discard: false });
+        render();
+        toast("Connection saved.");
+      };
+      $("done").onclick = async () => {
+        if (!canDiscard()) return;
+        const result = await action({ action: "done" });
+        if (!result) return;
+        dirty = false;
+        $("key").value = "";
+        document.querySelector("main").innerHTML =
+          "<h1>Connections saved</h1><p>You can close this tab and continue in your AI coding tool.</p>";
+        $("done").disabled = true;
+        $("done").textContent = "Done";
+      };
+      window.addEventListener("beforeunload", (event) => {
+        if (dirty) {
+          event.preventDefault();
+          event.returnValue = "";
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

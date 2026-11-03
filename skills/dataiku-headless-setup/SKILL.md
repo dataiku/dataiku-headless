@@ -22,7 +22,25 @@ Bring a new or broken plugin installation to a verified Dataiku connection. A re
 
    A startup line on stderr followed by exit status 0 is expected. Do not substitute `uv sync --locked --script`: it caches downloads but leaves environment creation for the first server launch.
 7. Retry `list_instances`. If the tools are still unavailable, reload the plugin or restart the agent once, then retry before diagnosing a Dataiku connection problem.
-8. When `list_instances` succeeds, if no instance is configured, run `configure_instance` and have the user complete the local setup page. If multiple instances exist without an active one, ask which to use and run `switch_instance`.
-9. Verify the active profile with `get_current_instance`. If its `connection_status` is `failed`, the discovered profile cannot connect to Dataiku; run `configure_instance` to replace or add a working profile instead of treating it as set up. When it is `connected`, make a lightweight read-only Dataiku call such as `list_projects` to validate the available Dataiku access. Never request or repeat the API key in chat.
+8. When `list_instances` succeeds, if no instance is configured, run `configure_instance` and have the user add a connection in the local browser manager, test it, save it, and select **Done**. Select **Switch to this connection after saving** to make it active. The manager stays open across operations; saving alone does not complete URL elicitation. If multiple instances exist without an active one, ask which to use and run `switch_instance`.
+9. Verify the active profile with `get_current_instance`. If its `connection_status` is `failed`, the discovered profile cannot connect to Dataiku; run `configure_instance` to edit or add a working profile instead of treating it as set up. When it is `connected`, make a lightweight read-only Dataiku call such as `list_projects` to validate the available Dataiku access. Never request or repeat the API key in chat.
 
 Report completion with the active instance name, URL, and configured type, Dataiku version when available, and whether the Dataiku read succeeded. Include the uv version only when runtime recovery was needed. If a restart is required, say that setup is incomplete and give the single next action.
+
+## Manage existing connections
+
+Use `configure_instance` to reopen the local connection manager. It groups connections
+by type and supports create, edit, delete, **Use now**, and **Set default**. **Use now**
+changes the target of later tool calls; **Set default** selects the saved startup
+profile and does not switch the active connection. Environment and Code Studio
+connections remain read-only and take precedence at startup. HTTP instances remain
+platform-managed and cannot use this local manager.
+
+When editing, leave the API key blank to preserve the saved key or ticket. A new
+API key replaces the credential. A successful connection test is required before
+saving; changing URL, credential, certificate policy, or type requires a new test.
+Deleting an active/default profile requires choosing another saved profile when
+one is available. It removes only the local connection, not the Dataiku instance.
+After **Done**, verify the active connection with `get_current_instance`; never
+infer activation from saving or choosing a default. Changes are applied immediately
+and survive page expiry. The manager expires after ten minutes; reopen it if needed.

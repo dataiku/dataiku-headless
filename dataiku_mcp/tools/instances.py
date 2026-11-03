@@ -139,17 +139,17 @@ async def get_current_instance(ctx: Context) -> str:
 
 
 @mcp.tool(
-    title="Configure Dataiku Instance",
+    title="Manage Dataiku Connections",
     annotations={
         "readOnlyHint": False,
-        "destructiveHint": False,
+        "destructiveHint": True,
         "idempotentHint": False,
         "openWorldHint": False,
     },
     tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def configure_instance(ctx: Context) -> str:
-    """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
+    """Open the local browser to add, edit, delete, or select saved Dataiku connections."""
     if request.is_http_request():
         raise ValueError(
             "Instances are platform-managed in HTTP mode and cannot be configured."
@@ -167,24 +167,24 @@ async def configure_instance(ctx: Context) -> str:
             "This MCP client does not advertise URL elicitation; opening the "
             "local configuration page directly."
         )
-        session = start_setup_server()
+        session = await run_blocking(start_setup_server)
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
                 "setup_url": session.url,
                 "browser_opened": session.browser_opened,
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
-                "next_step": "Open setup_url if the browser did not open automatically.",
+                "next_step": "Open setup_url if needed. Manage connections, then select Done.",
             }
         )
 
     await ctx.info("Requesting permission to open the Dataiku configuration page...")
-    session = start_setup_server(open_browser=False)
+    session = await run_blocking(lambda: start_setup_server(open_browser=False))
     elicitation_id = secrets.token_urlsafe(18)
     elicitation = await ctx.session.elicit_url(
         message=(
-            "Open the local Dataiku configuration page to save an instance URL "
-            "and API key securely."
+            "Open the local Dataiku connection manager to manage saved connections, "
+            "then select Done to return to your agent."
         ),
         url=session.url,
         elicitation_id=elicitation_id,
@@ -195,7 +195,7 @@ async def configure_instance(ctx: Context) -> str:
         # Some clients advertise URL elicitation but decline the request because
         # the capability is gated behind an unreleased feature flag (e.g. Codex,
         # openai/codex#29344). Fall back to opening the local setup page directly.
-        fallback = start_setup_server()
+        fallback = await run_blocking(start_setup_server)
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
@@ -205,7 +205,7 @@ async def configure_instance(ctx: Context) -> str:
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
                 "next_step": (
                     "The in-app prompt was declined or is unsupported by this "
-                    "client; open setup_url to finish configuring Dataiku."
+                    "client; open setup_url to manage connections, then select Done."
                 ),
             }
         )
@@ -215,7 +215,7 @@ async def configure_instance(ctx: Context) -> str:
         SESSION_LIFETIME_SECONDS + 1,
     )
     if session.result is None:
-        session.close()
+        await run_blocking(session.close)
         return compact_json(
             {
                 "interaction_mode": "mcp_url_elicitation",
@@ -227,11 +227,11 @@ async def configure_instance(ctx: Context) -> str:
         elicitation_id,
         related_request_id=ctx.request_id,
     )
-    session.close()
+    await run_blocking(session.close)
     return compact_json(
         {
             "interaction_mode": "mcp_url_elicitation",
-            "status": "configured",
-            "instance": session.result,
+            "status": "completed",
+            "state": session.result,
         }
     )

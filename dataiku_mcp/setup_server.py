@@ -12,28 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Loopback-only browser setup for Dataiku instance credentials."""
+"""Temporary loopback connection manager for local stdio profiles."""
 
+import hashlib
+import hmac
+import json
 import secrets
 import threading
 import webbrowser
-from dataclasses import dataclass
-from html import escape
+from dataclasses import dataclass, field
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import get_args
 from urllib.parse import parse_qs, urlsplit
 
 import dataikuapi
 
-from .config import request, stdio
-from .config.models import InstanceType
+from .config import stdio
+from .config.models import InstanceType, StdioConfig, StdioDSSInstanceConfig
 
 SESSION_LIFETIME_SECONDS = 10 * 60
 MAX_REQUEST_BYTES = 16 * 1024
 _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
+_revision_key = secrets.token_bytes(32)
 
-# Keep the setup server single-route: this is the bird from the checked-in lockup.
 DATAIKU_BIRD_SVG = """<svg class="bird" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
   <path d="M191.342 139.061H108.562V154.536H191.342V139.061Z" fill="currentColor"/>
   <path d="M183.598 13.1855C179.295 5.34204 170.964 0 161.361 0C147.37 0 136.028 11.3412 136.028 25.3323C136.028 26.6678 136.156 27.9609 136.368 29.2328L134.226 31.8614L0.421086 196.935C-0.23607 197.74 -0.108879 198.927 0.696667 199.585C1.43862 200.178 2.51974 200.136 3.1981 199.457L59.5227 143.196C69.91 132.83 83.9858 127.001 98.6764 127.001H118.285C161.127 127.001 186.884 102.601 182.22 52.4664C180.609 35.2108 181.499 27.9397 187.414 20.6474C190.466 16.8953 196.381 9.56055 196.381 9.56055L189.449 11.5108L183.577 13.1643L183.598 13.1855ZM161.891 28.4485C158.096 28.4485 155.022 25.3747 155.022 21.5801C155.022 17.7856 158.096 14.7118 161.891 14.7118C165.685 14.7118 168.759 17.7856 168.759 21.5801C168.759 25.3747 165.685 28.4485 161.891 28.4485Z" fill="currentColor"/>
@@ -48,18 +52,25 @@ class SetupSession:
     timer: threading.Timer
     browser_opened: bool
     completed: threading.Event
+    settings_path: Path
     result: dict | None = None
-    validated_connection: tuple[str, str, bool] | None = None
+    validated_connection: tuple | None = field(default=None, repr=False)
+    validation_id: str = ""
     expired: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def close(self) -> None:
         self.timer.cancel()
         self.completed.set()
+        self.validated_connection = None
+        self.validation_id = ""
         self.server.shutdown()
         self.server.server_close()
 
 
-def _validate_form(form: dict[str, list[str]]) -> dict:
+def _validate_form(
+    form: dict[str, list[str]], existing: StdioDSSInstanceConfig | None = None
+) -> dict:
     name = form.get("name", [""])[0].strip()
     url = form.get("url", [""])[0].strip()
     api_key = form.get("api_key", [""])[0].strip()
@@ -93,13 +104,14 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     if parsed_url.username or parsed_url.password:
         raise ValueError("Instance URL cannot contain credentials.")
     url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-    if not api_key:
+    if not api_key and existing is None:
         raise ValueError("API key is required.")
 
     return {
         "name": name,
         "url": url,
-        "api_key": api_key,
+        "api_key": api_key or (existing.api_key if existing else None),
+        "api_ticket": existing.api_ticket if existing and not api_key else None,
         "description": description,
         "instance_type": instance_type,
         "no_check_certificate": "no_check_certificate" in form,
@@ -107,157 +119,211 @@ def _validate_form(form: dict[str, list[str]]) -> dict:
     }
 
 
-def _page(
-    *,
-    error: str = "",
-    status: str = "",
-    values: dict | None = None,
-    connection_validated: bool = False,
-) -> str:
-    error_markup = (
-        f'<div class="error" role="alert">{escape(error)}</div>' if error else ""
+def _snapshot(config: StdioConfig | None = None) -> dict:
+    config = config if config is not None else stdio.get_profile_config()
+    instances = {
+        name: instance.to_instance(name)
+        for name, instance in config.dss_instances.items()
+    }
+    # Environment entries shadow saved profiles and remain read-only.
+    instances.update(
+        (name, instance)
+        for name, instance in stdio.get_instances().items()
+        if instance.source != "config"
     )
-    status_markup = (
-        f'<div class="status" role="status">{escape(status)}</div>' if status else ""
-    )
-    is_initial_page = values is None
-    values = values or {}
-    name = escape(values.get("name", ""))
-    description = escape(values.get("description", ""))
-    instance_type = values.get("instance_type", "")
-    instance_type_options = "".join(
-        f'<option value="{value}"'
-        + (" selected" if value == instance_type else "")
-        + f">{value.replace('-', ' ').capitalize()}</option>"
-        for value in get_args(InstanceType)
-    )
-    url = escape(values.get("url", ""))
-    api_key = escape(values.get("api_key", ""))
-    set_default = " checked" if is_initial_page or values.get("set_default") else ""
-    no_check_certificate = " checked" if values.get("no_check_certificate") else ""
-    save_disabled = "" if connection_validated else " disabled"
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Configure Dataiku</title>
-  <style>
-    :root {{ color-scheme:light; --ink:#1a1a1a; --muted:#606b70; --teal:#00a6a6; --teal-dark:#007b7d; --line:#d9dfdf; --paper:#fffef9; --surface:#fff; --soft:#f3f7f6; --error:#a6242f; }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin:0; min-height:100vh; font:15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:var(--paper); border-top:4px solid var(--teal); }}
-    main {{ width:min(720px, calc(100% - 32px)); margin:48px auto; }}
-    .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:24px; }}
-    .bird {{ display:block; width:48px; height:48px; color:var(--ink); }}
-    .brand-copy {{ display:grid; gap:1px; line-height:1; }}
-    .brand-name {{ font-size:18px; font-weight:750; letter-spacing:-.02em; }}
-    .brand-product {{ color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
-    .card {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:32px; box-shadow:0 1px 2px #1a1a1a0d; }}
-    h1 {{ margin:0; font-size:clamp(28px, 5vw, 38px); line-height:1.1; letter-spacing:-.035em; }}
-    .intro {{ color:var(--muted); font-size:16px; margin:8px 0 24px; max-width:58ch; }}
-    .security {{ display:flex; gap:16px; align-items:flex-start; background:var(--soft); border:1px solid #d6e9e5; border-radius:8px; padding:16px; margin-bottom:24px; }}
-    .security-label {{ flex:0 0 auto; color:var(--teal-dark); font-size:11px; font-weight:750; letter-spacing:.08em; line-height:20px; text-transform:uppercase; }}
-    .security strong {{ display:block; margin-bottom:2px; }}
-    .security div {{ color:var(--muted); font-size:13px; }}
-    .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }}
-    label {{ display:block; font-size:13px; font-weight:650; margin-bottom:8px; }}
-    .full {{ grid-column:1 / -1; }}
-    input[type=text], input[type=url], input[type=password], select {{ width:100%; border:1px solid var(--line); border-radius:8px; padding:11px 12px; color:var(--ink); background:var(--paper); font:inherit; outline:none; transition:border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }}
-    input:hover, select:hover {{ border-color:#aeb9b9; }}
-    input:focus-visible, select:focus-visible {{ border-color:var(--teal-dark); box-shadow:0 0 0 3px #00a6a626; background:var(--surface); }}
-    .hint {{ color:var(--muted); font-size:12px; margin-top:4px; }}
-    .checks {{ display:grid; gap:12px; margin:20px 0 24px; }}
-    .check {{ display:flex; gap:10px; align-items:flex-start; font-weight:500; margin:0; }}
-    .check input {{ margin-top:4px; accent-color:var(--teal); flex:0 0 auto; }}
-    details {{ margin-top:16px; }}
-    summary {{ color:var(--muted); cursor:pointer; font-size:13px; font-weight:650; }}
-    details .check {{ margin-top:12px; }}
-    .actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
-    button {{ width:100%; border:0; border-radius:8px; padding:12px 16px; color:white; background:var(--teal-dark); font:inherit; font-weight:700; line-height:1.2; cursor:pointer; transition:background-color 150ms ease, box-shadow 150ms ease; }}
-    button:hover {{ background:#00696c; }}
-    button:disabled, button:disabled:hover {{ color:#6f797d; background:#d9dfdf; cursor:not-allowed; }}
-    button.secondary {{ color:var(--ink); background:var(--surface); border:1px solid var(--line); }}
-    button.secondary:hover {{ background:var(--soft); }}
-    button:focus-visible {{ outline:3px solid #00a6a64d; outline-offset:3px; }}
-    .error {{ background:#fff4f3; color:var(--error); border:1px solid #f0c7c8; border-radius:8px; padding:12px; margin-bottom:20px; }}
-    .status {{ background:#effaf7; color:#245d57; border:1px solid #ccece4; border-radius:8px; padding:12px; margin-bottom:20px; }}
-    @media (max-width:600px) {{ main {{ margin:24px auto; }} .brand {{ margin-bottom:20px; }} .bird {{ width:40px; height:40px; }} .card {{ padding:24px; }} .security {{ flex-direction:column; gap:4px; }} .grid {{ grid-template-columns:1fr; }} .full {{ grid-column:auto; }} .actions {{ grid-template-columns:1fr; }} }}
-    @media (prefers-reduced-motion:reduce) {{ input, button {{ transition:none; }} }}
-  </style>
-</head>
-<body>
-  <main>
-    <header class="brand">{DATAIKU_BIRD_SVG}<span class="brand-copy"><span class="brand-name">Dataiku</span><span class="brand-product">Headless</span></span></header>
-    <section class="card">
-      <h1>Connect to Dataiku</h1>
-      <p class="intro">Add or update the instance this agent can use.</p>
-      <div class="security"><span class="security-label">Local only</span><div><strong>Your credentials stay on this machine.</strong>The API key is saved with user-only (0600) file permissions. This page runs on 127.0.0.1 and expires after 10 minutes.</div></div>
-      {error_markup}
-      <form method="post" autocomplete="off">
-        <div class="grid">
-          <div><label for="name">Instance name</label><input id="name" name="name" type="text" placeholder="production" value="{name}" maxlength="80" required><div class="hint">A short name used when switching instances.</div></div>
-          <div><label for="description">Description</label><input id="description" name="description" type="text" placeholder="Production Dataiku" value="{description}"></div>
-          <div class="full"><label for="instance_type">Instance type</label><select id="instance_type" name="instance_type" required><option value="" disabled{"" if instance_type else " selected"}>Choose an instance type</option>{instance_type_options}</select></div>
-          <div class="full"><label for="url">Instance URL</label><input id="url" name="url" type="url" placeholder="https://your-instance.dataiku.com" value="{url}" aria-describedby="url-hint" required><div class="hint" id="url-hint">Enter the URL of your Dataiku instance.</div></div>
-          <div class="full"><label for="api_key">API key</label><input id="api_key" name="api_key" type="password" value="{api_key}" required><div class="hint">Create one in Dataiku under Profile &amp; Settings → API keys.</div></div>
-        </div>
-        <div class="checks">
-          <label class="check"><input type="checkbox" name="set_default"{set_default}><span>Use this instance by default when Dataiku Headless starts.</span></label>
-        </div>
-        <details><summary>Advanced options</summary><label class="check"><input type="checkbox" name="no_check_certificate"{no_check_certificate}><span>Skip certificate verification (only for trusted instances with self-signed certificates).</span></label></details>
-        {status_markup}
-        <div class="actions"><button class="secondary" type="submit" name="action" value="test">Test connection</button><button type="submit" name="action" value="save"{save_disabled}>Save instance</button></div>
-      </form>
-    </section>
-  </main>
-</body>
-</html>"""
+    current = stdio.get_current_instance()
+    return {
+        "connections": [
+            {
+                "name": instance.name,
+                "url": instance.url,
+                "instance_type": instance.instance_type,
+                "description": instance.description,
+                "no_check_certificate": instance.no_check_certificate,
+                "source": instance.source,
+                "revision": (
+                    _profile_revision(config.dss_instances[instance.name])
+                    if instance.source == "config"
+                    else ""
+                ),
+            }
+            for instance in instances.values()
+        ],
+        "active": current.name if current else None,
+        "default": config.default_instance,
+        "environment_precedence": any(i.source != "config" for i in instances.values()),
+    }
 
 
-def _success_page(name: str) -> str:
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dataiku configured</title>
-  <style>
-    :root {{ color-scheme:light; --ink:#1a1a1a; --muted:#606b70; --teal:#00a6a6; --paper:#fffef9; --line:#d9dfdf; }}
-    * {{ box-sizing:border-box; }}
-    body {{ margin:0; min-height:100vh; display:grid; place-items:center; color:var(--ink); background:var(--paper); border-top:4px solid var(--teal); font:16px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    main {{ width:min(520px, calc(100% - 32px)); margin:32px auto; padding:32px; background:white; border:1px solid var(--line); border-radius:12px; box-shadow:0 1px 2px #1a1a1a0d; text-align:center; }}
-    .bird {{ display:block; width:56px; height:56px; margin:0 auto 24px; color:var(--ink); }}
-    .ok {{ width:32px; height:32px; margin:auto; display:grid; place-items:center; border-radius:50%; background:var(--teal); color:white; font-size:18px; font-weight:800; }}
-    h1 {{ margin:16px 0 8px; font-size:30px; line-height:1.15; letter-spacing:-.03em; }}
-    p {{ margin:0; color:var(--muted); }}
-    strong {{ color:var(--ink); }}
-    @media (max-width:480px) {{ main {{ padding:24px; }} }}
-  </style>
-</head>
-<body>
-  <main>
-    {DATAIKU_BIRD_SVG}
-    <div class="ok">✓</div>
-    <h1>Dataiku is connected</h1>
-    <p><strong>{escape(name)}</strong> is now the active instance. You can close this tab and continue in your AI coding tool.</p>
-  </main>
-</body>
-</html>"""
+def _profile_revision(instance: StdioDSSInstanceConfig) -> str:
+    """Opaque version for stale editor/delete detection, never a raw secret hash."""
+    return hmac.new(
+        _revision_key, instance.model_dump_json().encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def _page(state: dict | None = None, *, nonce: str = "") -> str:
+    template = Path(__file__).with_name("setup_page.html").read_text(encoding="utf-8")
+    payload = json.dumps(state or {}, ensure_ascii=True).replace("<", "\\u003c")
+    return (
+        template.replace("__BIRD__", DATAIKU_BIRD_SVG)
+        .replace("__NONCE__", nonce)
+        .replace("__STATE__", payload)
+    )
 
 
 def _test_connection(values: dict) -> None:
+    client = None
     try:
-        client = dataikuapi.DSSClient(values["url"], values["api_key"])
-        client._session.verify = not values["no_check_certificate"]
+        client = dataikuapi.DSSClient(
+            values["url"],
+            api_key=values["api_key"],
+            internal_ticket=values["api_ticket"],
+            no_check_certificate=values["no_check_certificate"],
+        )
+        client._session.request = partial(client._session.request, timeout=15)
         client.get_auth_info()
-    except Exception as exc:
+    except Exception:
         raise ValueError(
             "Could not connect. Check the URL, API key, and certificate settings."
-        ) from exc
+        ) from None
+    finally:
+        if client is not None:
+            client._session.close()
 
 
-def _connection_settings(values: dict) -> tuple[str, str, bool]:
-    return values["url"], values["api_key"], values["no_check_certificate"]
+def _candidate(form: dict[str, list[str]]) -> tuple:
+    original_name = form.get("original_name", [""])[0] or None
+    config = stdio.get_profile_config()
+    connections = {i["name"]: i for i in _snapshot(config)["connections"]}
+    if original_name:
+        instance = connections.get(original_name)
+        if not instance or instance["source"] != "config":
+            raise ValueError(
+                "This saved connection cannot be edited. Refresh the list."
+            )
+    existing = config.dss_instances.get(original_name) if original_name else None
+    if existing is not None and form.get("revision", [""])[0] != _profile_revision(
+        existing
+    ):
+        raise ValueError("This connection changed. Reopen the manager and test again.")
+    values = _validate_form(form, existing)
+    if values["name"] != original_name and values["name"] in connections:
+        raise ValueError("A connection with this name already exists.")
+    instance = StdioDSSInstanceConfig(
+        **{k: v for k, v in values.items() if k not in {"name", "set_default"}}
+    )
+    return original_name, existing, instance, values["name"]
+
+
+def _connection_identity(candidate: tuple) -> tuple:
+    original, existing, instance, _ = candidate
+    # Description and name changes do not change the authenticated target.
+    return (
+        original,
+        existing,
+        instance.url,
+        instance.api_key,
+        instance.api_ticket,
+        instance.no_check_certificate,
+        instance.instance_type,
+    )
+
+
+def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
+    if session.expired or session.completed.is_set():
+        raise ValueError(
+            "This connection manager has closed. Open it again from your agent."
+        )
+    if session.settings_path != stdio.get_settings_path():
+        raise ValueError("The profile file changed. Open the connection manager again.")
+    action = form.get("action", [""])[0]
+    name = form.get("name", [""])[0]
+    if action == "test":
+        session.validated_connection = None
+        session.validation_id = ""
+        candidate = _candidate(form)
+        _test_connection(candidate[2].model_dump())
+        if session.expired:
+            raise ValueError(
+                "This connection manager expired. Open it again from your agent."
+            )
+        session.validated_connection = _connection_identity(candidate)
+        session.validation_id = secrets.token_urlsafe(24)
+        return {"validation_id": session.validation_id}
+    if action == "save":
+        candidate = _candidate(form)
+        if (
+            not session.validation_id
+            or form.get("validation_id", [""])[0] != session.validation_id
+            or session.validated_connection != _connection_identity(candidate)
+        ):
+            raise ValueError(
+                "Test the connection successfully before saving. Test again after changing its connection settings."
+            )
+        original, existing, instance, name = candidate
+        stdio.save_instance_profile(
+            name,
+            instance,
+            original_name=original,
+            expected_instance=existing,
+            set_default="set_default" in form,
+            activate="activate" in form,
+        )
+        session.validated_connection = None
+        session.validation_id = ""
+    elif action == "switch":
+        state = _snapshot()
+        selected = next((i for i in state["connections"] if i["name"] == name), None)
+        if selected is None:
+            raise ValueError("This connection no longer exists. Refresh the list.")
+        if selected["source"] == "config":
+            instance = stdio.get_profile_config().dss_instances[name].to_instance(name)
+        else:
+            instance = stdio.get_instances()[name]
+        stdio.set_current_instance(instance)
+    elif action == "default":
+        stdio.set_default_instance(name)
+    elif action == "delete":
+        config = stdio.get_profile_config()
+        current = stdio.get_current_instance()
+        if name not in config.dss_instances:
+            raise ValueError(
+                "This saved connection no longer exists. Refresh the list."
+            )
+        if form.get("revision", [""])[0] != _profile_revision(
+            config.dss_instances[name]
+        ):
+            raise ValueError(
+                "This connection changed. Reopen the manager before deleting."
+            )
+        needs_replacement = config.default_instance == name or (
+            current and current.name == name
+        )
+        others = [
+            i["name"]
+            for i in _snapshot(config)["connections"]
+            if i["source"] == "config" and i["name"] != name
+        ]
+        replacement = form.get("replacement", [""])[0] or None
+        if needs_replacement and others and replacement not in others:
+            raise ValueError("Choose another saved connection as the replacement.")
+        stdio.delete_instance_from_config(
+            name, replacement=replacement, expected_instance=config.dss_instances[name]
+        )
+    elif action != "done":
+        raise ValueError("Unknown connection management action.")
+    state = _snapshot()
+    if action == "done":
+        session.result = {
+            "active_instance": state["active"],
+            "connection_count": len(state["connections"]),
+        }
+        session.timer.cancel()
+        session.validated_connection = None
+        session.validation_id = ""
+        session.completed.set()
+    return {"state": state}
 
 
 def _make_handler(token: str, expected_host: str, session_state: SetupSession | None):
@@ -265,17 +331,29 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
         def log_message(self, format: str, *args) -> None:
             return
 
-        def _send_html(self, status: int, body: str) -> None:
+        def _send(
+            self,
+            status: int,
+            body: str,
+            *,
+            json_response: bool = False,
+            nonce: str = "",
+        ) -> None:
             encoded = body.encode("utf-8")
             self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header(
+                "Content-Type",
+                "application/json; charset=utf-8"
+                if json_response
+                else "text/html; charset=utf-8",
+            )
             self.send_header("Content-Length", str(len(encoded)))
             self.send_header("Cache-Control", "no-store")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+                f"default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
             )
-            self.send_header("Referrer-Policy", "same-origin")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(encoded)
@@ -289,7 +367,26 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
             if not self._valid_request():
                 self.send_error(404)
                 return
-            self._send_html(200, _page())
+            if (
+                session_state is None
+                or session_state.completed.is_set()
+                or session_state.settings_path != stdio.get_settings_path()
+            ):
+                self._send(
+                    410,
+                    "This connection manager has closed. Open it again from your agent.",
+                )
+                return
+            nonce = secrets.token_urlsafe(24)
+            try:
+                state = _snapshot()
+            except (ValueError, RuntimeError, OSError):
+                self._send(
+                    500,
+                    "Could not read the saved connections. Check your local profile file.",
+                )
+                return
+            self._send(200, _page(state, nonce=nonce), nonce=nonce)
 
         def do_POST(self) -> None:
             if not self._valid_request():
@@ -307,79 +404,81 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                     self.rfile.read(content_length).decode("utf-8"),
                     keep_blank_values=True,
                 )
-                values = _validate_form(form)
-                action = form.get("action", ["save"])[0]
-                if action == "test":
-                    _test_connection(values)
-                    if session_state:
-                        session_state.validated_connection = _connection_settings(
-                            values
-                        )
-                    self._send_html(
-                        200,
-                        _page(
-                            status="Connection successful. You can now save this instance.",
-                            values=values,
-                            connection_validated=True,
-                        ),
-                    )
-                    return
-                if action != "save":
-                    raise ValueError("Unknown setup action.")
-                if (
-                    not session_state
-                    or session_state.validated_connection
-                    != _connection_settings(values)
+                if any(len(values) != 1 for values in form.values()):
+                    raise ValueError("Duplicate form fields are not allowed.")
+                if session_state is None:
+                    raise ValueError("Open the connection manager again.")
+                with session_state.lock:
+                    result = _perform_action(session_state, form)
+            except (UnicodeDecodeError, ValueError, RuntimeError) as error:
+                # Validation errors are deliberately authored here. Never return raw
+                # Pydantic/settings errors, which can contain profile or secret data.
+                if type(error) is ValueError and not isinstance(
+                    error, UnicodeDecodeError
                 ):
-                    raise ValueError(
-                        "Test the connection successfully before saving. Test again after changing the URL, API key, or certificate setting."
+                    message = str(error)
+                    if message.startswith("Invalid stdio settings"):
+                        message = "Could not read the saved connections. Check your local profile file."
+                else:
+                    message = (
+                        "Could not process this request. Reopen the connection manager."
                     )
-                result = stdio.add_instance_to_config(**values)
-                request.set_current_instance(result["name"])
-            except (UnicodeDecodeError, ValueError, RuntimeError) as exc:
-                self._send_html(
-                    400, _page(error=str(exc), values=locals().get("values"))
+                self._send(400, json.dumps({"error": message}), json_response=True)
+                return
+            except OSError:
+                self._send(
+                    500,
+                    json.dumps(
+                        {
+                            "error": "Could not save the local profile file. Check its permissions and try again."
+                        }
+                    ),
+                    json_response=True,
                 )
                 return
-
-            self._send_html(200, _success_page(result["name"]))
-            if session_state:
-                session_state.result = result
-                session_state.timer.cancel()
-                session_state.completed.set()
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            self._send(200, json.dumps(result), json_response=True)
+            if session_state.completed.is_set():
+                threading.Thread(target=session_state.close, daemon=True).start()
 
     return SetupHandler
 
 
 def start_setup_server(*, open_browser: bool = True) -> SetupSession:
-    """Start one temporary setup page on a random loopback port and URL token."""
+    """Start a connection manager on a random loopback port and secret URL."""
     global _active_session
-
     with _session_lock:
         if _active_session:
             _active_session.close()
-
         token = secrets.token_urlsafe(24)
         server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(token, "", None))
         host = f"127.0.0.1:{server.server_port}"
-        url = f"http://{host}/{token}"
         thread = threading.Thread(target=server.serve_forever, daemon=True)
-
         completed = threading.Event()
 
         def expire() -> None:
             session.expired = True
+            session.validated_connection = None
+            session.validation_id = ""
             session.completed.set()
             server.shutdown()
+            server.server_close()
 
         timer = threading.Timer(SESSION_LIFETIME_SECONDS, expire)
         timer.daemon = True
-        session = SetupSession(url, server, thread, timer, False, completed)
+        session = SetupSession(
+            f"http://{host}/{token}",
+            server,
+            thread,
+            timer,
+            False,
+            completed,
+            stdio.get_settings_path(),
+        )
         server.RequestHandlerClass = _make_handler(token, host, session)
         thread.start()
         timer.start()
-        browser_opened = webbrowser.open(url, new=2) if open_browser else False
-        session.browser_opened = browser_opened
+        session.browser_opened = (
+            webbrowser.open(session.url, new=2) if open_browser else False
+        )
         _active_session = session
-        return _active_session
+        return session

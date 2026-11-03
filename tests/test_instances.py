@@ -180,3 +180,61 @@ def test_get_current_instance_never_returns_credentials(
     assert result["name"] == instance.name
     assert result["source"] == instance.source
     assert result["connection_status"] == ("connected" if connected else "failed")
+
+
+@pytest.mark.parametrize("elicitation", ["unsupported", "accept", "decline", "expire"])
+def test_connection_manager_tool_completion(monkeypatch, elicitation):
+    import threading
+    from types import SimpleNamespace
+
+    completed = threading.Event()
+    completed.set()
+    session = SimpleNamespace(
+        url="http://127.0.0.1:1234/token",
+        browser_opened=False,
+        completed=completed,
+        result=None
+        if elicitation == "expire"
+        else {"active_instance": "sandbox", "connection_count": 2},
+        expired=elicitation == "expire",
+        close=lambda: None,
+    )
+    starts = []
+
+    def start(**kwargs):
+        starts.append(kwargs)
+        return session
+
+    monkeypatch.setattr(instances, "start_setup_server", start)
+    monkeypatch.setattr(request, "is_http_request", lambda: False)
+
+    class Session:
+        client_params = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                elicitation=(
+                    None if elicitation == "unsupported" else SimpleNamespace(url={})
+                )
+            )
+        )
+
+        async def elicit_url(self, **kwargs):
+            return SimpleNamespace(
+                action="decline" if elicitation == "decline" else "accept"
+            )
+
+        async def send_elicit_complete(self, *args, **kwargs):
+            pass
+
+    ctx = FakeContext()
+    ctx.session = Session()
+    ctx.request_id = "request"
+    result = json.loads(asyncio.run(instances.configure_instance(ctx)))
+    if elicitation in {"unsupported", "decline"}:
+        assert result["interaction_mode"] == "direct_local_url"
+        assert result["setup_url"] == session.url
+        assert len(starts) == (2 if elicitation == "decline" else 1)
+    elif elicitation == "expire":
+        assert result["status"] == "expired"
+    else:
+        assert result["status"] == "completed"
+        assert result["state"]["active_instance"] == "sandbox"
