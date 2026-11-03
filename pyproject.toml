@@ -71,6 +71,7 @@ update_changelog_on_bump = true
 major_version_zero = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
 version_files = [
+    "plugin.json",
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".cortex-plugin/plugin.json",

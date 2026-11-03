@@ -47,6 +47,36 @@ def test_marketplace_entry_matches_plugin_identity():
     assert entries[0]["source"] == "./"
 
 
+def test_native_plugin_matches_existing_identity():
+    native = _json("plugin.json")
+    claude = _json(".claude-plugin/plugin.json")
+
+    assert native["$schema"] == (
+        "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+    )
+    assert native["name"] == claude["name"]
+    assert native["version"] == claude["version"]
+
+
+def test_native_plugin_uses_same_stdio_launcher():
+    native = _json("mcp.json")
+    claude = _json(".claude-plugin/plugin.json")["mcpServers"]["dataiku"]
+    server = native["mcpServers"]["dataiku"]
+
+    assert native["$schema"] == (
+        "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+    )
+    assert set(native["mcpServers"]) == {"dataiku"}
+    assert server["type"] == claude["type"] == "stdio"
+    assert server["command"] == claude["command"]
+    assert server["args"] == [
+        arg.replace("${CLAUDE_PLUGIN_ROOT}", "${PLUGIN_ROOT}") for arg in claude["args"]
+    ]
+    assert server["cwd"] == "${PLUGIN_ROOT}"
+    script = server["args"][server["args"].index("--script") + 1]
+    assert (ROOT / script.removeprefix("${PLUGIN_ROOT}/")).is_file()
+
+
 def test_public_setup_skill_is_stdio_only():
     setup_skill = (ROOT / "skills" / "dataiku-headless-setup" / "SKILL.md").read_text(
         encoding="utf-8"

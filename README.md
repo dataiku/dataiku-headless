@@ -47,7 +47,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with Mistral Vibe, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -89,6 +89,19 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 ```bash
 cortex plugin install dataiku/dataiku-headless
 ```
+
+### Mistral Vibe
+
+Install the local stdio plugin in Vibe's user plugin directory (tested with Vibe 3.0.4):
+
+```bash
+mkdir -p ~/.vibe/plugins
+git clone https://github.com/dataiku/dataiku-headless.git ~/.vibe/plugins/dataiku-headless
+```
+
+Start Vibe, or run `/reload-plugins` in an existing session. Check `/plugins` for `dataiku-headless`, then ask **Set up Dataiku Headless**.
+
+Vibe loads the native [Agent Plugins 1.0](https://agent-plugins.org/) manifest and discovers the bundled skills and MCP server together. No separate MCP or skills installation is needed.
 
 ### Other AI assistants
 

@@ -30,7 +30,7 @@ HELPERS = runpy.run_path(str(ROOT / "scripts/check_release.py"))
 
 @pytest.fixture
 def release_tree(tmp_path):
-    for name in ("pyproject.toml", "CHANGELOG.md"):
+    for name in ("pyproject.toml", "CHANGELOG.md", "plugin.json"):
         shutil.copy(ROOT / name, tmp_path / name)
     for path in ROOT.glob(".*-plugin/*.json"):
         target = tmp_path / path.relative_to(ROOT)
@@ -46,9 +46,18 @@ def test_current_release_and_notes(release_tree):
     assert notes.count("\n## ") == 0
 
 
-@pytest.mark.parametrize("name", ["claude", "codex", "cortex", "cursor"])
-def test_reject_manifest_version_drift(release_tree, name):
-    path = release_tree / f".{name}-plugin/plugin.json"
+@pytest.mark.parametrize(
+    "manifest_path",
+    [
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        ".cortex-plugin/plugin.json",
+        ".cursor-plugin/plugin.json",
+        "plugin.json",
+    ],
+)
+def test_reject_manifest_version_drift(release_tree, manifest_path):
+    path = release_tree / manifest_path
     manifest = json.loads(path.read_text())
     manifest["version"] = "0.0.1"
     path.write_text(json.dumps(manifest))
@@ -56,9 +65,10 @@ def test_reject_manifest_version_drift(release_tree, name):
         HELPERS["validate"](release_tree)
 
 
-def test_reject_missing_bump_configuration(release_tree):
+@pytest.mark.parametrize("manifest_path", [".cursor-plugin/plugin.json", "plugin.json"])
+def test_reject_missing_bump_configuration(release_tree, manifest_path):
     path = release_tree / "pyproject.toml"
-    path.write_text(path.read_text().replace('    ".cursor-plugin/plugin.json",\n', ""))
+    path.write_text(path.read_text().replace(f'    "{manifest_path}",\n', ""))
     with pytest.raises(ValueError, match="version_files"):
         HELPERS["validate"](release_tree)
 
