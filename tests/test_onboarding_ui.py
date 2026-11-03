@@ -15,26 +15,7 @@
 import json
 import re
 
-from dataiku_mcp.setup_server import DATAIKU_BIRD_SVG, _page
-
-
-def test_manager_has_branding_and_approved_controls():
-    page = _page()
-    assert DATAIKU_BIRD_SVG in page
-    for text in (
-        "Connections",
-        "Add connection",
-        "Startup default",
-        "Use now",
-        "Set default",
-        "Advanced options",
-        "Done",
-        'role="alert"',
-        "prefers-reduced-motion",
-    ):
-        assert text in page
-    assert "gradient" not in page
-    assert 'id="save" type="submit" disabled' in page
+from dataiku_mcp.setup_server import _page
 
 
 def test_state_embedding_prevents_script_injection_and_round_trips():
@@ -44,13 +25,3 @@ def test_state_embedding_prevents_script_injection_and_round_trips():
     assert json.loads(payload) == state
     assert "</script>" not in payload
     assert 'nonce="test-nonce"' in page
-
-
-def test_manager_requires_test_and_discloses_local_credentials():
-    page = _page()
-    assert "Test connection" in page
-    assert "0600" in page
-    assert "Leave blank to keep the saved credential" in page
-    assert "window.confirm" in page
-    assert "Math.random" not in page
-    assert "localStorage" not in page

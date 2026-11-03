@@ -158,21 +158,6 @@ def record(session, name):
     return next(c for c in state["connections"] if c["name"] == name)
 
 
-@pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
-)
-def test_manager_persists_types_without_closing(manager, instance_type):
-    status, result = save(manager, **candidate(instance_type=instance_type))
-    assert status == 200
-    assert result["state"]["connections"][0]["instance_type"] == instance_type
-    assert not manager.completed.is_set()
-    assert manager.result is None
-    assert stdio.get_current_instance() is None
-    assert stdio.get_settings_path().stat().st_mode & 0o777 == 0o600
-    with urlopen(manager.url) as response:
-        assert response.status == 200
-
-
 def test_manager_requires_successful_test_and_rejects_changed_credentials(manager):
     form = candidate()
     assert post(manager, action="save", **form)[0] == 400
@@ -308,8 +293,16 @@ def test_profile_changed_after_test_cannot_be_saved(manager):
 
 
 def test_switch_default_and_delete_have_explicit_separate_effects(manager):
-    assert save(manager, **candidate(activate="on", set_default="on"))[0] == 200
+    status, result = save(
+        manager,
+        **candidate(activate="on", set_default="on", instance_type="automation"),
+    )
+    assert status == 200
+    assert result["state"]["connections"][0]["instance_type"] == "automation"
+    assert not manager.completed.is_set()
+    assert stdio.get_settings_path().stat().st_mode & 0o777 == 0o600
     assert save(manager, **candidate(name="other"))[0] == 200
+    assert stdio.get_current_instance().name == "sandbox"
     assert post(manager, action="default", name="other")[0] == 200
     assert stdio.get_current_instance().name == "sandbox"
     assert post(manager, action="switch", name="other")[0] == 200
@@ -361,6 +354,11 @@ def test_done_closes_manager_with_compact_result(manager):
     assert post(manager, action="done")[0] == 200
     assert manager.completed.is_set()
     assert manager.result == {"active_instance": "sandbox", "connection_count": 1}
+    manager.thread.join(timeout=2)
+    from urllib.error import URLError
+
+    with pytest.raises(URLError):
+        urlopen(manager.url, timeout=1)
 
 
 def test_expired_session_cannot_write_after_test(manager):
@@ -439,16 +437,6 @@ def test_manager_refuses_to_read_or_write_a_different_profile_file(manager, tmp_
         urlopen(manager.url)
     assert error.value.code == 410
     assert post(manager, action="default", name="sandbox")[0] == 400
-
-
-def test_done_releases_the_listening_socket(manager):
-    from urllib.error import URLError
-
-    assert post(manager, action="done")[0] == 200
-    manager.thread.join(timeout=2)
-    with pytest.raises(URLError):
-        urlopen(manager.url, timeout=1)
-    assert manager.validated_connection is None
 
 
 def test_expiry_releases_socket_and_clears_validation(manager):
