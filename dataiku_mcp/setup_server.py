@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Temporary loopback connection manager for local stdio profiles."""
+"""Temporary loopback instance manager for local stdio profiles."""
 
 import hashlib
 import hmac
@@ -199,17 +199,15 @@ def _candidate(form: dict[str, list[str]]) -> tuple:
     if original_name:
         instance = connections.get(original_name)
         if not instance or instance["source"] != "config":
-            raise ValueError(
-                "This saved connection cannot be edited. Refresh the list."
-            )
+            raise ValueError("This saved instance cannot be edited. Refresh the list.")
     existing = config.dss_instances.get(original_name) if original_name else None
     if existing is not None and form.get("revision", [""])[0] != _profile_revision(
         existing
     ):
-        raise ValueError("This connection changed. Reopen the manager and test again.")
+        raise ValueError("This instance changed. Reopen the manager and test again.")
     values = _validate_form(form, existing)
     if values["name"] != original_name and values["name"] in connections:
-        raise ValueError("A connection with this name already exists.")
+        raise ValueError("An instance with this name already exists.")
     instance = StdioDSSInstanceConfig(
         **{k: v for k, v in values.items() if k not in {"name", "set_default"}}
     )
@@ -233,10 +231,10 @@ def _connection_identity(candidate: tuple) -> tuple:
 def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
     if session.expired or session.completed.is_set():
         raise ValueError(
-            "This connection manager has closed. Open it again from your agent."
+            "This instance manager has closed. Open it again from your agent."
         )
     if session.settings_path != stdio.get_settings_path():
-        raise ValueError("The profile file changed. Open the connection manager again.")
+        raise ValueError("The profile file changed. Open the instance manager again.")
     action = form.get("action", [""])[0]
     name = form.get("name", [""])[0]
     if action == "test":
@@ -246,7 +244,7 @@ def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
         _test_connection(candidate[2].model_dump())
         if session.expired:
             raise ValueError(
-                "This connection manager expired. Open it again from your agent."
+                "This instance manager expired. Open it again from your agent."
             )
         session.validated_connection = _connection_identity(candidate)
         session.validation_id = secrets.token_urlsafe(24)
@@ -276,7 +274,7 @@ def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
         state = _snapshot()
         selected = next((i for i in state["connections"] if i["name"] == name), None)
         if selected is None:
-            raise ValueError("This connection no longer exists. Refresh the list.")
+            raise ValueError("This instance no longer exists. Refresh the list.")
         if selected["source"] == "config":
             instance = stdio.get_profile_config().dss_instances[name].to_instance(name)
         else:
@@ -288,14 +286,12 @@ def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
         config = stdio.get_profile_config()
         current = stdio.get_current_instance()
         if name not in config.dss_instances:
-            raise ValueError(
-                "This saved connection no longer exists. Refresh the list."
-            )
+            raise ValueError("This saved instance no longer exists. Refresh the list.")
         if form.get("revision", [""])[0] != _profile_revision(
             config.dss_instances[name]
         ):
             raise ValueError(
-                "This connection changed. Reopen the manager before deleting."
+                "This instance changed. Reopen the manager before deleting."
             )
         needs_replacement = config.default_instance == name or (
             current and current.name == name
@@ -307,12 +303,12 @@ def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
         ]
         replacement = form.get("replacement", [""])[0] or None
         if needs_replacement and others and replacement not in others:
-            raise ValueError("Choose another saved connection as the replacement.")
+            raise ValueError("Choose another saved instance as the replacement.")
         stdio.delete_instance_from_config(
             name, replacement=replacement, expected_instance=config.dss_instances[name]
         )
     elif action != "done":
-        raise ValueError("Unknown connection management action.")
+        raise ValueError("Unknown instance management action.")
     state = _snapshot()
     if action == "done":
         session.result = {
@@ -374,7 +370,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
             ):
                 self._send(
                     410,
-                    "This connection manager has closed. Open it again from your agent.",
+                    "This instance manager has closed. Open it again from your agent.",
                 )
                 return
             nonce = secrets.token_urlsafe(24)
@@ -383,7 +379,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
             except (ValueError, RuntimeError, OSError):
                 self._send(
                     500,
-                    "Could not read the saved connections. Check your local profile file.",
+                    "Could not read the saved instances. Check your local profile file.",
                 )
                 return
             self._send(200, _page(state, nonce=nonce), nonce=nonce)
@@ -407,7 +403,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                 if any(len(values) != 1 for values in form.values()):
                     raise ValueError("Duplicate form fields are not allowed.")
                 if session_state is None:
-                    raise ValueError("Open the connection manager again.")
+                    raise ValueError("Open the instance manager again.")
                 with session_state.lock:
                     result = _perform_action(session_state, form)
             except (UnicodeDecodeError, ValueError, RuntimeError) as error:
@@ -416,10 +412,10 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                 if type(error) is ValueError:
                     message = str(error)
                     if message.startswith("Invalid stdio settings"):
-                        message = "Could not read the saved connections. Check your local profile file."
+                        message = "Could not read the saved instances. Check your local profile file."
                 else:
                     message = (
-                        "Could not process this request. Reopen the connection manager."
+                        "Could not process this request. Reopen the instance manager."
                     )
                 self._send(400, json.dumps({"error": message}), json_response=True)
                 return
@@ -442,7 +438,7 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
 
 
 def start_setup_server(*, open_browser: bool = True) -> SetupSession:
-    """Start a connection manager on a random loopback port and secret URL."""
+    """Start a instance manager on a random loopback port and secret URL."""
     global _active_session
     with _session_lock:
         if _active_session:

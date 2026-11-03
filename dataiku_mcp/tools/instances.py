@@ -165,7 +165,7 @@ async def _start_connection_manager(*, open_browser: bool = True) -> SetupSessio
 
 
 @mcp.tool(
-    title="Manage Dataiku Connections",
+    title="Manage Dataiku Instances",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -175,7 +175,7 @@ async def _start_connection_manager(*, open_browser: bool = True) -> SetupSessio
     tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def configure_instance(ctx: Context) -> str:
-    """Open the local browser to add, edit, delete, or select saved Dataiku connections."""
+    """Open the local browser to add, edit, delete, or select saved Dataiku instances."""
     if request.is_http_request():
         raise ValueError(
             "Instances are platform-managed in HTTP mode and cannot be configured."
@@ -200,7 +200,7 @@ async def configure_instance(ctx: Context) -> str:
                 "setup_url": session.url,
                 "browser_opened": session.browser_opened,
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
-                "next_step": "Open setup_url if needed. Manage connections, then select Done.",
+                "next_step": "Open setup_url if needed. Manage instances, then select Done.",
             }
         )
 
@@ -210,7 +210,7 @@ async def configure_instance(ctx: Context) -> str:
     try:
         elicitation = await ctx.session.elicit_url(
             message=(
-                "Open the local Dataiku connection manager to manage saved connections, "
+                "Open the local Dataiku instance manager to manage saved instances, "
                 "then select Done to return to your agent."
             ),
             url=session.url,
@@ -235,7 +235,7 @@ async def configure_instance(ctx: Context) -> str:
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
                 "next_step": (
                     "The in-app prompt was declined or is unsupported by this "
-                    "client; open setup_url to manage connections, then select Done."
+                    "client; open setup_url to manage instances, then select Done."
                 ),
             }
         )

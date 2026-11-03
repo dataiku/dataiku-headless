@@ -243,9 +243,7 @@ def get_profile_config() -> StdioConfig:
 
 def _require_editable_name(name: str) -> None:
     if any(instance.name == name for instance in _environment_instances):
-        raise ValueError(
-            "Environment connections must be changed in their environment."
-        )
+        raise ValueError("Environment instances must be changed in their environment.")
 
 
 def save_instance_profile(
@@ -269,10 +267,10 @@ def save_instance_profile(
                 or config.dss_instances[original_name] != expected_instance
             ):
                 raise ValueError(
-                    "This connection changed. Reopen the editor and test again."
+                    "This instance changed. Reopen the editor and test again."
                 )
         if name != original_name and name in config.dss_instances:
-            raise ValueError("A connection with this name already exists.")
+            raise ValueError("An instance with this name already exists.")
         if original_name is not None:
             del config.dss_instances[original_name]
         config.dss_instances[name] = instance
@@ -298,9 +296,7 @@ def set_default_instance(name: str) -> None:
         config = _load_config()
         _require_editable_name(name)
         if name not in config.dss_instances:
-            raise ValueError(
-                "This saved connection no longer exists. Refresh the list."
-            )
+            raise ValueError("This saved instance no longer exists. Refresh the list.")
         config.default_instance = name
         _save_config(config)
         _config = config
@@ -359,13 +355,11 @@ def delete_instance_from_config(
                 f"Instance '{name}' not found in config file. Available: {list(instances)}"
             )
         if expected_instance is not None and instances[name] != expected_instance:
-            raise ValueError(
-                "This connection changed. Review it again before deleting."
-            )
+            raise ValueError("This instance changed. Review it again before deleting.")
         if replacement is not None:
             _require_editable_name(replacement)
             if replacement == name or replacement not in instances:
-                raise ValueError("Choose another saved connection as the replacement.")
+                raise ValueError("Choose another saved instance as the replacement.")
 
         was_current = (
             _current_instance is not None

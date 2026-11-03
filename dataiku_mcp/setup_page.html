@@ -18,7 +18,7 @@ limitations under the License.
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Connections · Dataiku Headless</title>
+    <title>Manage Dataiku instances · Dataiku Headless</title>
     <link rel="icon" href="data:," />
     <style>
       :root {
@@ -634,7 +634,7 @@ limitations under the License.
   </head>
   <body>
     <noscript
-      >This connection manager requires JavaScript. Enable it and reopen this
+      >This instance manager requires JavaScript. Enable it and reopen this
       page.</noscript
     >
     <header>
@@ -646,18 +646,18 @@ limitations under the License.
     <main>
       <div class="titlebar">
         <div>
-          <h1>Connections</h1>
+          <h1>Manage Dataiku instances</h1>
           <p>Manage the Dataiku instances your agent can use.</p>
         </div>
         <button class="primary" id="add">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" /></svg
-          >Add connection
+          >Add instance
         </button>
       </div>
       <div class="context" id="context"></div>
       <p id="environment-note" class="hint" hidden>
-        Environment connections take precedence over the saved default when
+        Environment instances take precedence over the saved default when
         Headless starts.
       </p>
       <div id="error" class="notice error" role="alert" hidden></div>
@@ -669,8 +669,8 @@ limitations under the License.
           ><input
             type="search"
             id="search"
-            aria-label="Search connections"
-            placeholder="Find a connection…"
+            aria-label="Search instances"
+            placeholder="Find an instance…"
           />
         </div>
         <span class="count" id="count"></span>
@@ -679,11 +679,11 @@ limitations under the License.
         <div class="list" id="list"></div>
         <aside class="panel" id="panel" aria-labelledby="paneltitle">
           <div class="panelhead">
-            <h2 id="paneltitle">Add connection</h2>
+            <h2 id="paneltitle">Add instance</h2>
             <button
               class="iconbutton"
               id="close"
-              aria-label="Close connection editor"
+              aria-label="Close instance editor"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m6 6 12 12M18 6 6 18" />
@@ -693,7 +693,7 @@ limitations under the License.
           <p class="sub">Connect an instance using its URL and API key.</p>
           <form id="form">
             <div class="field">
-              <label for="name">Connection name</label
+              <label for="name">Instance name</label
               ><input
                 id="name"
                 required
@@ -742,7 +742,7 @@ limitations under the License.
                 ></label
               ><input
                 id="description"
-                placeholder="What is this connection for?"
+                placeholder="What is this instance for?"
               />
             </div>
             <label class="check"
@@ -751,7 +751,7 @@ limitations under the License.
               ></label
             ><label class="check"
               ><input id="activate" type="checkbox" /><span
-                >Switch to this connection after saving</span
+                >Switch to this instance after saving</span
               ></label
             >
             <details>
@@ -769,7 +769,7 @@ limitations under the License.
             <div class="panelactions">
               <button type="button" id="test">Test connection</button
               ><button class="primary" id="save" type="submit" disabled>
-                Save connection
+                Save instance
               </button>
             </div>
             <p class="hint" style="margin-top: 14px">
@@ -867,7 +867,7 @@ limitations under the License.
         } catch (error) {
           showError(
             error instanceof TypeError || error instanceof SyntaxError
-              ? "The connection manager is unavailable. Reopen it from your agent before trying again."
+              ? "The instance manager is unavailable. Reopen it from your agent before trying again."
               : error.message,
           );
           return null;
@@ -922,7 +922,7 @@ limitations under the License.
       function render() {
         const connections = state.connections;
         $("context").innerHTML =
-          `<span class="dot"></span><span>Active now: <strong>${esc(state.active || "None selected")}</strong></span><span class="explain">Startup default: <strong>${esc(state.default || "None selected")}</strong></span>`;
+          `<span class="dot"></span><span>Active instance: <strong>${esc(state.active || "None selected")}</strong></span><span class="explain">Startup default: <strong>${esc(state.default || "None selected")}</strong></span>`;
         $("environment-note").hidden = !state.environment_precedence;
         const query = $("search").value.trim().toLowerCase();
         const matches = connections.filter((c) =>
@@ -931,7 +931,7 @@ limitations under the License.
             .includes(query),
         );
         $("count").textContent =
-          `${matches.length} connection${matches.length === 1 ? "" : "s"}`;
+          `${matches.length} instance${matches.length === 1 ? "" : "s"}`;
         $("list").innerHTML =
           Object.entries(types)
             .map(([type, label]) => {
@@ -943,7 +943,7 @@ limitations under the License.
               </section>`;
             })
             .join("") ||
-          `<div class="empty"><h2>${connections.length ? "No matching connections" : "Add your first connection"}</h2><p>${connections.length ? "Try a different name, URL, or instance type." : "Connect a Dataiku instance to start working with your agent."}</p><button data-action="${connections.length ? "clear" : "add"}">${connections.length ? "Clear search" : "Add connection"}</button></div>`;
+          `<div class="empty"><h2>${connections.length ? "No matching instances" : "Add your first instance"}</h2><p>${connections.length ? "Try a different name, URL, or instance type." : "Connect a Dataiku instance to start working with your agent."}</p><button data-action="${connections.length ? "clear" : "add"}">${connections.length ? "Clear search" : "Add instance"}</button></div>`;
       }
       function deletion(connection) {
         const name = esc(connection.name);
@@ -956,7 +956,7 @@ limitations under the License.
           roles.push("the startup default");
         let fallback = "";
         if (roles.length) {
-          fallback = `<p>This connection is ${roles.join(" and ")}.</p>`;
+          fallback = `<p>This instance is ${roles.join(" and ")}.</p>`;
           if (replacements.length) {
             const options = replacements
               .map(
@@ -964,26 +964,26 @@ limitations under the License.
                   `<option value="${esc(item.name)}">${esc(item.name)}</option>`,
               )
               .join("");
-            fallback += `<label for="replacement">Use this connection instead</label>
+            fallback += `<label for="replacement">Use this instance instead</label>
               <select id="replacement">${options}</select>`;
           } else {
             fallback +=
-              "<p>No other saved connection remains. You will need to add or select one before continuing.</p>";
+              "<p>No other saved instance remains. You will need to add or select one before continuing.</p>";
           }
         }
         return `<div class="deletebox" style="flex-basis:100%">
           <strong>Delete ${name}?</strong>
-          <p>This removes the saved connection from Headless. The Dataiku instance and its data stay in place.</p>
+          <p>This removes the saved instance configuration from Headless. The Dataiku instance and its data stay in place.</p>
           ${fallback}
           <div class="choices">
-            <button class="primary" data-action="confirmdelete" data-name="${name}">Delete connection</button>
+            <button class="primary" data-action="confirmdelete" data-name="${name}">Delete saved instance</button>
             <button data-action="canceldelete">Cancel</button>
           </div>
         </div>`;
       }
       function canDiscard() {
         return (
-          !dirty || window.confirm("Discard your unsaved connection changes?")
+          !dirty || window.confirm("Discard your unsaved instance changes?")
         );
       }
       function closeEditor({ discard = true } = {}) {
@@ -1018,7 +1018,7 @@ limitations under the License.
         $("keyhint").textContent = c
           ? "Your saved credential stays hidden. Enter a new API key only to replace it."
           : "Find it in Dataiku under Profile & Settings → API keys.";
-        $("paneltitle").textContent = c ? "Edit connection" : "Add connection";
+        $("paneltitle").textContent = c ? "Edit instance" : "Add instance";
         $("teststatus").hidden = true;
         validationId = "";
         dirty = false;
@@ -1090,11 +1090,11 @@ limitations under the License.
         if (operation === "confirmdelete") {
           deleteName = null;
           if (editing?.name === name) closeEditor({ discard: false });
-          toast("Connection deleted.");
+          toast("Saved instance deleted.");
         } else
           toast(
             operation === "switch"
-              ? `Now using ${name}. Future agent actions use this connection.`
+              ? `Now using ${name}. Future agent actions use this instance.`
               : `${name} is the saved startup default.`,
           );
         render();
@@ -1142,7 +1142,7 @@ limitations under the License.
         if (!result) return;
         closeEditor({ discard: false });
         render();
-        toast("Connection saved.");
+        toast("Instance saved.");
       };
       $("done").onclick = async () => {
         if (!canDiscard()) return;
@@ -1151,7 +1151,7 @@ limitations under the License.
         dirty = false;
         $("key").value = "";
         document.querySelector("main").innerHTML =
-          "<h1>Connections saved</h1><p>You can close this tab and continue in your AI coding tool.</p>";
+          "<h1>Instances saved</h1><p>You can close this tab and continue in your AI coding tool.</p>";
         $("done").disabled = true;
         $("done").textContent = "Done";
       };
