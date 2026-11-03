@@ -2,7 +2,7 @@
 
 ### Fix
 
-- Shorten the plugin name to `headless` and two MCP tool names for Claude Code on Bedrock. Existing Claude Code users: run `/plugin marketplace update dataiku`, then `/plugin install headless@dataiku` once. Managed settings must use `headless@dataiku`; other clients should replace the old plugin installation.
+- Shorten the plugin name to `headless` and two MCP tool names for Claude Code on Bedrock. Existing claude.ai installs need no action. Existing Claude Code installs will show “not found”; add the plugin again once with `/plugin install headless@dataiku`.
 - Keep the HTTP plugin separate as `headless-http`, with server key `dku` and a rename map for existing `dataiku-headless-http` installations.
 
 ## v0.8.0 (2026-10-08)
