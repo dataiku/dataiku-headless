@@ -1,6 +1,6 @@
 # Govern blueprint authoring
 
-Use the `govern` tool described in [Govern](../govern.md). A blueprint stores identity
+Use the shared Govern operation registry described in [Govern](../govern.md). A blueprint stores identity
 and presentation metadata. Its versions hold fields, workflow, views, hooks, and
 actions. Blueprint design operations need blueprint designer rights on the API key.
 

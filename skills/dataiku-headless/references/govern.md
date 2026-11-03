@@ -1,6 +1,6 @@
 ---
 name: govern
-description: Operate Dataiku Govern through the single govern tool, with task guides for artifacts, blueprints, signoffs, and supporting objects.
+description: Operate Dataiku Govern through the shared operation registry, with task guides for artifacts, blueprints, signoffs, and supporting objects.
 ---
 
 # Govern
@@ -9,35 +9,36 @@ Govern runs on a separate node. Its records are artifacts described by blueprint
 versions, with workflow steps and signoffs. A governed project is an artifact;
 it is not a DSS project containing datasets and recipes.
 
-Use the `govern` tool for every Govern read and write. It wraps the public Govern
-Python SDK behind a fixed catalog of 86 operations. Do not fall back to Python,
-`dataikuapi`, or REST calls; if an operation is missing, report the gap.
-DSS project work still uses the other MCP tools and Cobuild.
+Use the shared operation registry for all Govern reads and writes. Its 86 Govern
+operations wrap the public SDK through the same interface as Deployer and Agent Management. No standalone govern tool or credential-bearing
+shell scripts are needed. Missing operations remain coverage gaps, not permission
+to call raw SDK/REST interfaces. DSS project construction still uses Cobuild on Design.
 
-## The tool
+## Operation interface
 
-`govern(operation, params, domain)`:
+Read [the shared operation guide](./operations.md). Search with domain="govern",
+describe a returned operation_id, then call run_read_operation or
+run_write_operation with operation IDs prefixed by govern. The arguments object
+is flat: identifiers, definitions and options use the names in the input schema.
+Category distinguishes artifacts, signoffs, blueprints, roles, custom_pages,
+time_series, files, users and instance administration. Search supports pagination.
 
-- Empty `operation` returns the catalog: every operation with its domain, kind
-  (`read`, `write`, `delete`), parameters, and the SDK method it wraps. Set
-  `domain` to filter: `artifacts`, `signoffs`, `blueprints`, `roles`,
-  `custom_pages`, `time_series`, `files`, `users`, `instance`.
-- `operation` plus `params` runs one operation. `params` is one flat JSON object
-  holding identifiers, payloads, and options exactly as the catalog names them.
-  Unknown keys and missing required keys are rejected before any call.
-- Results are the SDK raw dictionaries: definitions, list items, or a small
-  status object for deletions.
+Results use public SDK structures with credential fields recursively redacted.
+Blueprint-specific definitions remain backend-defined; the structural schema does
+not replace inspecting the full target before a whole-definition replacement.
 
 ## Connect
 
 The Govern node is a configured instance of type `govern`, with its own URL and
-API key. The tool uses the active instance and refuses an instance of another
+local API key or ticket. The registry uses the active instance and refuses an instance of another
 type. `list_instances` shows the type of each instance; when none has type
-`govern`, run `configure_instance` and choose the Govern type.
+`govern`, use `configure_instance` in stdio and choose the Govern type.
 
-The tool works only in local stdio mode. A Govern node accepts API keys, not the
-delegated tokens that the HTTP mode uses, so in HTTP mode the tool returns an
-error; report it and do not look for another way in.
+Govern operations require stdio with the configured API key or ticket. HTTP
+execution is unsupported and rejected before token exchange. Static discovery
+remains available; `get_current_instance` reports `unsupported_authentication` for
+a Govern HTTP profile. Do not supply credentials in operation arguments or try
+another authentication path.
 
 Start a Govern task with `get_instance_info`: it confirms the node type is
 `GOVERN` and reports the server version. Then `get_auth_info` tells which identity
@@ -54,14 +55,14 @@ licensing blocker, not as a tool gap.
 
 ## Workflow
 
-1. Call `govern` with an empty `operation` for the relevant `domain` when the
-   parameters of an operation are not in context. Never guess an operation id.
+1. Search domain="govern" and describe the selected operation when its arguments
+   are not in context. Never guess an operation ID.
 2. Discover identifiers through `list_blueprints`, `list_blueprint_versions`,
    `search_artifacts`, `list_roles`, `list_custom_pages`, `list_users`, and
    `list_groups`. Do not invent IDs.
 3. Read the full target before changing it: `get_artifact`,
    `get_blueprint_version`, `get_signoff`, `get_role`, `get_custom_page_definition`.
-4. Run the write with the exact `operation` and `params`. Update operations
+4. Run the write with the exact operation_id and arguments. Update operations
    replace the complete definition unless the guide says merge.
 5. Re-read after every write. The tool returns the persisted state, but compare it
    with the intended change; a successful save does not prove the values held.
@@ -85,8 +86,8 @@ licensing blocker, not as a tool gap.
   `{"type": "role", "roleId": ...}`, or `{"type": "global-api-key", "globalAPIKeyId": ...}`.
   The type is lowercase. The `users_container` param of the two delegation
   operations accepts the `user` form only.
-- `update_signoff_status` notifies every configured reviewer or approver when
-  `users_to_notify` is omitted. Pass `[]` unless the task authorizes notifications.
+- `update_signoff_status` notifies only an explicit users_to_notify list. Omitted or empty lists send no
+  notifications; specify recipients only when the task authorizes notifying them.
 - `update_blueprint_version` refuses a save that removes a field or changes its
   type on a version with artifacts. `danger_zone_accepted: true` discards that
   data everywhere; use it only after an explicit user decision.
@@ -142,8 +143,7 @@ an `approved` field or a finished workflow step is not a deployment gate.
 
 ## Safety
 
-- Every `write` and `delete` operation is a mutation. Let the harness obtain user
-  confirmation before running one.
+- Every `write` and `delete` operation is a mutation. Execute only within the user's authorized scope; the host applies its approval policy.
 - Deleting a blueprint version requires deleting its artifacts first. Do not
   cascade-delete artifacts to unblock a schema change.
 - Decisions (`add_signoff_feedback`, `add_signoff_approval`) are recorded under the

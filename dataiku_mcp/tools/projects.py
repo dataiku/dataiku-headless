@@ -19,6 +19,11 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import (
+    ADMIN_POLICY,
+    PROJECT_EDIT_POLICY,
+    PROJECT_READ_POLICY,
+)
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -140,6 +145,7 @@ def _normalize_code_env_settings(settings: dict, patch: dict) -> None:
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="Count Projects",
     annotations={
         "readOnlyHint": True,
@@ -155,6 +161,7 @@ async def count_projects(ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="List Projects",
     annotations={
         "readOnlyHint": True,
@@ -218,6 +225,7 @@ async def list_projects(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
     title="Create Project",
     annotations={
         "readOnlyHint": False,
@@ -274,6 +282,7 @@ async def create_project(
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="Get Project Metadata",
     annotations={
         "readOnlyHint": True,
@@ -292,6 +301,7 @@ async def get_project_metadata(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="Get Project Variables",
     annotations={
         "readOnlyHint": True,
@@ -310,6 +320,7 @@ async def get_project_variables(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="Get Project Settings",
     annotations={
         "readOnlyHint": True,
@@ -330,6 +341,7 @@ async def get_project_settings(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
     title="Update Project Settings",
     annotations={
         "readOnlyHint": False,
@@ -369,6 +381,7 @@ async def update_project_settings(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
     title="Set Project Variables",
     annotations={
         "readOnlyHint": False,

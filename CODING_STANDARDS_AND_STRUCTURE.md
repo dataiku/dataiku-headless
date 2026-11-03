@@ -92,6 +92,8 @@ export DKU_API_KEY="your-api-key"
 
 ## Tool Metadata
 
+- Every registered tool declares `meta.allowed_instance_types` using the shared presets in `dataiku_mcp/instance_policy.py`. Middleware enforces this declaration against the request-pinned instance before DSS token exchange or dispatch; missing or malformed declarations fail closed. Keep the complete catalog visible and extend the exact policy contract in `tests/test_instance_policy.py` when adding or changing a tool.
+
 - Give each tool a short human title and a one-line description of what it is for and when to reach for it.
 - The tool catalog is re-sent to the model on every turn of every session, used or not. Keep workflow detail and safety rules in the relevant `skills/**/references/` guide, which loads on demand, and describe only parameters whose correct use a name and type cannot convey.
 - Set `readOnlyHint`, `destructiveHint`, and `openWorldHint` explicitly, classified from the handler's actual code paths rather than its name. Omit `idempotentHint` where it cannot apply. A tool whose effect depends on a runtime argument is catalogued at its maximum possible effect.
@@ -108,7 +110,13 @@ export DKU_API_KEY="your-api-key"
 ## Fixed Tool Surface
 
 - `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
-- Register one directly visible tool catalog. Do not add an MCP search mode.
+- Register one stable, directly visible MCP tool catalog. Do not change registration when instances switch. The bounded operation-registry pilot exposes fixed search/describe/read/write tools; operation discovery does not dynamically register MCP tools.
+- Classify v1 tools with `PROJECT_READ_POLICY`, `PROJECT_EXECUTION_POLICY`, `ADMIN_POLICY` or `PROJECT_EDIT_POLICY`; use `API_OPERATIONS_POLICY` for shared operation tools and `INSTANCE_MANAGEMENT_POLICY` for connection controls. The categories describe purpose: execution includes status/polling, administration includes instance inspection and project folders, and project edits include project Cobuild.
+- Only the `INSTANCE_MANAGEMENT_POLICY` group is exempt from requiring a selected profile. All v1 and v2 Dataiku tools, including operation search/describe, require one. Read/write execution handlers validate their selected operation directly.
+- Every tool declares allowed_instance_types metadata. Middleware enforces it against the pinned request instance before backend token exchange. Operation handlers additionally enforce the selected operation’s instance policy, read/write effect, arguments and transport before invoking its SDK adapter; missing declarations fail closed.
+- `SUPPORTED_DSS_INSTANCE_TYPES` identifies types served by the DSS client independently of project-tool policies; Govern uses its own SDK client.
+- Product operations use public Python SDK methods only; do not call private transport helpers or add direct endpoint fallbacks. Govern execution is stdio-only; Agent Management support remains deferred.
+- Operation arguments use one Pydantic model for discovery and execution. Never accept caller-supplied HTTP methods or paths. Keep backend requirements and response projections explicit; catalog presence does not verify live server support. Preserve Cobuild routing for in-project asset construction.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails
@@ -160,7 +168,16 @@ uv run cz check --rev-range origin/main..HEAD  # validate your branch's messages
 uv run cz bump --dry-run                       # preview the next version (writes nothing)
 ```
 
-Commit *types* decide the version bump, so they are load-bearing: `feat:` cuts a minor, `fix:` a patch, and `docs:`/`chore:`/`ci:`/`refactor:`/`test:` cut nothing. You don't run `cz bump` yourself — `.github/workflows/bump.yml` does it on `main`, bumping `[project].version` (and the plugin manifests), updating `CHANGELOG.md`, tagging `vX.Y.Z`, and publishing the GitHub release. Nothing is published to PyPI. See `RELEASE.md` for the full picture.
+Use Conventional Commit titles when squash-merging feature and fix PRs into
+an active `release/X.Y.Z` branch. Only release branches merge into `main`, using
+a merge commit to preserve the batch's history. At the end of the cycle,
+dispatch `.github/workflows/bump.yml` on `main` with `operation=prepare` and the
+existing `release_branch`. Commitizen sets the version from the branch name and
+builds the changelog in a finalization PR into that branch. After merging the
+finalization PR, review and merge the release branch into `main`. Once main CI
+passes, dispatch `operation=publish` with the release-to-main PR number. Neither
+protected branch receives direct version pushes. Nothing is published to PyPI.
+See `RELEASE.md` for required repository settings and recovery instructions.
 
 ## PR Checklist
 - [ ] Changes are limited to intended scope

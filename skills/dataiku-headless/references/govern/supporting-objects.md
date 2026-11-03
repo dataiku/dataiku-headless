@@ -1,6 +1,6 @@
 # Govern supporting objects
 
-Use the `govern` tool described in [Govern](../govern.md). These operations use the
+Use the shared Govern operation registry described in [Govern](../govern.md). These operations use the
 Govern credentials and permissions. The identically named DSS user and group MCP
 tools target DSS and must not be used here.
 
@@ -83,9 +83,11 @@ for the current tile, projection, aggregation, and chart options.
   `get_time_series_values`, `push_time_series_values`, and
   `delete_time_series_values` afterward.
 - Datapoints contain `timestamp` in epoch **milliseconds** and `value`.
-  `push_time_series_values` with `upsert: true` (the default) overwrites existing
+  `push_time_series_values` with `upsert: true` (explicit overwrite intent; the default is false) overwrites existing
   timestamps; choose the mode deliberately. Read the affected interval after a
   write. `delete_time_series_values` removes values in its timestamp window, or all
   values when neither bound is supplied; it does not delete the time-series object.
   Verify boundary behavior before a range deletion: Govern 15.0.1 excludes both
   endpoint timestamps from reads and deletes.
+
+Deleting all time-series values requires delete_all=true; otherwise provide a timestamp range.

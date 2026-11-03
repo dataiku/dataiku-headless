@@ -12,19 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single entry point to Dataiku Govern through the public Python SDK.
+"""Govern public SDK adapters, integrated with the shared operation registry.
 
-One tool, ``govern``, exposes a fixed catalog of operations. Each operation
-maps by hand to one ``dataikuapi.GovernClient`` call chain, so the agent never
-guesses SDK methods, REST paths, or payload envelopes. An empty ``operation``
-returns the catalog itself.
+Adapted from PR #174; all actions are exposed through shared discovery and read/write dispatch.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
-import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -43,9 +39,10 @@ from dataikuapi.govern.artifact_search import (
     GovernArtifactSearchSortWorkflow,
 )
 from dataikuapi.utils import DataikuException
-from fastmcp import Context
+from requests import RequestException
+from pydantic import BaseModel
+from .utils.redaction import redact_sensitive_data
 
-from ..server import mcp
 from ..auth import get_govern_client
 from ..executors import run_blocking
 from .utils.serialization import compact_json
@@ -189,7 +186,9 @@ def _with_id(body: dict[str, Any], object_id: str) -> dict[str, Any]:
     these metadata bodies get it: for larger definitions the missing ID makes
     Govern refuse a wrong payload instead of saving it.
     """
-    return {"id": object_id, **body}
+    if "id" in body and body["id"] != object_id:
+        raise ValueError("Definition ID must match the selected object")
+    return {**body, "id": object_id}
 
 
 def _version_state(version) -> dict[str, Any]:
@@ -548,7 +547,7 @@ def _create_signoff(client, p):
         _p(
             "users_to_notify",
             "list",
-            "Users to email, each {userLogin, groupId}; omit to notify every configured reviewer or approver; pass [] to notify nobody.",
+            "Users to email, each {userLogin, groupId}; omitted or [] sends no notifications.",
         ),
         _p(
             "reload_conf_for_reset",
@@ -561,7 +560,7 @@ def _update_signoff_status(client, p):
     signoff = _signoff(client, p)
     signoff.update_status(
         p["status"],
-        users_to_notify=p.get("users_to_notify"),
+        users_to_notify=p.get("users_to_notify") or [],
         reload_conf_for_reset=bool(p.get("reload_conf_for_reset", False)),
     )
     return signoff.get_definition().get_raw()
@@ -1475,13 +1474,13 @@ def _get_time_series_values(client, p):
     params=(
         TIME_SERIES_ID,
         _p("datapoints", "list", "Datapoints, each {timestamp, value}.", True),
-        _p("upsert", "boolean", "Overwrite existing timestamps (default true)."),
+        _p("upsert", "boolean", "Overwrite existing timestamps (default false)."),
     ),
 )
 def _push_time_series_values(client, p):
     datapoints = list(p["datapoints"])
     client.get_time_series(p["time_series_id"]).push_values(
-        datapoints, upsert=p.get("upsert") is not False
+        datapoints, upsert=p.get("upsert") is True
     )
     return {"time_series_id": p["time_series_id"], "pushed": len(datapoints)}
 
@@ -1596,7 +1595,11 @@ def _download_uploaded_file(client, p):
             raise FileExistsError(
                 f"Destination already exists: {absolute_path}. Set overwrite=true to replace it."
             )
-        os.replace(temporary_path, absolute_path)
+        if overwrite:
+            os.replace(temporary_path, absolute_path)
+        else:
+            os.link(temporary_path, absolute_path)
+            os.unlink(temporary_path)
         temporary_path = None
     finally:
         close = getattr(stream, "close", None)
@@ -1838,174 +1841,26 @@ def _get_auth_info(client, p):
     return client.get_auth_info()
 
 
-# ---------------------------------------------------------------------------
-# dispatcher
-# ---------------------------------------------------------------------------
+def operation_handler(spec: GovernOperation):
+    """Bind one SDK operation without accepting arbitrary methods or paths."""
 
-_KIND_CHECKS: dict[str, Callable[[Any], bool]] = {
-    "string": lambda value: isinstance(value, str),
-    "boolean": lambda value: isinstance(value, bool),
-    "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
-    "object": lambda value: isinstance(value, dict),
-    "list": lambda value: isinstance(value, list),
-    "any": lambda value: True,
-}
+    async def execute(**params):
+        params = {
+            name: value.model_dump(exclude_unset=True)
+            if isinstance(value, BaseModel)
+            else value
+            for name, value in params.items()
+        }
 
-
-def _validate_params(
-    operation_id: str, operation: GovernOperation, params: dict[str, Any]
-) -> None:
-    declared = {param.name: param for param in operation.params}
-    unexpected = sorted(set(params) - set(declared))
-    if unexpected:
-        raise ValueError(
-            f"Unexpected params for '{operation_id}': {unexpected}. "
-            f"Allowed: {list(declared)}"
-        )
-    missing = [
-        param.name
-        for param in operation.params
-        if param.required and params.get(param.name) in (None, "")
-    ]
-    if missing:
-        raise ValueError(f"Missing required params for '{operation_id}': {missing}")
-    for name, value in params.items():
-        if value is None:
-            continue
-        param = declared[name]
-        if not _KIND_CHECKS[param.kind](value):
-            raise ValueError(f"Param '{name}' must be a {param.kind}")
-        if param.kind == "string" and param.required:
-            value = require_non_empty_string(value, name)
-        if param.path:
-            if value in (".", "..") or any(char in value for char in "/\\?#%"):
-                raise ValueError(
-                    f"Param '{name}' must be a plain identifier, without '/', '\\', "
-                    "'?', '#' or '%'"
-                )
-            params[name] = value
-
-
-def _operation_summary(operation_id: str, operation: GovernOperation) -> dict[str, Any]:
-    return {
-        "operation": operation_id,
-        "domain": operation.domain,
-        "kind": operation.kind,
-        "description": operation.description,
-        "sdk": operation.sdk,
-        "params": [
-            {
-                "name": param.name,
-                "kind": param.kind,
-                "required": param.required,
-                "description": param.description,
-            }
-            for param in operation.params
-        ],
-    }
-
-
-def _catalog(domain: str) -> str:
-    if domain and domain not in DOMAINS:
-        raise ValueError(
-            f"Unknown Govern domain '{domain}'. Available: {list(DOMAINS)}"
-        )
-    operations = [
-        _operation_summary(operation_id, operation)
-        for operation_id, operation in GOVERN_OPERATIONS.items()
-        if not domain or operation.domain == domain
-    ]
-    return compact_json(
-        {"count": len(operations), "domains": list(DOMAINS), "operations": operations}
-    )
-
-
-_verified_hosts: set[str] = set()
-
-
-def _require_govern_node(client) -> None:
-    """Check once per host that the URL targets a GOVERN node.
-
-    Only a confirmed GOVERN answer is cached. When `/instance-info` fails, the
-    check runs again on the next call and the operation reports its own error.
-    """
-    host = getattr(client, "host", "")
-    if host in _verified_hosts:
-        return
-    try:
-        node_type = client.get_instance_info().node_type
-    except Exception:
-        return
-    if node_type != "GOVERN":
-        raise ValueError(
-            f"The active instance URL {host} points to a {node_type} node, not a "
-            "Govern node. Check the URL and instance_type of the active instance."
-        )
-    _verified_hosts.add(host)
-
-
-@mcp.tool(
-    title="Govern",
-    description="Single entry point to Dataiku Govern. Leave operation empty to list the catalog; otherwise run one catalog operation through the Govern Python SDK.",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": True,
-        "idempotentHint": False,
-        "openWorldHint": False,
-    },
-)
-async def govern(
-    ctx: Context,
-    operation: str = "",
-    params: dict[str, Any] | None = None,
-    domain: str = "",
-) -> str:
-    """Run one Govern operation, or list the catalog when ``operation`` is empty.
-
-    Args:
-        operation: Operation id from the catalog, for example ``get_artifact``.
-            Leave empty to get the catalog.
-        params: Flat JSON object with the operation's parameters: identifiers,
-            payloads and options, as listed in the catalog.
-        domain: Optional catalog filter: artifacts, signoffs, blueprints, roles,
-            custom_pages, time_series, files, users or instance.
-    """
-    operation = (operation or "").strip()
-    domain = (domain or "").strip()
-    params = dict(params or {})
-    if not operation:
-        if params:
-            raise ValueError("params are only valid with an operation")
-        return _catalog(domain)
-    if domain:
-        raise ValueError("domain is only valid when listing the catalog")
-    try:
-        spec = GOVERN_OPERATIONS[operation]
-    except KeyError:
-        raise ValueError(
-            f"Unknown Govern operation '{operation}'. Call govern with an empty "
-            "operation to list the catalog."
-        ) from None
-    _validate_params(operation, spec, params)
-    await ctx.info(f"Running Govern operation '{operation}'...")
-
-    def _run():
-        client = get_govern_client()
-        _require_govern_node(client)
-        try:
-            return spec.run(client, params)
-        except DataikuException as err:
-            # A proxy answers with an HTML page; its title is the only status left.
-            message = str(err)
-            if "<!doctype html" in message.lower() or "<html" in message.lower():
-                title = re.search(r"<title>(.*?)</title>", message, re.I | re.S)
-                title = " ".join(title.group(1).split()) if title else "no title"
-                raise ValueError(
-                    f"Govern answered '{operation}' with an HTML error page "
-                    f"('{title}'), not an API error. On Dataiku Cloud, 'Dataiku "
-                    "instance not found' means the object does not exist or this "
-                    "API key cannot see it; another title is a proxy or server error."
+        def _run():
+            client = get_govern_client()
+            try:
+                return redact_sensitive_data(spec.run(client, params))
+            except (DataikuException, RequestException):
+                raise RuntimeError(
+                    "Govern request failed. Check permissions, backend version and IDs. For a write, re-read the affected object before retrying; it may have reached Govern."
                 ) from None
-            raise
 
-    return compact_json(await run_blocking(_run))
+        return compact_json(await run_blocking(_run))
+
+    return execute

@@ -102,7 +102,6 @@ EXPECTED_TOOLS_BY_MODULE = {
     "general_settings": frozenset(
         {"list_container_exec_configs", "list_spark_configs"}
     ),
-    "govern": frozenset({"govern"}),
     "groups": frozenset(
         {"create_group", "delete_group", "list_groups", "update_group"}
     ),
@@ -165,8 +164,18 @@ EXPECTED_TOOLS_BY_MODULE = {
             "upload_file_to_managed_folder",
         }
     ),
+    "operations": frozenset(
+        {
+            "search_operations",
+            "describe_operation",
+            "run_read_operation",
+            "run_write_operation",
+        }
+    ),
     "plugins": frozenset(
         {
+            "install_plugin",
+            "ensure_plugin_code_env",
             "delete_plugin",
             "list_plugins",
             "list_plugin_usages",

@@ -22,9 +22,10 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
-from ..auth import get_dss_client
+from ..auth import get_dss_client, get_govern_client
 from ..config import request, stdio
 from ..executors import run_blocking
+from ..instance_policy import INSTANCE_MANAGEMENT_POLICY, SUPPORTED_DSS_INSTANCE_TYPES
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
@@ -35,6 +36,7 @@ InstanceName = Annotated[
 
 
 @mcp.tool(
+    meta=INSTANCE_MANAGEMENT_POLICY,
     title="List Dataiku Instances",
     annotations={
         "readOnlyHint": True,
@@ -69,6 +71,7 @@ async def list_instances(ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=INSTANCE_MANAGEMENT_POLICY,
     title="Switch Dataiku Instance",
     annotations={
         "readOnlyHint": False,
@@ -86,6 +89,7 @@ async def switch_instance(name: InstanceName, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=INSTANCE_MANAGEMENT_POLICY,
     title="Delete Dataiku Instance",
     annotations={
         "readOnlyHint": False,
@@ -107,6 +111,7 @@ async def delete_instance(name: InstanceName, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=INSTANCE_MANAGEMENT_POLICY,
     title="Get Current Instance",
     annotations={
         "readOnlyHint": True,
@@ -122,11 +127,28 @@ async def get_current_instance(ctx: Context) -> str:
     current_instance.pop("api_key", None)
     current_instance.pop("api_ticket", None)
     current_instance.pop("encrypted_rpc_cert_path", None)
+    if (
+        current_instance["instance_type"] != "govern"
+        and current_instance["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES
+    ):
+        current_instance["connection_status"] = "unsupported"
+        return compact_json(omit_empty(current_instance))
+    if current_instance["instance_type"] == "govern" and request.is_http_request():
+        current_instance["connection_status"] = "unsupported_authentication"
+        return compact_json(omit_empty(current_instance))
     current_instance["connection_status"] = "failed"
     try:
-        client = get_dss_client()
         version = await run_blocking(
-            lambda: client.get_instance_info().raw.get("dssVersion") or ""
+            lambda: (
+                (
+                    get_govern_client()
+                    if current_instance["instance_type"] == "govern"
+                    else get_dss_client()
+                )
+                .get_instance_info()
+                .raw.get("dssVersion")
+                or ""
+            )
         )
     except Exception:
         pass
@@ -139,6 +161,7 @@ async def get_current_instance(ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=INSTANCE_MANAGEMENT_POLICY,
     title="Configure Dataiku Instance",
     annotations={
         "readOnlyHint": False,

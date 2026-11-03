@@ -24,13 +24,13 @@ instance the local client targets.
 
 ## Surface
 
-**130 tools** · 93 read · 23 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**135 tools** · 96 read · 25 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 23 | Bootstrap, project configuration, cross-project, admin, Govern |
+| Read / inspect | 96 | Never mutates |
+| Direct Dataiku write | 25 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -87,18 +87,24 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
+| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 99 operations: 13 Deployer, 86 Govern. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
-| Plugins | `list_plugins`, `list_plugin_usages` | `update_plugin`, `delete_plugin` | Instance-level — `update_plugin` is stdio only |
+| Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — local-path install/update are stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
-| Govern | `govern` (catalog and read operations) | `govern` (write and delete operations) | Instance of type `govern` — stdio only |
 
 The **in-project** writes above configure or supply a project; they do not build its
 analytic logic. None of them build recipe logic, a model, or an agent.
+
+The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
+explains how to write, test, and package plugins locally with the agent's file and
+command tools. Headless can upload a package over stdio or install and update from Git over
+either transport. It cannot create a
+development plugin or edit its files on the instance.
 
 ## Local instance targeting
 
@@ -110,3 +116,24 @@ Local client configuration, not Dataiku objects.
 | `switch_instance` | Change the active instance; in HTTP mode saves only the authenticated user’s selected catalog instance |
 | `list_instances`, `get_current_instance` | Show configured instances, their declared types, and the active one; `get_current_instance` includes the Dataiku version when available |
 | `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |
+
+## Instance policies and operation discovery
+
+| Policy group | Allowed configured instance types |
+| --- | --- |
+| V1 explicit project reads, execution and administration | Design, Automation |
+| V1 explicit project edits and project Cobuild | Design |
+| V2 general API operation discovery and execution | Deployer, Govern |
+| Instance management | All five types |
+
+All four v2 tools require a selected profile. Each catalogued operation requires its
+matching instance type. Design and Automation cannot use v2. A local Deployer on
+a Design or Automation node requires a separate Deployer profile for that URL.
+The catalog remains stable across instance switches; new product actions are
+operation IDs rather than individually registered MCP tools.
+
+Design, Automation and Deployer use the DSS client. Govern uses its own client in stdio and reports unsupported_authentication over HTTP. Agent Management remain configurable profiles with instance controls only and report unsupported without a backend call.
+
+Discovery exposes schemas, effects, backend requirements and transport restrictions.
+All adapters use public SDK methods; catalog presence does not verify live server
+support. See [the operation guide](../skills/dataiku-headless/references/operations.md).

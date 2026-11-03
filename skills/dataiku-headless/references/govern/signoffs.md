@@ -1,6 +1,6 @@
 # Govern workflow and signoffs
 
-Use the `govern` tool described in [Govern](../govern.md). A blueprint version's
+Use the shared Govern operation registry described in [Govern](../govern.md). A blueprint version's
 signoff configuration defines a review gate. An artifact's signoff is the runtime
 review, including feedback and approval. Inspect both before changing either.
 
@@ -84,9 +84,8 @@ Administrative API access does not make that identity a reviewer or approver; ch
 the configured membership, and do not alter it to bypass a permission error.
 Delegation changes who reviews and is not impersonation.
 
-Omitting `users_to_notify` from `update_signoff_status` notifies every configured
-reviewer or approver of the target stage. Pass `[]` unless the task authorizes
-notifications; when notifying, list `{userLogin, groupId}` entries for the feedback
+Omitting `users_to_notify` or passing `[]` sends no notifications. Supply an
+explicit recipient list only when the task authorizes notifications; when notifying, list `{userLogin, groupId}` entries for the feedback
 stage and `{userLogin}` entries for the approval stage. Resetting an in-progress
 review requires `ABANDONED` before `NOT_STARTED`; setting `APPROVED` through
 `update_signoff_status` is not a substitute for recording an approval.

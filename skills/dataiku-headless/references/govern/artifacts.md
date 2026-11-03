@@ -1,6 +1,6 @@
 # Govern artifacts
 
-Use the `govern` tool described in [Govern](../govern.md). Identifiers such as
+Use the shared Govern operation registry described in [Govern](../govern.md). Identifiers such as
 `blueprint_id`, `version_id`, and `artifact_id` come from discovery or the user.
 
 ## Discover and inspect

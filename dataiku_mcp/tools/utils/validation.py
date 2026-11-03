@@ -15,6 +15,11 @@
 """Shared validation helpers for tool modules."""
 
 import re
+from typing import Annotated
+
+from pydantic import AfterValidator, Field
+from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 
 _HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -109,3 +114,65 @@ def require_hex_color(value: str, field_name: str) -> str:
             f"'{field_name}' must be a hex color in '#RGB' or '#RRGGBB' format"
         )
     return cleaned
+
+
+def require_git_repository_url(value: str) -> str:
+    """Accept remote Git URLs without inline secrets or local filesystem access."""
+    value = require_non_empty_string(value, "repository_url")
+    if any(character.isspace() for character in value):
+        raise ValueError("'repository_url' must not contain whitespace")
+    if re.fullmatch(r"[\w.][\w.-]*@[\w.-]+:[^?#]+", value):
+        return value
+    try:
+        parsed = urlsplit(value)
+        valid = (
+            parsed.scheme in {"https", "http", "ssh", "git"}
+            and parsed.hostname
+            and parsed.path not in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.password is None
+            and (parsed.username is None or parsed.scheme == "ssh")
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError(
+            "'repository_url' must be a remote Git URL without passwords, tokens, "
+            "query parameters, or fragments. Configure credentials in Dataiku."
+        )
+    return value
+
+
+def require_relative_posix_path(value: str, field_name: str) -> str:
+    value = require_non_empty_string(value, field_name)
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or "\\" in value:
+        raise ValueError(f"'{field_name}' must be a relative path without '..'")
+    return value
+
+
+def require_path_segment(value: str) -> str:
+    """Reject separators, double-decoding escapes and URL-normalized dot segments."""
+    value = value.strip()
+    if (
+        not value
+        or value in {".", ".."}
+        or any(char in value for char in "/\\%")
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise ValueError(
+            "Expected a non-empty path segment without separators, escapes or dot segments"
+        )
+    return value
+
+
+PathSegment = Annotated[
+    str,
+    Field(
+        min_length=1,
+        pattern=r"^[^/\\%\x00-\x1f\x7f]+$",
+        description="One identifier segment; dot segments, slashes, backslashes and percent escapes are rejected.",
+    ),
+    AfterValidator(require_path_segment),
+]
