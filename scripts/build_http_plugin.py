@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "scripts" / "http_plugin_assets"
-PLUGIN_NAME = "headless"
+PLUGIN_NAME = "headless-http"
 COPY_PATHS = (
     "LICENSE",
     "skills",
@@ -63,7 +63,7 @@ def write_json(path: Path, value: dict) -> None:
 def update_manifests(destination: Path, *, endpoint: str) -> None:
     """Apply the HTTP-specific differences to copied source manifests."""
     mcp = read_json(destination / ".mcp.json")
-    mcp["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    mcp["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
     write_json(destination / ".mcp.json", mcp)
 
     codex = read_json(destination / ".codex-plugin" / "plugin.json")
@@ -74,11 +74,13 @@ def update_manifests(destination: Path, *, endpoint: str) -> None:
     claude = read_json(destination / ".claude-plugin" / "plugin.json")
     claude["name"] = PLUGIN_NAME
     claude["displayName"] = "Dataiku Headless (HTTP)"
-    claude["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    claude["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
     write_json(destination / ".claude-plugin" / "plugin.json", claude)
 
     marketplace = read_json(destination / ".claude-plugin" / "marketplace.json")
     marketplace["plugins"][0]["name"] = PLUGIN_NAME
+    # This catalog distributes HTTP only; do not inherit stdio rename history.
+    marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
     write_json(destination / ".claude-plugin" / "marketplace.json", marketplace)
 
 
@@ -116,12 +118,15 @@ def render(output: Path, *, endpoint: str, archive: bool) -> Path:
     temporary_root = Path(
         tempfile.mkdtemp(prefix=f".{output.name}-", dir=artifact.parent)
     )
-    staged_plugin = temporary_root / PLUGIN_NAME
+    staged_plugin = temporary_root / "dataiku-headless-http"
     try:
         populate_plugin(staged_plugin, endpoint=endpoint)
         if archive:
             staged_archive = shutil.make_archive(
-                str(temporary_root / output.name), "zip", temporary_root, PLUGIN_NAME
+                str(temporary_root / output.name),
+                "zip",
+                temporary_root,
+                staged_plugin.name,
             )
             Path(staged_archive).rename(artifact)
         else:

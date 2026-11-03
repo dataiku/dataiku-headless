@@ -139,13 +139,18 @@ uv run python scripts/build_http_plugin.py \
 2. Add the rendered directory to the organization's enterprise/private marketplace
    or normal plugin distribution channel. Add `--zip` to the command to create
    `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
-3. Users install the rendered `headless` plugin. Its setup skill completes OAuth,
-   chooses an administrator-managed instance, and verifies access.
+3. Users install the rendered `headless-http` plugin. Its setup skill completes
+   OAuth, chooses an administrator-managed instance, and verifies access.
 
-The ZIP contains a `headless/` plugin root. Both stdio and HTTP distributions use
-the `headless` plugin identity; install only the distribution for your connection
-mode. Replace an existing `dataiku-headless-http` installation with the rendered
-`headless` plugin when upgrading.
+The ZIP keeps its `dataiku-headless-http/` root. The plugin identifier is
+`headless-http`, distinct from the public stdio plugin's `headless` identifier.
+The HTTP server key is `dku` in every manifest to fit Bedrock's tool-name limit.
+
+The rendered catalog maps `dataiku-headless-http` to `headless-http`. Publish it
+in the same private marketplace, then have Claude Code users refresh that
+marketplace and run `/plugin install headless-http@<marketplace-name>` once.
+Administrators must update managed settings. Other clients should replace the
+old plugin installation. Authenticate the `dku` server when prompted.
 
 The renderer does not modify this stdio-first source checkout or copy Dataiku
 credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one

@@ -52,6 +52,8 @@ def test_marketplace_entry_matches_plugin_identity():
     ]
     assert len(entries) == 1
     assert entries[0]["source"] == "./"
+    assert marketplace["name"] == "dataiku"
+    assert marketplace["renames"]["dataiku-headless"] == claude["name"]
 
 
 def test_public_setup_skill_is_stdio_only():

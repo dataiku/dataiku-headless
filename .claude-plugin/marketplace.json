@@ -11,5 +11,8 @@
       "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
       "category": "developer-tools"
     }
-  ]
+  ],
+  "renames": {
+    "dataiku-headless": "headless"
+  }
 }
