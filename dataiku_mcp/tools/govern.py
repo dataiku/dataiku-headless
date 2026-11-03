@@ -912,7 +912,7 @@ def _create_blueprint_version(client, p):
     "update_blueprint_version",
     domain="blueprints",
     kind="write",
-    description="Replace a blueprint version definition; danger_zone_accepted lets a field removal or type change discard artifact data.",
+    description="Replace a blueprint version definition; a version with artifacts needs danger_zone_accepted, which migrates them and can discard field data.",
     sdk="GovernAdminBlueprintVersionDefinition.save",
     params=(
         BLUEPRINT_ID,
@@ -926,7 +926,7 @@ def _create_blueprint_version(client, p):
         _p(
             "danger_zone_accepted",
             "boolean",
-            "Accept data loss on artifacts of this version.",
+            "Save although artifacts use this version; they are migrated and can lose field data.",
         ),
     ),
 )

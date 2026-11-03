@@ -27,9 +27,11 @@ body holding `name`, `icon`, `color`, and `backgroundColor`, without an `id`. Do
 not assume a system version exists on a new blueprint or invent an origin ID.
 `update_blueprint` replaces that metadata only.
 
-On a version used by artifacts, removing fields or changing types blocks the save.
-A blocked save calls for a new version or an explicit decision covering that data
-loss; do not retry with `danger_zone_accepted: true` on your own. Deleting a
+On a version used by artifacts, every save is blocked, even a change to an action
+or a view. With `danger_zone_accepted: true` the server saves and migrates those
+artifacts; data in removed or retyped fields is lost. A blocked save calls for a
+new version or an explicit decision covering that migration; do not retry with
+`danger_zone_accepted: true` on your own. Deleting a
 version (`delete_blueprint_version`) requires removing its artifacts first; do not
 cascade-delete them just to unblock a schema operation.
 
@@ -43,7 +45,7 @@ cascade-delete them just to unblock a schema operation.
 | `uiDefinition` | Layout structure varies by release: inspect `views`, `uiStepDefinitions`, and the artifact page or tab configuration. Workflow and UI step IDs must match. |
 | `logicalHookList` | Pre-phase hooks for validation and computed fields before commit. |
 | `postLogicalHookList` | Govern 15 post-phase hooks for work after commit. Preserve both hook lists when editing unrelated settings. |
-| `actions` | Action definitions keyed by action ID; a UI action component must reference the action for it to be visible. |
+| `actions` | Action definitions (`name`, `description`, `script`) keyed by action ID; a view component `{"type": "action", "actionId", "actionButtonLabel", "label"}` with a non-empty `label` shows the button. The script gets its context from `govern.core.artifact_action_handler.get_artifact_action_handler()` (`enrichedArtifact`, `params`, `client`) and sets `status` and `message`; the hook `get_handler()` fails in an action. |
 
 An accepted definition can still render an empty artifact page. Check that the
 configured artifact tabs or page and workflow steps resolve to nonempty views, and
@@ -59,8 +61,10 @@ and separators. See [page structure](https://doc.dataiku.com/dss/latest/governan
 Reuse components from an inspected definition rather than inventing UI keys.
 Govern 15 text components have separate display settings (Markdown or plain text)
 and editor settings (rich text, single-line, or multiline); configure these on the
-view component without changing the field's `TEXT` type. State separately whether
-layout was inspected in the UI or only checked structurally.
+view component without changing the field's `TEXT` type. Govern 15.1 adds a
+`remove-reference` column to table views of reference fields; the upgrade adds it to
+existing views, so preserve it when saving. State separately whether layout was
+inspected in the UI or only checked structurally.
 
 Required field constraints apply globally; hiding a required field does not make
 it optional. A hidden workflow step can bypass its mandatory signoff. Review view

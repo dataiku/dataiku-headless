@@ -88,9 +88,9 @@ licensing blocker, not as a tool gap.
   operations accepts the `user` form only.
 - `update_signoff_status` notifies only an explicit users_to_notify list. Omitted or empty lists send no
   notifications; specify recipients only when the task authorizes notifying them.
-- `update_blueprint_version` refuses a save that removes a field or changes its
-  type on a version with artifacts. `danger_zone_accepted: true` discards that
-  data everywhere; use it only after an explicit user decision.
+- `update_blueprint_version` refuses every save on a version with artifacts.
+  `danger_zone_accepted: true` saves and migrates those artifacts, and data in
+  removed or retyped fields is lost; use it only after an explicit user decision.
 - `search_artifacts` returns at most `max_results` hits (default 100) and
   `has_more`. Raise `max_results` or narrow the filters for a complete inventory,
   and say so when a result is a sample.
@@ -110,8 +110,12 @@ licensing blocker, not as a tool gap.
 | instance | `get_instance_info`, `get_auth_info` |
 
 Blueprint version import, bulk user provisioning, API keys, licensing, logs, and
-identity-provider settings are not in the catalog. Report them as gaps and hand off
-to the Govern UI.
+identity-provider settings are not in the catalog. Per-artifact role assignments
+and the roles audit have a public REST API that the SDK does not wrap. Govern
+plugins (packages of blueprints, custom pages, and actions), instance actions,
+auto-governance settings, blueprint version migration paths, and the artifact
+timeline have no public API up to Govern 15.2. Report them as gaps and hand off to
+the Govern UI.
 
 ## Choose the task guide
 

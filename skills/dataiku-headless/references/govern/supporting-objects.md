@@ -53,6 +53,12 @@ multiple tabs with table, chart, HTML, and nested subgrid tiles. Copy the payloa
 structure from a matching page read with `get_custom_page_definition` instead of
 guessing nested keys.
 
+Govern 15.1 adds a `myTasks` tile (the viewer's open tasks), a `page-shortcut` tile
+whose `pageId` links to another custom page, a `showTitle` flag on every tile, and
+a page `description`. Check the server version with `get_instance_info` before
+using them. A grid page's `actions` list shows buttons for instance actions that
+already exist; instance actions themselves are not in the catalog.
+
 Build the chart's data settings before its appearance:
 
 1. Filter the intended items and add projections for the needed fields. By default,
@@ -64,10 +70,30 @@ Build the chart's data settings before its appearance:
    sharing the same data settings. Converting to a custom JavaScript or ECharts
    chart cannot be reverted to the standard chart configuration.
 
+A standard chart is `{"type": "bar" | "line" | "pie" | "area", "breakdownId",
+"measureId"}`; several breakdown dimensions become one joined label (`a / b`).
+`matrix` takes a breakdown with exactly two dimensions. A stacked or grouped layout,
+two measures, or a custom style needs `{"type": "custom", "chartConfiguration"}`:
+JavaScript that the browser runs with a `context`. Call
+`registerBreakdowns(...ids)` first; `build(breakdownId, measureId, "tabular")`
+returns items `{name, value, drilldownValue}`, and `"multitabular"` returns rows
+`[dimension1, dimension2, ..., value]`. Draw with `chartInstance` (ECharts). To take
+part in selection, keep `drilldownValue` on each data item, call
+`drilldown.toggle` on click, and use `drilldown.isSelected` for display. A selection
+filters tables and charts that use other breakdowns; charts on the same breakdown
+only highlight it. Breakdown dimensions reference projection IDs; a workflow-step
+projection needs a `transformFunction` that returns the step ID. A field filter is
+`{"type": "field", "fieldId", "conditionType": "EQUALS", "condition"}`.
+Measures are `aggregation-count`, `-sum`, `-avg`, `-min`, `-max`, `-median`, `-std`,
+or `aggregation-custom` with a `customFunction` returning `initial`, `add`, and
+`remove`. A page exported from the Govern UI holds the page under
+`entities.customPages`; create it from that object without its `id`.
+
 Re-read the saved definition, then check the page with real data: displayed counts
 and measures, drill-down targets, and selection-panel behavior. A preview using
-sample data does not validate the real query. Create pages hidden while validating
-them, and make them visible when publication is part of the task. See
+sample data does not validate the real query, and the server saves a custom chart
+script without running it: its errors show only on the page. Create pages hidden
+while validating them, and make them visible when publication is part of the task. See
 [custom page design](https://doc.dataiku.com/dss/latest/governance/custom-pages.html)
 for the current tile, projection, aggregation, and chart options.
 
