@@ -65,10 +65,13 @@ def test_reject_manifest_version_drift(release_tree, manifest_path):
         HELPERS["validate"](release_tree)
 
 
-@pytest.mark.parametrize("manifest_path", [".cursor-plugin/plugin.json", "plugin.json"])
-def test_reject_missing_bump_configuration(release_tree, manifest_path):
+@pytest.mark.parametrize(
+    "version_file",
+    ['".cursor-plugin/plugin.json"', """'plugin.json:"version"'"""],
+)
+def test_reject_missing_bump_configuration(release_tree, version_file):
     path = release_tree / "pyproject.toml"
-    path.write_text(path.read_text().replace(f'    "{manifest_path}",\n', ""))
+    path.write_text(path.read_text().replace(f"    {version_file},\n", ""))
     with pytest.raises(ValueError, match="version_files"):
         HELPERS["validate"](release_tree)
 
@@ -102,7 +105,30 @@ def init_repo(root):
     git(root, "commit", "-m", "chore: baseline")
 
 
-def test_commitizen_updates_all_manifests_without_publishing(release_tree):
+@pytest.mark.parametrize("initial_version", [None, "1.0.0"])
+def test_commitizen_updates_all_manifests_without_publishing(
+    release_tree, initial_version
+):
+    if initial_version is not None:
+        current = HELPERS["validate"](release_tree)
+        path = release_tree / "pyproject.toml"
+        path.write_text(
+            path.read_text().replace(
+                f'version = "{current}"', f'version = "{initial_version}"', 1
+            )
+        )
+        for path in [
+            release_tree / "plugin.json",
+            *release_tree.glob(".*-plugin/plugin.json"),
+        ]:
+            manifest = json.loads(path.read_text())
+            manifest["version"] = initial_version
+            path.write_text(json.dumps(manifest, indent=2) + "\n")
+        path = release_tree / "CHANGELOG.md"
+        path.write_text(
+            path.read_text().replace(f"## v{current} ", f"## v{initial_version} ", 1)
+        )
+    native_schema = json.loads((release_tree / "plugin.json").read_text())["$schema"]
     init_repo(release_tree)
     current = HELPERS["validate"](release_tree)
     git(release_tree, "tag", f"v{current}")
@@ -121,6 +147,10 @@ def test_commitizen_updates_all_manifests_without_publishing(release_tree):
     assert result.returncode == 0, result.stderr
     version = HELPERS["validate"](release_tree)
     assert version == target
+    assert (
+        json.loads((release_tree / "plugin.json").read_text())["$schema"]
+        == native_schema
+    )
     assert HELPERS["release_notes"](release_tree, version)
     assert git(release_tree, "tag", "--list") == f"v{current}"
 

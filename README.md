@@ -95,13 +95,24 @@ cortex plugin install dataiku/dataiku-headless
 Install the local stdio plugin in Vibe's user plugin directory (tested with Vibe 3.0.4):
 
 ```bash
-mkdir -p ~/.vibe/plugins
-git clone https://github.com/dataiku/dataiku-headless.git ~/.vibe/plugins/dataiku-headless
+vibe_plugins="${VIBE_HOME:-$HOME/.vibe}/plugins"
+mkdir -p "$vibe_plugins"
+git clone https://github.com/dataiku/dataiku-headless.git "$vibe_plugins/dataiku-headless"
 ```
 
 Start Vibe, or run `/reload-plugins` in an existing session. Check `/plugins` for `dataiku-headless`, then ask **Set up Dataiku Headless**.
 
 Vibe loads the native [Agent Plugins 1.0](https://agent-plugins.org/) manifest and discovers the bundled skills and MCP server together. No separate MCP or skills installation is needed.
+
+Vibe 3.0.4 does not forward shell `DKU_*` or proxy/certificate/index variables to the MCP process. Use the setup flow's stored profiles, or a `.env` in the plugin checkout for Dataiku server settings. The launcher loads `.env` after `uv` starts; it cannot configure dependency downloads.
+
+If dependency downloads need a proxy, private index or custom CA, populate uv's default cache first from your configured shell:
+
+```bash
+uv run --quiet --locked --script "$vibe_plugins/dataiku-headless/runtime/run_mcp.py" --help
+```
+
+To update, run `git -C "${VIBE_HOME:-$HOME/.vibe}/plugins/dataiku-headless" pull --ff-only`, then `/reload-plugins`.
 
 ### Other AI assistants
 
@@ -321,6 +332,8 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── .codex-plugin/
 │   └── plugin.json             # Codex plugin manifest
 ├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+├── plugin.json                 # Native Agent Plugins 1.0 manifest (Mistral Vibe)
+├── mcp.json                    # Native Agent Plugins stdio MCP configuration
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
