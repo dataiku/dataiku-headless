@@ -331,7 +331,7 @@ def _serialize_rag_llm_item(raw: dict) -> dict:
         "openWorldHint": False,
     },
 )
-async def list_retrieval_augmented_llms(project_key: str, ctx: Context) -> str:
+async def list_rag_llms(project_key: str, ctx: Context) -> str:
     """Find a project's retrieval-augmented LLMs and their IDs."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Listing Retrieval-Augmented LLMs in {project_key}...")

@@ -139,7 +139,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "get_rag_llm_settings",
             "list_knowledge_banks",
             "list_llms",
-            "list_retrieval_augmented_llms",
+            "list_rag_llms",
             "search_knowledge_bank",
         }
     ),
