@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -70,6 +70,28 @@ codex plugin add dataiku-headless@dataiku
 claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 claude plugin install dataiku-headless@dataiku
 ```
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add dataiku/dataiku-headless
+copilot plugin install dataiku-headless@dataiku
+```
+
+Start a new Copilot CLI session, then ask **Set up Dataiku Headless**. The plugin
+includes both skills and the local Dataiku MCP server. The launcher resolves
+paths from the installed plugin, so you can start Copilot in any project directory.
+
+If Dataiku tools are unavailable, run `/mcp list` and `/mcp show dataiku` inside
+that session. Check that the plugin is enabled and `uv` is on Copilot's `PATH`.
+After one restart, inspect the MCP startup error instead of repeating setup.
+A successful standalone runtime warm-up does not prove that Copilot attached
+the server. Once it is connected, retry `list_instances` and complete setup.
+
+Plugin installation and MCP launch were validated with Copilot CLI 1.0.105 on
+Linux. These instructions also apply when the CLI runs in a VS Code terminal;
+VS Code Chat has a separate MCP configuration. Your organization must permit
+the plugin and its MCP server.
 
 ### Grok CLI
 
@@ -303,8 +325,8 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── .cursor-plugin/
 │   └── plugin.json             # Cursor-native plugin manifest
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest
-├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+│   ├── plugin.json             # Codex plugin manifest
+│   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```

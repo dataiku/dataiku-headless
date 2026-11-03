@@ -41,14 +41,16 @@ def _json(path: Path) -> dict:
 def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     output = tmp_path / "dataiku-headless-http"
     endpoint = "https://mcp.customer.example/mcp"
-    source_mcp = (ROOT / ".mcp.json").read_text(encoding="utf-8")
     source_codex = _json(ROOT / ".codex-plugin" / "plugin.json")
+    source_mcp_path = ROOT / source_codex["mcpServers"]
+    source_mcp = source_mcp_path.read_text(encoding="utf-8")
     source_claude = _json(ROOT / ".claude-plugin" / "plugin.json")
 
     result = _run("--url", endpoint, "--output", str(output))
 
     assert result.returncode == 0, result.stderr
-    assert _json(output / ".mcp.json")["mcpServers"]["dataiku"] == {
+    rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
+    assert _json(output / rendered_codex["mcpServers"])["mcpServers"]["dataiku"] == {
         "type": "http",
         "url": endpoint,
     }
@@ -62,7 +64,6 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
         _json(output / ".claude-plugin" / "marketplace.json")["plugins"][0]["name"]
         == "dataiku-headless-http"
     )
-    rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
     rendered_claude = _json(output / ".claude-plugin" / "plugin.json")
     assert rendered_codex["version"] == source_codex["version"]
     assert rendered_codex["description"] == source_codex["description"]
@@ -89,7 +90,7 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     assert "API key" not in setup
     assert "Never call `configure_instance` or `delete_instance`" in setup
     assert not (output / "skills" / "dataiku-headless-setup" / "references").exists()
-    assert (ROOT / ".mcp.json").read_text(encoding="utf-8") == source_mcp
+    assert source_mcp_path.read_text(encoding="utf-8") == source_mcp
 
 
 def test_renders_zip_with_one_plugin_root(tmp_path):
@@ -108,7 +109,7 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert archive.is_file()
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
-        assert "dataiku-headless-http/.mcp.json" in bundle.namelist()
+        assert "dataiku-headless-http/.codex-plugin/mcp.json" in bundle.namelist()
         assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
             bundle.namelist()
         )

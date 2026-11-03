@@ -15,7 +15,11 @@
 """Packaging invariants for the public stdio plugin."""
 
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+from string import Template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +31,7 @@ def _json(path: str) -> dict:
 
 def test_marketplace_plugin_uses_stdio():
     claude = _json(".claude-plugin/plugin.json")
-    bundled_mcp = _json(".mcp.json")
+    bundled_mcp = _json(_json(".codex-plugin/plugin.json")["mcpServers"])
 
     assert claude["mcpServers"]["dataiku"]["type"] == "stdio"
     assert bundled_mcp["mcpServers"]["dataiku"]["args"][-2:] == [
@@ -58,7 +62,8 @@ def test_public_setup_skill_is_stdio_only():
 
 
 def test_environment_configuration_is_passed_through():
-    variables = _json(".mcp.json")["mcpServers"]["dataiku"]["env_vars"]
+    bundled_mcp = _json(_json(".codex-plugin/plugin.json")["mcpServers"])
+    variables = bundled_mcp["mcpServers"]["dataiku"]["env_vars"]
     assert {
         "DKU_DSS_URL",
         "DKU_API_KEY",
@@ -71,3 +76,40 @@ def test_environment_configuration_is_passed_through():
         "DKU_API_TICKET",
         "DKU_SERVER_CERT",
     }.issubset(variables)
+
+
+def test_copilot_launches_from_an_unrelated_working_directory(tmp_path):
+    # Copilot prefers a root .mcp.json over the legacy manifest's inline config.
+    # Unlike Codex, it preserves an explicit relative cwd instead of rebasing it.
+    if (ROOT / ".mcp.json").exists():
+        server = _json(".mcp.json")["mcpServers"]["dataiku"]
+    else:
+        server = _json(".claude-plugin/plugin.json")["mcpServers"]["dataiku"]
+
+    plugin_root = tmp_path / "installed plugin"
+    runtime = plugin_root / "runtime"
+    runtime.mkdir(parents=True)
+    shutil.copy2(ROOT / "runtime" / "run_mcp.py", runtime / "run_mcp.py")
+    session_directory = tmp_path / "customer project"
+    session_directory.mkdir()
+    variables = {
+        "PLUGIN_ROOT": str(plugin_root),
+        "CLAUDE_PLUGIN_ROOT": str(plugin_root),
+        "COPILOT_PLUGIN_ROOT": str(plugin_root),
+    }
+    cwd = Path(Template(server.get("cwd", "${PLUGIN_ROOT}")).substitute(variables))
+    if not cwd.is_absolute():
+        cwd = session_directory / cwd
+    args = [Template(arg).substitute(variables) for arg in server["args"]]
+    script_index = args.index("--script") + 1
+    result = subprocess.run(
+        [sys.executable, *args[script_index:], "--help"],
+        cwd=cwd,
+        env=variables,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Run the Dataiku MCP server." in result.stdout

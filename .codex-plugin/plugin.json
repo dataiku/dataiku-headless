@@ -11,7 +11,7 @@
   "license": "Apache-2.0",
   "keywords": ["dataiku", "cobuild"],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "Dataiku Headless",
     "shortDescription": "Build AI and data apps",
