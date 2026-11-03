@@ -59,6 +59,8 @@ def _instance(instance_type):
 def _allowed(tool_name):
     if tool_name in INSTANCE_TOOLS:
         return set(get_args(InstanceType))
+    if tool_name in EXPECTED_TOOLS_BY_MODULE["operations"]:
+        return {"deployer"}
     if tool_name in PROJECT_EDIT_TOOLS:
         return {"design"}
     return {"design", "automation"}
@@ -99,7 +101,7 @@ def test_invalid_policy_fails_closed_even_for_instance_controls(metadata):
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["automation", "govern", "deployer", "agent-management"]
+    "instance_type", ["design", "automation", "govern", "deployer", "agent-management"]
 )
 def test_mcp_dispatch_denies_every_disallowed_tool_before_validation_or_sdk(
     monkeypatch, instance_type
@@ -152,7 +154,7 @@ def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
     assert calls == [instance_type]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "deployer", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
 def test_mcp_unsupported_status_needs_no_client(monkeypatch, instance_type):
     from dataiku_mcp.tools import instances
 
