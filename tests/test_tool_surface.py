@@ -166,6 +166,8 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "plugins": frozenset(
         {
+            "install_plugin",
+            "ensure_plugin_code_env",
             "delete_plugin",
             "list_plugins",
             "list_plugin_usages",
