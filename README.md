@@ -35,6 +35,8 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
+To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. For Design and Automation, test before saving; other types can be saved without testing. Then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
+
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
 ![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
@@ -135,6 +137,9 @@ For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
 
+To build or update a Dataiku plugin, follow the
+[plugin development guide](skills/dataiku-headless/references/plugin-development.md).
+
 ## MCP Server
 
 `dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
@@ -157,7 +162,7 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-Outside a Code Studio, configure a connection using a personal API key:
+Outside a Code Studio, configure an instance using a personal API key:
 
 1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
@@ -184,8 +189,11 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
-The type metadata does not change client selection or tool availability.
-Selecting Govern records its type; Govern-specific API tools are not yet implemented.
+The configured type determines which tools can run; see the
+[instance-type policy](docs/capabilities.md#instance-types). Agent Management, Govern and Deployer
+currently support instance controls only. Their status is `unsupported`, without
+a DSS connection check. The setup page allows these profiles to be saved without testing.
+Design and Automation require a successful connection test.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -211,7 +219,7 @@ empty ones. Direct package imports do not load `.env`.
 3. The saved profiles' `default_instance`.
 
 All sources remain available through `list_instances` and `switch_instance`;
-use `get_current_instance` to verify the active connection. Environment instances
+use `get_current_instance` to verify the active instance. Environment instances
 take precedence over profiles with the same name. The explicit target must have
 a different name from `dataiku-from-code-studio` when both exist. Missing required
 credentials or environment types, unsupported types, and duplicate environment names fail startup.
@@ -265,7 +273,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── plugins.py         # Instance plugin listing, updates, and deletion
+│   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
