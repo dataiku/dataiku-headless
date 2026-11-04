@@ -31,6 +31,16 @@ def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("host", ["claude", "codex", "cortex", "cursor", "github"])
+def test_plugin_identity_is_headless(host):
+    path = (
+        ".github/plugin/plugin.json"
+        if host == "github"
+        else f".{host}-plugin/plugin.json"
+    )
+    assert _json(path)["name"] == "headless"
+
+
 def test_marketplace_plugin_uses_stdio():
     claude = _json(".claude-plugin/plugin.json")
     bundled_mcp = _json(_json(".codex-plugin/plugin.json")["mcpServers"])
@@ -52,6 +62,8 @@ def test_marketplace_entry_matches_plugin_identity(directory):
     ]
     assert len(entries) == 1
     assert entries[0]["source"] == "./"
+    assert marketplace["name"] == "dataiku"
+    assert marketplace["renames"]["dataiku-headless"] == claude["name"]
 
 
 def test_public_setup_skill_is_stdio_only():

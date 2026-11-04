@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "scripts" / "http_plugin_assets"
-PLUGIN_NAME = "dataiku-headless-http"
+PLUGIN_NAME = "headless-http"
 COPY_PATHS = (
     "LICENSE",
     "skills",
@@ -65,7 +65,7 @@ def update_manifests(destination: Path, *, endpoint: str) -> None:
     codex = read_json(destination / ".codex-plugin" / "plugin.json")
     mcp_path = destination / codex["mcpServers"]
     mcp = read_json(mcp_path)
-    mcp["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    mcp["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
     write_json(mcp_path, mcp)
 
     codex["name"] = PLUGIN_NAME
@@ -75,20 +75,23 @@ def update_manifests(destination: Path, *, endpoint: str) -> None:
     claude = read_json(destination / ".claude-plugin" / "plugin.json")
     claude["name"] = PLUGIN_NAME
     claude["displayName"] = "Dataiku Headless (HTTP)"
-    claude["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    claude["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
     write_json(destination / ".claude-plugin" / "plugin.json", claude)
 
     marketplace = read_json(destination / ".claude-plugin" / "marketplace.json")
     marketplace["plugins"][0]["name"] = PLUGIN_NAME
+    # This catalog distributes HTTP only; do not inherit stdio rename history.
+    marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
     write_json(destination / ".claude-plugin" / "marketplace.json", marketplace)
 
     github_path = destination / ".github" / "plugin"
     github = read_json(github_path / "plugin.json")
     github["name"] = PLUGIN_NAME
-    github["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    github["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
     write_json(github_path / "plugin.json", github)
     marketplace = read_json(github_path / "marketplace.json")
     marketplace["plugins"][0]["name"] = PLUGIN_NAME
+    marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
     write_json(github_path / "marketplace.json", marketplace)
 
 
@@ -126,12 +129,15 @@ def render(output: Path, *, endpoint: str, archive: bool) -> Path:
     temporary_root = Path(
         tempfile.mkdtemp(prefix=f".{output.name}-", dir=artifact.parent)
     )
-    staged_plugin = temporary_root / PLUGIN_NAME
+    staged_plugin = temporary_root / "dataiku-headless-http"
     try:
         populate_plugin(staged_plugin, endpoint=endpoint)
         if archive:
             staged_archive = shutil.make_archive(
-                str(temporary_root / output.name), "zip", temporary_root, PLUGIN_NAME
+                str(temporary_root / output.name),
+                "zip",
+                temporary_root,
+                staged_plugin.name,
             )
             Path(staged_archive).rename(artifact)
         else:

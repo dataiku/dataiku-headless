@@ -30,7 +30,7 @@ def test_cursor_plugin_launches_the_stdio_server_from_its_install_root():
     )
     server = manifest["mcpServers"]["dataiku"]
 
-    assert manifest["name"] == "dataiku-headless"
+    assert manifest["name"] == "headless"
     assert manifest["version"] == importlib.metadata.version("dataiku-headless")
     assert manifest["skills"] == "./skills/"
     assert server["type"] == "stdio"

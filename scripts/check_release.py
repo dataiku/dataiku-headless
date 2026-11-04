@@ -56,9 +56,12 @@ def validate(root: Path) -> str:
         ".claude-plugin/marketplace.json",
         ".github/plugin/marketplace.json",
     ):
+        plugin_name = json.loads(
+            (root / relative).with_name("plugin.json").read_text()
+        )["name"]
         marketplace = json.loads((root / relative).read_text())
         for entry in marketplace["plugins"]:
-            if entry["name"] == project["project"]["name"]:
+            if entry["name"] == plugin_name:
                 if entry.get("version", version) != version:
                     raise ValueError("Marketplace version differs from project version")
     return version
