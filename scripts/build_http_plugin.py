@@ -35,6 +35,7 @@ COPY_PATHS = (
     "docs/assets",
     ".codex-plugin",
     ".claude-plugin",
+    ".github/plugin",
 )
 
 
@@ -80,6 +81,15 @@ def update_manifests(destination: Path, *, endpoint: str) -> None:
     marketplace = read_json(destination / ".claude-plugin" / "marketplace.json")
     marketplace["plugins"][0]["name"] = PLUGIN_NAME
     write_json(destination / ".claude-plugin" / "marketplace.json", marketplace)
+
+    github_path = destination / ".github" / "plugin"
+    github = read_json(github_path / "plugin.json")
+    github["name"] = PLUGIN_NAME
+    github["mcpServers"]["dataiku"] = {"type": "http", "url": endpoint}
+    write_json(github_path / "plugin.json", github)
+    marketplace = read_json(github_path / "marketplace.json")
+    marketplace["plugins"][0]["name"] = PLUGIN_NAME
+    write_json(github_path / "marketplace.json", marketplace)
 
 
 def populate_plugin(destination: Path, *, endpoint: str) -> None:

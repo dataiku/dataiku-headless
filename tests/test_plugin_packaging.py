@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from string import Template
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,9 +42,10 @@ def test_marketplace_plugin_uses_stdio():
     ]
 
 
-def test_marketplace_entry_matches_plugin_identity():
-    claude = _json(".claude-plugin/plugin.json")
-    marketplace = _json(".claude-plugin/marketplace.json")
+@pytest.mark.parametrize("directory", [".claude-plugin", ".github/plugin"])
+def test_marketplace_entry_matches_plugin_identity(directory):
+    claude = _json(f"{directory}/plugin.json")
+    marketplace = _json(f"{directory}/marketplace.json")
 
     entries = [
         entry for entry in marketplace["plugins"] if entry["name"] == claude["name"]
@@ -79,17 +82,55 @@ def test_environment_configuration_is_passed_through():
 
 
 def test_copilot_launches_from_an_unrelated_working_directory(tmp_path):
-    # Copilot prefers a root .mcp.json over the legacy manifest's inline config.
-    # Unlike Codex, it preserves an explicit relative cwd instead of rebasing it.
-    if (ROOT / ".mcp.json").exists():
-        server = _json(".mcp.json")["mcpServers"]["dataiku"]
-    else:
-        server = _json(".claude-plugin/plugin.json")["mcpServers"]["dataiku"]
-
     plugin_root = tmp_path / "installed plugin"
     runtime = plugin_root / "runtime"
     runtime.mkdir(parents=True)
     shutil.copy2(ROOT / "runtime" / "run_mcp.py", runtime / "run_mcp.py")
+    for relative in (".github/plugin/plugin.json", ".claude-plugin/plugin.json"):
+        target = plugin_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    claude_path = plugin_root / ".claude-plugin/plugin.json"
+    claude = json.loads(claude_path.read_text())
+    claude["mcpServers"]["dataiku"]["args"] = ["missing-script.py"]
+    claude_path.write_text(json.dumps(claude))
+    # Documented legacy discovery order; this is a launch replay, not a native CLI test.
+    assert not (ROOT / ".mcp.json").exists()
+    assert not (ROOT / ".github/mcp.json").exists()
+    for relative in (
+        ".plugin/plugin.json",
+        "plugin.json",
+        ".github/plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+    ):
+        assert (plugin_root / relative).exists() == (ROOT / relative).exists()
+    manifest_path = next(
+        plugin_root / relative
+        for relative in (
+            ".plugin/plugin.json",
+            "plugin.json",
+            ".github/plugin/plugin.json",
+            ".claude-plugin/plugin.json",
+        )
+        if (plugin_root / relative).exists()
+    )
+    assert manifest_path == plugin_root / ".github/plugin/plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["name"] == _json(".codex-plugin/plugin.json")["name"]
+    assert (ROOT / manifest["skills"]).is_dir()
+    server = manifest["mcpServers"]["dataiku"]
+    assert server["command"] == "uv"
+    assert server["type"] == "stdio"
+    assert server["args"] == [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py",
+        "--transport",
+        "stdio",
+    ]
+    assert server["cwd"] == "${PLUGIN_ROOT}"
     session_directory = tmp_path / "customer project"
     session_directory.mkdir()
     variables = {

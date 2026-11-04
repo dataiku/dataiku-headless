@@ -79,8 +79,10 @@ copilot plugin install dataiku-headless@dataiku
 ```
 
 Start a new Copilot CLI session, then ask **Set up Dataiku Headless**. The plugin
-includes both skills and the local Dataiku MCP server. The launcher resolves
-paths from the installed plugin, so you can start Copilot in any project directory.
+includes both skills and the local Dataiku MCP server. Copilot uses dedicated
+legacy manifests in `.github/plugin/`, independently of the Claude definitions.
+The launcher resolves paths from the installed plugin, so you can start Copilot
+in any project directory.
 
 If Dataiku tools are unavailable, run `/mcp list` and `/mcp show dataiku` inside
 that session. Check that the plugin is enabled and `uv` is on Copilot's `PATH`.
@@ -88,8 +90,9 @@ After one restart, inspect the MCP startup error instead of repeating setup.
 A successful standalone runtime warm-up does not prove that Copilot attached
 the server. Once it is connected, retry `list_instances` and complete setup.
 
-Plugin installation and MCP launch were validated with Copilot CLI 1.0.105 on
-Linux. These instructions also apply when the CLI runs in a VS Code terminal;
+The earlier Claude-manifest fallback was validated with Copilot CLI 1.0.105 on
+Linux; the dedicated GitHub manifest layout still requires native CLI validation.
+These instructions also apply when the CLI runs in a VS Code terminal;
 VS Code Chat has a separate MCP configuration. Your organization must permit
 the plugin and its MCP server.
 
@@ -324,6 +327,9 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .cursor-plugin/
 │   └── plugin.json             # Cursor-native plugin manifest
+├── .github/plugin/
+│   ├── plugin.json             # GitHub Copilot CLI plugin manifest
+│   └── marketplace.json        # GitHub Copilot CLI marketplace
 ├── .codex-plugin/
 │   ├── plugin.json             # Codex plugin manifest
 │   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest

@@ -46,7 +46,23 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     source_mcp = source_mcp_path.read_text(encoding="utf-8")
     source_claude = _json(ROOT / ".claude-plugin" / "plugin.json")
 
+    github_paths = [
+        ROOT / ".github/plugin" / name for name in ("plugin.json", "marketplace.json")
+    ]
+    source_github = {path: path.read_text() for path in github_paths}
     result = _run("--url", endpoint, "--output", str(output))
+    github = _json(output / ".github/plugin/plugin.json")
+    assert github["mcpServers"]["dataiku"] == {"type": "http", "url": endpoint}
+    assert github["name"] == "dataiku-headless-http"
+    original = _json(github_paths[0])
+    assert {k: v for k, v in github.items() if k not in ("name", "mcpServers")} == {
+        k: v for k, v in original.items() if k not in ("name", "mcpServers")
+    }
+    marketplace = _json(output / ".github/plugin/marketplace.json")
+    assert marketplace["plugins"][0]["name"] == github["name"]
+    assert marketplace["plugins"][0]["source"] == "./"
+    assert not (output / ".github/workflows").exists()
+    assert all(path.read_text() == source for path, source in source_github.items())
 
     assert result.returncode == 0, result.stderr
     rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
@@ -110,6 +126,8 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
         assert "dataiku-headless-http/.codex-plugin/mcp.json" in bundle.namelist()
+        for name in ("plugin.json", "marketplace.json"):
+            assert f"dataiku-headless-http/.github/plugin/{name}" in bundle.namelist()
         assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
             bundle.namelist()
         )

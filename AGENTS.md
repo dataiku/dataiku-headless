@@ -25,7 +25,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - Tool registration imports: `dataiku_mcp/__init__.py`.
 - Project dependencies, Python support, version, and CLI entry points: `pyproject.toml`.
 - Standalone server dependency pins and Python floor: the PEP 723 block in `runtime/run_mcp.py`.
-- Plugin launch configuration: `.codex-plugin/mcp.json`, `.claude-plugin/plugin.json`, and `.codex-plugin/plugin.json`. Keep Codex's MCP file out of the plugin root: Copilot otherwise loads it instead of the Claude manifest's plugin-root launch definition.
+- Plugin launch configuration: `.codex-plugin/mcp.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.github/plugin/plugin.json` with its sibling marketplace manifest. Keep Codex's MCP file out of the plugin root: Copilot otherwise loads it instead of the Copilot manifest's plugin-root launch definition.
 - User-facing installation and architecture overview: `README.md`.
 - Release behavior: `RELEASE.md` and `.github/workflows/bump.yml`.
 - CI behavior: `.github/workflows/ci.yml`, `.github/workflows/pr-title.yml`, and `.github/workflows/cla.yml`.
