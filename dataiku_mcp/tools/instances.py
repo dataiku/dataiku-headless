@@ -27,7 +27,7 @@ from ..auth import get_dss_client
 from ..config import request, stdio
 from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
+from ..setup_server import SESSION_LIFETIME_SECONDS, SetupSession, start_setup_server
 from .utils.serialization import columnar, compact_json, omit_empty
 
 InstanceName = Annotated[
@@ -145,19 +145,45 @@ async def get_current_instance(ctx: Context) -> str:
     return compact_json(result)
 
 
+async def _start_connection_manager(*, open_browser: bool = True) -> SetupSession:
+    # Executor work keeps running after cancellation. Retain its result so the
+    # newly created manager can be closed before propagating cancellation.
+    startup = asyncio.create_task(
+        run_blocking(lambda: start_setup_server(open_browser=open_browser))
+    )
+    try:
+        return await asyncio.shield(startup)
+    except asyncio.CancelledError:
+
+        async def cleanup():
+            session = await startup
+            await run_blocking(session.close)
+
+        closing = asyncio.create_task(cleanup())
+        # MCP cancellation scopes can cancel each subsequent await as well.
+        # Keep cleanup independent until it has reclaimed the server.
+        while not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                pass
+        closing.result()
+        raise
+
+
 @mcp.tool(
     meta=INSTANCE_MANAGEMENT_POLICY,
-    title="Configure Dataiku Instance",
+    title="Manage Dataiku Instances",
     annotations={
         "readOnlyHint": False,
-        "destructiveHint": False,
+        "destructiveHint": True,
         "idempotentHint": False,
         "openWorldHint": False,
     },
     tags={DSS_INDEPENDENT_TOOL_TAG},
 )
 async def configure_instance(ctx: Context) -> str:
-    """Connect a Dataiku instance, prompting the user in a local browser for its URL and key."""
+    """Open the local browser to add, edit, delete, or select saved Dataiku instances."""
     if request.is_http_request():
         raise ValueError(
             "Instances are platform-managed in HTTP mode and cannot be configured."
@@ -175,35 +201,39 @@ async def configure_instance(ctx: Context) -> str:
             "This MCP client does not advertise URL elicitation; opening the "
             "local configuration page directly."
         )
-        session = start_setup_server()
+        session = await _start_connection_manager()
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
                 "setup_url": session.url,
                 "browser_opened": session.browser_opened,
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
-                "next_step": "Open setup_url if the browser did not open automatically.",
+                "next_step": "Open setup_url if needed. Manage instances, then select Done.",
             }
         )
 
     await ctx.info("Requesting permission to open the Dataiku configuration page...")
-    session = start_setup_server(open_browser=False)
+    session = await _start_connection_manager(open_browser=False)
     elicitation_id = secrets.token_urlsafe(18)
-    elicitation = await ctx.session.elicit_url(
-        message=(
-            "Open the local Dataiku configuration page to save an instance URL "
-            "and API key securely."
-        ),
-        url=session.url,
-        elicitation_id=elicitation_id,
-        related_request_id=ctx.request_id,
-    )
+    try:
+        elicitation = await ctx.session.elicit_url(
+            message=(
+                "Open the local Dataiku instance manager to manage saved instances, "
+                "then select Done to return to your agent."
+            ),
+            url=session.url,
+            elicitation_id=elicitation_id,
+            related_request_id=ctx.request_id,
+        )
+    except BaseException:
+        await run_blocking(session.close)
+        raise
 
     if elicitation.action != "accept":
         # Some clients advertise URL elicitation but decline the request because
         # the capability is gated behind an unreleased feature flag (e.g. Codex,
         # openai/codex#29344). Fall back to opening the local setup page directly.
-        fallback = start_setup_server()
+        fallback = await _start_connection_manager()
         return compact_json(
             {
                 "interaction_mode": "direct_local_url",
@@ -213,33 +243,34 @@ async def configure_instance(ctx: Context) -> str:
                 "expires_in_seconds": SESSION_LIFETIME_SECONDS,
                 "next_step": (
                     "The in-app prompt was declined or is unsupported by this "
-                    "client; open setup_url to finish configuring Dataiku."
+                    "client; open setup_url to manage instances, then select Done."
                 ),
             }
         )
 
-    await asyncio.to_thread(
-        session.completed.wait,
-        SESSION_LIFETIME_SECONDS + 1,
-    )
-    if session.result is None:
-        session.close()
+    try:
+        await asyncio.to_thread(
+            session.completed.wait,
+            SESSION_LIFETIME_SECONDS + 1,
+        )
+        if session.result is None:
+            return compact_json(
+                {
+                    "interaction_mode": "mcp_url_elicitation",
+                    "status": "expired" if session.expired else "incomplete",
+                }
+            )
+
+        await ctx.session.send_elicit_complete(
+            elicitation_id,
+            related_request_id=ctx.request_id,
+        )
         return compact_json(
             {
                 "interaction_mode": "mcp_url_elicitation",
-                "status": "expired" if session.expired else "incomplete",
+                "status": "completed",
+                "state": session.result,
             }
         )
-
-    await ctx.session.send_elicit_complete(
-        elicitation_id,
-        related_request_id=ctx.request_id,
-    )
-    session.close()
-    return compact_json(
-        {
-            "interaction_mode": "mcp_url_elicitation",
-            "status": "configured",
-            "instance": session.result,
-        }
-    )
+    finally:
+        await run_blocking(session.close)
