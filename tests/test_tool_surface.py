@@ -255,7 +255,8 @@ def test_registered_tool_names_fit_bedrock_limit(
             archive=False,
         )
     manifest = json.loads((root / ".claude-plugin/plugin.json").read_text())
-    bundled_mcp = json.loads((root / ".mcp.json").read_text())
+    codex = json.loads((root / ".codex-plugin/plugin.json").read_text())
+    bundled_mcp = json.loads((root / codex["mcpServers"]).read_text())
     servers = bundled_mcp["mcpServers"] | manifest["mcpServers"]
     full_names = [
         re.sub(

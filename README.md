@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -71,6 +71,13 @@ codex plugin add headless@dataiku
 ```bash
 claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
 claude plugin install headless@dataiku
+```
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add dataiku/dataiku-headless
+copilot plugin install headless@dataiku
 ```
 
 ### Grok CLI
@@ -310,9 +317,12 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .cursor-plugin/
 │   └── plugin.json             # Cursor-native plugin manifest
+├── .github/plugin/
+│   ├── plugin.json             # GitHub Copilot CLI plugin manifest
+│   └── marketplace.json        # GitHub Copilot CLI marketplace
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest
-├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+│   ├── plugin.json             # Codex plugin manifest
+│   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
