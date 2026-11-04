@@ -35,7 +35,7 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
 
-To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. Test before saving, then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
+To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. For Design and Automation, test before saving; other types can be saved without testing. Then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
@@ -182,8 +182,11 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
-The type metadata does not change client selection or tool availability.
-Selecting Govern records its type; Govern-specific API tools are not yet implemented.
+The configured type determines which tools can run; see the
+[instance-type policy](docs/capabilities.md#instance-types). Agent Management, Govern and Deployer
+currently support instance controls only. Their status is `unsupported`, without
+a DSS connection check. The setup page allows these profiles to be saved without testing.
+Design and Automation require a successful connection test.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy

@@ -33,6 +33,7 @@ from requests.exceptions import RequestException
 from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking
+from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from .code_environments import PythonInterpreter
 from .utils.errors import dataiku_message
@@ -467,6 +468,7 @@ async def _run_plugin_action(
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="List Installed Plugins",
     description="Find installed plugins and inspect their metadata before an update or deletion.",
     annotations={
@@ -553,6 +555,7 @@ async def list_plugins(
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="List Plugin Deletion Blockers",
     description="Inspect every object or unresolved component that blocks deletion of an installed plugin.",
     annotations={
@@ -686,6 +689,7 @@ async def _install_git(
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="Install Plugin",
     description="Install a new instance plugin from the store, a local archive, or Git, then inspect its setup needs.",
     annotations={
@@ -787,6 +791,7 @@ async def install_plugin(
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="Update Plugin",
     description="Update an installed plugin from the store, a local archive, or Git, optionally rebuilding its bound environment.",
     annotations={
@@ -1096,6 +1101,7 @@ async def _bind_code_env(plugin, env_name: str, build: dict, created: bool) -> d
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="Ensure Plugin Code Environment",
     description="Create and bind a plugin-managed code environment, resume its build, or bind an existing unbound one.",
     annotations={
@@ -1268,6 +1274,7 @@ def _unresolved_components_refusal(plugin_id: str, reason: str) -> dict:
 
 
 @mcp.tool(
+    meta=ADMIN_POLICY,
     title="Delete Plugin",
     description="Remove an installed plugin after checking whether its components are in use.",
     annotations={

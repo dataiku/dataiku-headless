@@ -828,6 +828,20 @@ limitations under the License.
         );
       const icon = (name) =>
         `<svg viewBox="0 0 24 24" aria-hidden="true">${name === "edit" ? '<path d="m15 5 4 4M4 20l4-1 12-12a2.1 2.1 0 0 0-3-3L5 16z"/>' : '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'}</svg>`;
+      function requiresTest() {
+        return state.supported_instance_types.includes($("type").value);
+      }
+      function updateTestControls() {
+        const required = requiresTest();
+        $("test").disabled = !required;
+        $("save").disabled = !$("type").value || (required && !validationId);
+        if (!required && $("type").value) {
+          $("teststatus").hidden = false;
+          $("teststatus").className = "notice";
+          $("teststatus").textContent =
+            "Connection testing and API tools are unavailable for this instance type. You can save the profile without testing.";
+        }
+      }
       function showError(message) {
         $("error").textContent = message;
         $("error").hidden = false;
@@ -875,7 +889,7 @@ limitations under the License.
           for (const element of enabled) element.disabled = false;
           busy = false;
           $("workspace").removeAttribute("aria-busy");
-          $("save").disabled = !validationId;
+          updateTestControls();
         }
       }
       function connectionRow(connection) {
@@ -1023,6 +1037,7 @@ limitations under the License.
         validationId = "";
         dirty = false;
         $("save").disabled = true;
+        updateTestControls();
         $("workspace").classList.add("open");
         deleteName = null;
         render();
@@ -1112,6 +1127,7 @@ limitations under the License.
           validationId = "";
           $("save").disabled = true;
           $("teststatus").hidden = true;
+          updateTestControls();
         }
       });
       $("test").onclick = async () => {
@@ -1133,7 +1149,7 @@ limitations under the License.
       };
       $("form").onsubmit = async (event) => {
         event.preventDefault();
-        if (!validationId || !$("form").reportValidity()) return;
+        if ((requiresTest() && !validationId) || !$("form").reportValidity()) return;
         const result = await action({
           ...formValues(),
           action: "save",

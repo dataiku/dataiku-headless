@@ -24,6 +24,7 @@ from fastmcp import Context
 from pydantic import Field
 from requests.exceptions import RequestException
 
+from ..instance_policy import PROJECT_EXECUTION_POLICY
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -119,6 +120,7 @@ def _per_dataset_outcomes(dataset_names: list[str], status_summary: dict) -> lis
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Build Datasets",
     annotations={
         "readOnlyHint": False,
@@ -260,6 +262,7 @@ async def build_datasets(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Run Recipe",
     annotations={
         "readOnlyHint": False,
@@ -450,6 +453,7 @@ def _plugin_future_state(state: dict) -> dict:
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Future Status",
     annotations={
         "readOnlyHint": True,
@@ -499,6 +503,7 @@ async def get_future_status(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Job Status",
     annotations={
         "readOnlyHint": True,
@@ -531,6 +536,7 @@ async def get_job_status(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Job Log",
     annotations={
         "readOnlyHint": True,
@@ -587,6 +593,7 @@ async def get_job_log(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="List Jobs",
     annotations={
         "readOnlyHint": True,
@@ -627,6 +634,7 @@ async def list_jobs(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Wait for Job",
     annotations={
         "readOnlyHint": True,
@@ -673,6 +681,7 @@ async def wait_for_job(
 
 
 @mcp.tool(
+    meta=PROJECT_EXECUTION_POLICY,
     title="Abort Job",
     annotations={
         "readOnlyHint": False,

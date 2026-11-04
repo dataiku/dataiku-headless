@@ -23,7 +23,7 @@ import pytest
 from dataiku_mcp import setup_server
 from dataiku_mcp.config import stdio
 from dataiku_mcp.config.models import DSSInstance, StdioDSSInstanceConfig
-from dataiku_mcp.setup_server import _validate_form
+from dataiku_mcp.setup_server import _test_connection, _validate_form
 
 NORMALIZED_URLS = (
     (
@@ -455,6 +455,7 @@ def test_connection_errors_never_return_sdk_secrets(monkeypatch):
         setup_server._test_connection(
             {
                 "url": "https://example.com",
+                "instance_type": "design",
                 "api_key": "key",
                 "api_ticket": None,
                 "no_check_certificate": False,
@@ -519,6 +520,7 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     setup_server._test_connection(
         {
             "url": "https://example.com",
+            "instance_type": "design",
             "api_key": None,
             "api_ticket": None,
             credential: "credential",
@@ -531,3 +533,48 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     )
     assert calls == [{"timeout": 15}]
     assert closed == [True]
+
+
+@pytest.mark.parametrize("instance_type", ["agent-management", "govern", "deployer"])
+@pytest.mark.parametrize("attempt_test", [False, True])
+def test_unsupported_profile_can_be_saved_without_test(
+    manager, monkeypatch, instance_type, attempt_test
+):
+    def unexpected_probe(*args, **kwargs):
+        pytest.fail("Unsupported profiles must not contact DSS")
+
+    monkeypatch.setattr(setup_server, "_test_connection", _test_connection)
+    monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", unexpected_probe)
+    form = candidate(instance_type=instance_type)
+    if attempt_test:
+        status, result = post(manager, action="test", **form)
+        assert status == 400
+        assert "unavailable" in result["error"]
+        assert manager.validated_connection is None
+    status, result = post(manager, action="save", **form)
+    assert status == 200
+    assert result["state"]["connections"][0]["instance_type"] == instance_type
+    assert result["state"]["supported_instance_types"] == ["automation", "design"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"url": "https://other.example.com"},
+        {"api_key": "changed"},
+        {"no_check_certificate": "on"},
+        {"instance_type": "automation"},
+    ],
+)
+def test_manager_invalidates_test_when_target_changes(manager, change):
+    _, tested = post(manager, action="test", **candidate())
+    assert (
+        post(
+            manager,
+            action="save",
+            validation_id=tested["validation_id"],
+            **candidate(**change),
+        )[0]
+        == 400
+    )
+    assert not stdio.get_settings_path().exists()

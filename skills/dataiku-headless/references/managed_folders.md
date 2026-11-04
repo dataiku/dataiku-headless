@@ -5,6 +5,8 @@ description: Understand and inspect Dataiku managed folders and, when explicitly
 
 # Managed Folders
 
+Folder reads are available on `design` and `automation`. Creation, file upload, and Cobuild changes require `design`.
+
 Use this guide to understand and inspect managed folders, and to handle the narrow direct exceptions for folder creation and local-file upload.
 
 ## Managed Folder Concepts
