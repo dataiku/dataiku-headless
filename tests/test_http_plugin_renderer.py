@@ -48,22 +48,23 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     result = _run("--url", endpoint, "--output", str(output))
 
     assert result.returncode == 0, result.stderr
-    assert _json(output / ".mcp.json")["mcpServers"]["dataiku"] == {
-        "type": "http",
-        "url": endpoint,
+    assert _json(output / ".mcp.json")["mcpServers"] == {
+        "dku": {"type": "http", "url": endpoint}
     }
-    assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"][
-        "dataiku"
-    ] == {"type": "http", "url": endpoint}
-    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == (
-        "dataiku-headless-http"
-    )
+    assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"] == {
+        "dku": {"type": "http", "url": endpoint}
+    }
+    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == "headless-http"
     assert (
         _json(output / ".claude-plugin" / "marketplace.json")["plugins"][0]["name"]
-        == "dataiku-headless-http"
+        == "headless-http"
     )
     rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
     rendered_claude = _json(output / ".claude-plugin" / "plugin.json")
+    assert rendered_claude["name"] == "headless-http"
+    marketplace = _json(output / ".claude-plugin" / "marketplace.json")
+    assert marketplace["renames"] == {"dataiku-headless-http": "headless-http"}
+    assert rendered_claude["name"] != source_claude["name"]
     assert rendered_codex["version"] == source_codex["version"]
     assert rendered_codex["description"] == source_codex["description"]
     assert rendered_claude["version"] == source_claude["version"]
@@ -82,8 +83,8 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     ).read_text(encoding="utf-8")
     assert setup == expected_setup
     assert "ask whether the user wants to authenticate now" in setup
-    assert "codex mcp login dataiku" in setup
-    assert "claude mcp login dataiku" in setup
+    assert "codex mcp login dku" in setup
+    assert "claude mcp login plugin:headless-http:dku" in setup
     assert "retry `list_instances`" in setup
     assert "uv" not in setup
     assert "API key" not in setup
@@ -109,8 +110,9 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
         assert "dataiku-headless-http/.mcp.json" in bundle.namelist()
-        assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
-            bundle.namelist()
+        assert (
+            "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md"
+            in bundle.namelist()
         )
 
 
