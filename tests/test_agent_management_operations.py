@@ -112,6 +112,16 @@ class AgentManagementBackend:
             "untouched": 7,
             "businessKPIs": [],
         }
+        self.agent_settings = {
+            "id": "discovered-agent",
+            "infraId": "discovered-platform",
+            "fetchedRevision": "revision-from-read",
+            "configuration": {
+                "displayName": "Original",
+                "description": "Preserved description from the inspected configuration",
+            },
+            "permissions": [],
+        }
 
     def send(self, session, prepared, **kwargs):
         from urllib.parse import urlsplit
@@ -150,11 +160,37 @@ class AgentManagementBackend:
         elif "/tags/" in path:
             payload = {"name": "requested-tag", "color": "blue"}
         elif path.endswith("/settings"):
-            if prepared.method == "PUT":
-                self.settings = json.loads(prepared.body)
-            payload = self.settings
+            if "/agents/" in path:
+                if prepared.method == "PUT":
+                    body = json.loads(prepared.body)
+                    # The public update DTO ignores unknown root fields.
+                    for field in ("configuration", "permissions", "fetchedRevision"):
+                        if field in body:
+                            self.agent_settings[field] = body[field]
+                payload = self.agent_settings
+            else:
+                if prepared.method == "PUT":
+                    self.settings = json.loads(prepared.body)
+                payload = self.settings
         elif path.endswith("/risk-exposure"):
-            payload = {"exposure": {"value": 2, "password": SECRET}}
+            payload = {
+                "exposure": {
+                    "agents": [
+                        {
+                            "key": "discovered-platform:discovered-agent",
+                            "id": "discovered-agent",
+                            "infrastructureName": "discovered-platform",
+                            "password": SECRET,
+                        }
+                    ],
+                    "riskExposures": [
+                        {"agentKey": "discovered-platform:discovered-agent", "score": 2}
+                    ],
+                    "password": SECRET,
+                }
+            }
+        elif path.endswith("/uptime-results"):
+            payload = []
         elif "/risk-taxonomy" in path:
             payload = {
                 "taxonomy": {},
@@ -222,6 +258,12 @@ def test_every_agent_management_action_uses_real_public_sdk(
         assert result["result"]["operation_id"] == "returned-operation"
     if name == "evaluate_alerts":
         assert result["result"] == {"queued_agent_count": 2}
+    if name == "update_agent_settings":
+        assert result["result"]["configuration"] == {
+            "displayName": "Requested name",
+            "description": "Preserved description from the inspected configuration",
+        }
+        assert "displayName" not in json.loads(backend.calls[-1].body)
 
 
 def test_agent_management_post_searches_are_reads_and_alerts_require_scope():
@@ -235,6 +277,115 @@ def test_agent_management_post_searches_are_reads_and_alerts_require_scope():
     operation.validate({"agent_filter": {"favorites": False}})
     with pytest.raises(ValueError):
         operation.validate({"agent_filter": {"platform_ids": []}})
+
+
+@pytest.mark.parametrize(
+    "arguments, expected_query",
+    [
+        ({}, {}),
+        ({"from_time": 0}, {"from": ["1970-01-01T00:00:00Z"]}),
+        ({"to_time": 1767225600123}, {"to": ["2026-01-01T00:00:00.123000Z"]}),
+        (
+            {"from_time": 1767225600000, "to_time": 1767312000000},
+            {"from": ["2026-01-01T00:00:00Z"], "to": ["2026-01-02T00:00:00Z"]},
+        ),
+    ],
+)
+def test_uptime_bounds_use_iso_utc_on_the_wire(monkeypatch, arguments, expected_query):
+    from urllib.parse import parse_qs, urlsplit
+
+    monkeypatch.setattr(stdio, "_current_instance", _instance("agent-management"))
+    backend = AgentManagementBackend()
+    monkeypatch.setattr(
+        requests.Session,
+        "send",
+        lambda session, prepared, **kwargs: backend.send(session, prepared, **kwargs),
+    )
+    result = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="agent-management.get_agent_uptime_results",
+            arguments={
+                "platform_id": "discovered-platform",
+                "agent_id": "discovered-agent",
+                **arguments,
+            },
+        )
+    )
+    assert result["result"] == []
+    assert parse_qs(urlsplit(backend.calls[-1].url).query) == expected_query
+
+
+def test_risk_exposure_preserves_agent_join_and_redacts_credentials(monkeypatch):
+    monkeypatch.setattr(stdio, "_current_instance", _instance("agent-management"))
+    backend = AgentManagementBackend()
+    monkeypatch.setattr(
+        requests.Session,
+        "send",
+        lambda session, prepared, **kwargs: backend.send(session, prepared, **kwargs),
+    )
+    exposure = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="agent-management.get_risk_exposure",
+            arguments={},
+        )
+    )["result"]
+    joined = [
+        agent
+        for agent in exposure["agents"]
+        if agent["agentKey"] == exposure["riskExposures"][0]["agentKey"]
+    ]
+    assert len(joined) == 1
+    assert joined[0]["id"] == "discovered-agent"
+    assert "key" not in joined[0]
+    assert joined[0]["password"] == "__DATAIKU_REDACTED__"
+    assert exposure["password"] == "__DATAIKU_REDACTED__"
+
+
+def test_agent_rename_preserves_inspected_configuration_and_permissions(monkeypatch):
+    monkeypatch.setattr(stdio, "_current_instance", _instance("agent-management"))
+    backend = AgentManagementBackend()
+    backend.agent_settings["configuration"]["tags"] = ["preserve-tag"]
+    backend.agent_settings["permissions"] = [{"group": "operators", "read": True}]
+    monkeypatch.setattr(
+        requests.Session,
+        "send",
+        lambda session, prepared, **kwargs: backend.send(session, prepared, **kwargs),
+    )
+    current = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="agent-management.get_agent_settings",
+            arguments={
+                "platform_id": "discovered-platform",
+                "agent_id": "discovered-agent",
+            },
+        )
+    )["result"]
+    configuration = copy.deepcopy(current["configuration"])
+    configuration["displayName"] = "Requested name"
+    result = asyncio.run(
+        _call(
+            "run_write_operation",
+            operation_id="agent-management.update_agent_settings",
+            arguments={
+                "platform_id": "discovered-platform",
+                "agent_id": "discovered-agent",
+                "changes": {"configuration": configuration},
+                "expected_revision": current["fetchedRevision"],
+            },
+        )
+    )["result"]
+    assert result["configuration"] == {
+        **current["configuration"],
+        "displayName": "Requested name",
+    }
+    assert result["permissions"] == current["permissions"]
+    assert (
+        json.loads(backend.calls[-1].body)["fetchedRevision"]
+        == current["fetchedRevision"]
+    )
 
 
 def test_backend_defined_settings_require_objects_not_scalars():

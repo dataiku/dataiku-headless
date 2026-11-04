@@ -39,11 +39,15 @@ and existing tags. Search/describe supplies exact schemas and examples.
 Settings updates use `changes` to replace named **top-level fields** of a freshly
 fetched definition. Unnamed fields, including hidden credentials, are retained.
 Nested objects and arrays supplied in `changes` are complete replacements: inspect
-and preserve their unrelated fields. Do not submit redaction placeholders or put
+and preserve their unrelated fields. To rename an agent, copy the complete inspected
+`configuration`, change its `displayName`, and pass the copy in
+`changes.configuration`; `displayName` is not a top-level agent setting.
+Do not submit redaction placeholders or put
 `fetchedRevision` inside `changes`. Global business KPI definitions are available
-through `get_settings` and `update_settings` as `businessKPIs`. Changing definitions
-may invalidate stored metrics; `reset_incompatible_metrics=true` explicitly permits
-that deletion. The default rejects it.
+through `get_settings` and `update_settings` as `businessKPIs`. Changing the timezone
+deletes incompatible platform metrics; changing the week-start day deletes weekly
+platform metrics. `reset_incompatible_metrics=true` explicitly permits that deletion.
+The default rejects it.
 
 The `update_settings` example sets `businessKPIs` to an empty list, removing all
 business KPI definitions. Use that example only when the user intends to remove
@@ -52,8 +56,13 @@ all definitions; otherwise preserve the definitions they want to keep.
 Risk-taxonomy replacement requires reviewing
 `compute_risk_taxonomy_replacement_impact` for the exact proposed taxonomy, then
 passing the returned impact and inspected revision to `update_risk_taxonomy`.
-Risk-assessment updates accept an `assessment` object and optional `documents`
-mapping evidence IDs to local paths. Evidence download needs `output_path` and
+Risk-assessment updates replace the **complete** `assessment` and accept an optional
+`documents` mapping from evidence IDs to local paths. Preserve all wanted assessment
+fields and evidence references: omitted references can permanently delete evidence
+after commit. The `assessment: {}` example deliberately clears the assessment and
+its evidence. Risk exposure returns the public agent identifier as `agents[].agentKey`
+so it can be joined to `riskExposures[].agentKey` without credential redaction.
+Evidence download needs `output_path` and
 explicit `overwrite=true` to replace an existing destination.
 
 ## Monitoring and asynchronous work

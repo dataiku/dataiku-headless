@@ -21,6 +21,7 @@ import os
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Literal
 
 from dataikuapi.agentmanagement.agent import AgentFilter
@@ -300,7 +301,12 @@ def create_agent(
     example={
         "platform_id": "discovered-platform",
         "agent_id": "discovered-agent",
-        "changes": {"displayName": "Requested name"},
+        "changes": {
+            "configuration": {
+                "displayName": "Requested name",
+                "description": "Preserved description from the inspected configuration",
+            }
+        },
         "expected_revision": "revision-from-read",
     },
 )
@@ -311,7 +317,11 @@ def update_agent_settings(
     changes: Definition,
     expected_revision: NonEmpty,
 ):
-    """Replace named top-level agent settings fields using the inspected revision."""
+    """Replace named top-level agent settings fields using the inspected revision.
+
+    To rename, copy the complete inspected configuration, change its displayName,
+    and supply it as changes.configuration, preserving every unrelated field.
+    """
     return (
         _save_settings(
             _agent(client, platform_id, agent_id).get_settings(),
@@ -347,8 +357,18 @@ def get_agent_uptime_results(
     to_time: int | None = None,
 ):
     """Read uptime results within optional epoch-millisecond bounds."""
+
+    def iso_utc(value):
+        return (
+            datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+            if value is not None
+            else None
+        )
+
     return _agent(client, platform_id, agent_id).get_uptime_results(
-        from_time=from_time, to_time=to_time
+        from_time=iso_utc(from_time), to_time=iso_utc(to_time)
     )
 
 
@@ -642,8 +662,18 @@ def abort_platform_operation(
 
 @_register("risk")
 def get_risk_exposure(client):
-    """Read portfolio risk exposure."""
-    return client.get_risk_exposure().raw
+    """Read portfolio risk exposure, joining agents and riskExposures by agentKey."""
+    exposure = client.get_risk_exposure().raw
+    return {
+        **exposure,
+        "agents": [
+            {
+                ("agentKey" if key == "key" else key): value
+                for key, value in agent.items()
+            }
+            for agent in exposure["agents"]
+        ],
+    }
 
 
 @_register("risk")
@@ -714,7 +744,13 @@ def update_agent_risk_assessment(
     expected_revision: NonEmpty,
     documents: dict[PathSegment, NonEmpty] | None = None,
 ):
-    """Save an assessment with its inspected revision and optional evidence-ID to local-path mapping."""
+    """Replace the complete assessment using its inspected revision and optional evidence uploads.
+
+    Omitted evidence references cause permanent deletion of the corresponding
+    evidence after commit. Preserve all wanted assessment fields and evidence
+    references. The empty assessment example deliberately clears the assessment
+    and its evidence. documents maps evidence IDs to local paths.
+    """
     settings = _agent(client, platform_id, agent_id).get_risk_assessment()
     settings.raw.update(assessment=assessment, fetchedRevision=expected_revision)
     with ExitStack() as stack:
