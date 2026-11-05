@@ -46,6 +46,8 @@ Existing execution can modify outputs; this policy does not make Automation read
 Instance controls are `list_instances`, `switch_instance`, `configure_instance`,
 `delete_instance`, and `get_current_instance`. The first four also work without an
 active selection, subject to the existing HTTP restrictions on local configuration.
+For Design and Automation, a failed `get_current_instance` connection check returns
+`connection_status=failed` and the exception text in the error field.
 For Agent Management, Govern and Deployer, `get_current_instance` returns sanitized profile metadata
 with connection_status set to unsupported, without contacting DSS or reporting a version.
 Agent Management, Govern and Deployer profiles can be saved without a connection

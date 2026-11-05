@@ -28,6 +28,7 @@ from ..config import request, stdio
 from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, SetupSession, start_setup_server
+from .utils.errors import safe_error_text
 from .utils.serialization import columnar, compact_json, omit_empty
 
 InstanceName = Annotated[
@@ -120,7 +121,7 @@ async def delete_instance(name: InstanceName, ctx: Context) -> str:
     },
 )
 async def get_current_instance(ctx: Context) -> str:
-    """Inspect the active profile and its DSS connection, or report an unsupported node type."""
+    """Inspect the active profile, DSS connection and failure details, or an unsupported node type."""
 
     # Strip both credential types from the response, including on failure.
     current_instance = asdict(request.get_pinned_instance())
@@ -135,8 +136,8 @@ async def get_current_instance(ctx: Context) -> str:
         version = await run_blocking(
             lambda: get_dss_client().get_instance_info().raw.get("dssVersion") or ""
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        current_instance["error"] = safe_error_text(exc)
     else:
         current_instance["connection_status"] = "connected"
         current_instance["dataiku_version"] = version
