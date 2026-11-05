@@ -2,7 +2,6 @@
 
 ### Feat
 
-- **tools**: create and update R recipes and Shiny webapps directly (#192)
 - **setup**: add connection management form
 - **plugins**: support Git sources and guide plugin development
 - **plugins**: restore installation and managed environment setup
@@ -14,6 +13,8 @@
 
 ### Fix
 
+- The Claude Code plugin is now `headless`. Existing claude.ai installs need no action. If an existing Claude Code install reports “not found”, install it once with `/plugin install headless@dataiku`. Codex, Cursor, Copilot, and CoCo retain `dataiku-headless`.
+- The HTTP plugin remains separate as `headless-http`, with server key `dku` and a rename map for existing `dataiku-headless-http` installations.
 - **datasets**: verify metric computation before claiming freshness
 - **datasets**: recompute dataset metrics before reading them
 - **tls**: trust operating system certificate authorities (#204)
