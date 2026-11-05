@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
+from requests.exceptions import SSLError
 
 from dataiku_mcp import setup_server
 from dataiku_mcp.config import stdio
@@ -206,6 +207,7 @@ def test_edit_preserves_hidden_credential_and_rename_identity(manager, credentia
         activate=True,
     )
     row = record(manager, "old")
+    assert row["has_api_key"] is (credential == "api_key")
     form = candidate(
         original_name="old",
         revision=row["revision"],
@@ -445,23 +447,27 @@ def test_get_is_no_store_and_uses_nonce_csp(manager):
         assert response.headers["Referrer-Policy"] == "no-referrer"
 
 
-def test_connection_errors_never_return_sdk_secrets(monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("Connection refused"),
+        SSLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate has expired"),
+    ],
+)
+def test_connection_errors_are_returned_to_the_form(manager, monkeypatch, error):
     class BrokenClient:
         def __init__(self, *args, **kwargs):
-            raise RuntimeError("secret-key in remote response")
+            raise error
 
+    monkeypatch.setattr(setup_server, "_test_connection", _test_connection)
     monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", BrokenClient)
-    with pytest.raises(ValueError, match="Could not connect") as error:
-        setup_server._test_connection(
-            {
-                "url": "https://example.com",
-                "instance_type": "design",
-                "api_key": "key",
-                "api_ticket": None,
-                "no_check_certificate": False,
-            }
-        )
-    assert "secret-key" not in str(error.value)
+    status, result = post(manager, action="test", **candidate())
+    assert status == 400
+    assert result == {
+        "error": "Could not connect. Check the URL, API key, and certificate settings.",
+        "details": str(error),
+    }
+    assert manager.validated_connection is None
 
 
 def test_manager_refuses_to_read_or_write_a_different_profile_file(manager, tmp_path):

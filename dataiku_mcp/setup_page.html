@@ -451,6 +451,23 @@ limitations under the License.
         background: #fff1ef;
         color: #a92c3a;
       }
+      .notice.error p {
+        color: inherit;
+      }
+      .notice.error details {
+        margin-top: 8px;
+      }
+      .notice.error summary {
+        cursor: pointer;
+      }
+      .notice.error pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 220px;
+        overflow: auto;
+        margin: 8px 0 0;
+        font-size: 12px;
+      }
       .toast {
         position: fixed;
         bottom: 25px;
@@ -660,7 +677,6 @@ limitations under the License.
         Environment instances take precedence over the saved default when
         Headless starts.
       </p>
-      <div id="error" class="notice error" role="alert" hidden></div>
       <div class="toolbar">
         <div class="search">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -766,6 +782,13 @@ limitations under the License.
               </p>
             </details>
             <div id="teststatus" role="status" hidden></div>
+            <div id="error" class="notice error" role="alert" hidden>
+              <p id="error-message"></p>
+              <details id="error-details" hidden>
+                <summary>Error details</summary>
+                <pre id="error-detail-text"></pre>
+              </details>
+            </div>
             <div class="panelactions">
               <button type="button" id="test">Test connection</button
               ><button class="primary" id="save" type="submit" disabled>
@@ -842,9 +865,19 @@ limitations under the License.
             "Connection testing and API tools are unavailable for this instance type. You can save the profile without testing.";
         }
       }
-      function showError(message) {
-        $("error").textContent = message;
+      function showError(message, details = "") {
+        if ($("workspace").classList.contains("open")) {
+          $("teststatus").hidden = true;
+          $("teststatus").after($("error"));
+        } else {
+          $("workspace").after($("error"));
+        }
+        $("error-message").textContent = message;
+        $("error-detail-text").textContent = details;
+        $("error-details").hidden = !details;
+        $("error-details").open = false;
         $("error").hidden = false;
+        $("error").scrollIntoView({ block: "nearest" });
       }
       function toast(message) {
         clearTimeout(toastTimer);
@@ -872,10 +905,13 @@ limitations under the License.
             redirect: "error",
           });
           const result = await response.json();
-          if (!response.ok)
-            throw new Error(
+          if (!response.ok) {
+            showError(
               result.error || "The operation could not be completed.",
+              result.details || "",
             );
+            return null;
+          }
           if (result.state) state = result.state;
           return result;
         } catch (error) {
@@ -1026,14 +1062,17 @@ limitations under the License.
           : !state.connections.some((i) => i.source === "config");
         $("activate").checked = !state.active;
         $("key").required = !c;
-        $("key").placeholder = c
-          ? "Leave blank to keep the saved credential"
-          : "Paste your API key";
+        $("key").placeholder = c?.has_api_key
+          ? "**********"
+          : c
+            ? "Leave blank to keep the saved credential"
+            : "Paste your API key";
         $("keyhint").textContent = c
           ? "Your saved credential stays hidden. Enter a new API key only to replace it."
           : "Find it in Dataiku under Profile & Settings → API keys.";
         $("paneltitle").textContent = c ? "Edit instance" : "Add instance";
         $("teststatus").hidden = true;
+        $("error").hidden = true;
         validationId = "";
         dirty = false;
         $("save").disabled = true;
@@ -1127,6 +1166,7 @@ limitations under the License.
           validationId = "";
           $("save").disabled = true;
           $("teststatus").hidden = true;
+          $("error").hidden = true;
           updateTestControls();
         }
       });
