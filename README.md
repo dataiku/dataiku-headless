@@ -131,10 +131,6 @@ Dataiku Headless is an MCP server and agent skill library for operating Dataiku 
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
-When the user explicitly requests R or R Shiny, Headless creates and updates R
-recipes and Shiny webapps directly because Cobuild cannot build them. Other recipe
-and webapp creation stays with Cobuild. See the [capability matrix](docs/capabilities.md).
-
 ## Capability reference
 
 For a quick reference to what Headless can inspect, what Cobuild builds, and the

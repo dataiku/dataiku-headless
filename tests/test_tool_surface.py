@@ -208,9 +208,7 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_project_settings",
         }
     ),
-    "recipes": frozenset(
-        {"create_r_recipe", "get_recipe_settings", "list_recipes", "update_r_recipe"}
-    ),
+    "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
     "scenarios": frozenset(
         {
             "get_scenario_run_history",
@@ -224,15 +222,7 @@ EXPECTED_TOOLS_BY_MODULE = {
         {"get_semantic_model_version_config", "list_semantic_models"}
     ),
     "users": frozenset({"create_user", "delete_user", "list_users", "update_user"}),
-    "webapps": frozenset(
-        {
-            "create_shiny_webapp",
-            "get_webapp_settings",
-            "get_webapp_state",
-            "list_webapps",
-            "update_shiny_webapp",
-        }
-    ),
+    "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
     "wikis": frozenset({"get_wiki_article", "list_wiki_articles"}),
 }
 
