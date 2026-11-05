@@ -38,8 +38,9 @@ Dataiku permissions and API availability still apply to permitted calls.
 Automation excludes all six Cobuild tools, even conversation listing and polling,
 and `create_project`, `update_project_settings`, `set_project_variables`,
 `set_container_exec_config`, `create_upload_dataset`, `create_managed_folder`,
-`upload_file_to_managed_folder`, and `write_project_library_file`.
-It permits `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, and every
+`upload_file_to_managed_folder`, `write_project_library_file`.
+It permits `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, metric
+recomputation through `get_dataset_metrics`, and every
 project-folder operation, including creation, deletion, and moving projects.
 Existing execution can modify outputs; this policy does not make Automation read-only.
 
@@ -63,7 +64,7 @@ profile · 1 connection test
 | Read / inspect | 93 | Never mutates |
 | Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
-| Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
+| Execute | 5 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
 | Connection test | 1 | `test_connection` |
 
