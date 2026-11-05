@@ -2,58 +2,16 @@
 
 ### Feat
 
-- **setup**: add connection management form
-- **plugins**: support Git sources and guide plugin development
-- **plugins**: restore installation and managed environment setup
-- **tools**: enforce instance-type policies
-- **config**: accept Govern instance types
-- **config**: require explicit Dataiku instance types
-- **plugins**: separate GitHub Copilot manifests
-- **plugins**: support GitHub Copilot CLI
+- **setup**: manage saved instance connections (#199)
+- **plugins**: install from Git and manage plugin code environments (#193)
+- **tools**: enforce instance-type policies (#179)
+- **plugins**: support GitHub Copilot CLI (#198)
 
 ### Fix
 
-- The Claude Code plugin is now `headless`. Existing claude.ai installs need no action. If an existing Claude Code install reports “not found”, install it once with `/plugin install headless@dataiku`. Codex, Cursor, Copilot, and CoCo retain `dataiku-headless`.
-- The HTTP plugin remains separate as `headless-http`, with server key `dku` and a rename map for existing `dataiku-headless-http` installations.
-- **datasets**: verify metric computation before claiming freshness
-- **datasets**: recompute dataset metrics before reading them
 - **tls**: trust operating system certificate authorities (#204)
-- **plugins**: align client identities and marketplace catalogs
-- **plugins**: align Codex plugin and agent marketplace identity
-- **setup**: improve connection errors and saved key display
-- **tls**: upgrade truststore to 0.10.5
-- **setup**: show underlying connection test errors
-- **instances**: expose connection errors for setup diagnosis
-- **tls**: trust operating system certificate authorities
-- resolve Copilot plugin conflicts with release/0.9.0
-- **plugins**: migrate shortened plugin names safely
-- **mcp**: shorten plugin and tool names for Bedrock
-- resolve instance policy conflicts with release/0.9.0
-- **setup**: name saved Dataiku instances consistently
-- **setup**: close connection manager when startup is cancelled
-- **runtime**: declare the SDK six dependency
-- **setup**: preserve connection selection and close cancelled setup
-- **plugins**: preserve updates after rebuild exceptions
-- **jobs**: preserve progress in plugin future receipts
-- **runtime**: declare the SDK six requirement
-- **plugins**: verify Git targets and preserve safe recovery
-- **plugins**: allow store sources over HTTP and mark env setup additive
-- **plugins**: stop failed-build hint from promising a rebuild fixes desc.json
-- **plugins**: make plugin code-env recovery work against real futures
-- **config**: migrate stdio profiles missing instance types
-- **config**: reconcile instance types with Code Studio authentication
-
-### Refactor
-
-- **tools**: shorten RAG LLM listing tool name
-- **setup**: simplify connection rendering and guidance
-- **tools**: clarify instance policies and defer product support
-- **plugins**: fold single-use helpers into their callers
-- **validation**: keep general-purpose helpers first
-- **plugins**: keep Git updates on DSS
-- **plugins**: reuse the interpreter Literal and tidy plugin docs
-- **plugins**: trim response hints and comments to what agents act on
-- **plugins**: simplify code-env setup, its guide, and install tests
+- **datasets**: recompute metrics before reading them (#205)
+- **plugins**: shorten Claude Code plugin and tool names for Bedrock; reinstall with `/plugin install headless@dataiku` (#201, #207)
 
 ## v0.8.0 (2026-10-08)
 
