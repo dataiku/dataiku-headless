@@ -207,6 +207,7 @@ def test_edit_preserves_hidden_credential_and_rename_identity(manager, credentia
         activate=True,
     )
     row = record(manager, "old")
+    assert row["has_api_key"] is (credential == "api_key")
     form = candidate(
         original_name="old",
         revision=row["revision"],
@@ -462,7 +463,10 @@ def test_connection_errors_are_returned_to_the_form(manager, monkeypatch, error)
     monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", BrokenClient)
     status, result = post(manager, action="test", **candidate())
     assert status == 400
-    assert result == {"error": f"Could not connect: {error}"}
+    assert result == {
+        "error": "Could not connect. Check the URL, API key, and certificate settings.",
+        "details": str(error),
+    }
     assert manager.validated_connection is None
 
 

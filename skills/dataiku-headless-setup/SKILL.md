@@ -60,11 +60,13 @@ profile and does not switch the active instance. Environment and Code Studio
 instances remain read-only and take precedence at startup. HTTP instances remain
 platform-managed and cannot use this local manager.
 
-When editing, leave the API key blank to preserve the saved key or ticket. A new
+When editing, a saved API key is indicated by a `**********` placeholder; the
+input itself remains blank. Leave it blank to preserve the saved key or ticket. A new
 API key replaces the credential. For Design and Automation, a successful connection test is required before
 saving; changing URL, credential, certificate policy, or type requires a new test.
-Connection-test failures display the underlying exception in the form. Inspect it
-before retrying; for SSL/TLS failures, follow [HTTPS certificate trust](#https-certificate-trust).
+Connection-test failures appear in the editor's connection-status area. Expand **Error details**
+to inspect the underlying exception before retrying; for SSL/TLS failures, follow
+[HTTPS certificate trust](#https-certificate-trust).
 Deleting an active/default profile requires choosing another saved profile when
 one is available. It removes only the saved instance configuration. The Dataiku
 instance and its data stay in place.

@@ -39,6 +39,11 @@ _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
 _revision_key = secrets.token_bytes(32)
 
+
+class _ConnectionTestError(ValueError):
+    """A connection failure whose underlying details can be expanded in the UI."""
+
+
 DATAIKU_BIRD_SVG = """<svg class="bird" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
   <path d="M191.342 139.061H108.562V154.536H191.342V139.061Z" fill="currentColor"/>
   <path d="M183.598 13.1855C179.295 5.34204 170.964 0 161.361 0C147.37 0 136.028 11.3412 136.028 25.3323C136.028 26.6678 136.156 27.9609 136.368 29.2328L134.226 31.8614L0.421086 196.935C-0.23607 197.74 -0.108879 198.927 0.696667 199.585C1.43862 200.178 2.51974 200.136 3.1981 199.457L59.5227 143.196C69.91 132.83 83.9858 127.001 98.6764 127.001H118.285C161.127 127.001 186.884 102.601 182.22 52.4664C180.609 35.2108 181.499 27.9397 187.414 20.6474C190.466 16.8953 196.381 9.56055 196.381 9.56055L189.449 11.5108L183.577 13.1643L183.598 13.1855ZM161.891 28.4485C158.096 28.4485 155.022 25.3747 155.022 21.5801C155.022 17.7856 158.096 14.7118 161.891 14.7118C165.685 14.7118 168.759 17.7856 168.759 21.5801C168.759 25.3747 165.685 28.4485 161.891 28.4485Z" fill="currentColor"/>
@@ -141,6 +146,7 @@ def _snapshot(config: StdioConfig | None = None) -> dict:
                 "url": instance.url,
                 "instance_type": instance.instance_type,
                 "description": instance.description,
+                "has_api_key": instance.api_key is not None,
                 "no_check_certificate": instance.no_check_certificate,
                 "source": instance.source,
                 "revision": (
@@ -190,7 +196,7 @@ def _test_connection(values: dict) -> None:
         client._session.request = partial(client._session.request, timeout=15)
         client.get_auth_info()
     except Exception as exc:
-        raise ValueError(f"Could not connect: {exc}") from None
+        raise _ConnectionTestError(str(exc)) from None
     finally:
         if client is not None:
             client._session.close()
@@ -410,6 +416,18 @@ def _make_handler(token: str, expected_host: str, session_state: SetupSession | 
                     raise ValueError("Open the instance manager again.")
                 with session_state.lock:
                     result = _perform_action(session_state, form)
+            except _ConnectionTestError as error:
+                self._send(
+                    400,
+                    json.dumps(
+                        {
+                            "error": "Could not connect. Check the URL, API key, and certificate settings.",
+                            "details": str(error),
+                        }
+                    ),
+                    json_response=True,
+                )
+                return
             except (UnicodeDecodeError, ValueError, RuntimeError) as error:
                 # Validation errors are deliberately authored here. Never return raw
                 # Pydantic/settings errors, which can contain profile or secret data.
