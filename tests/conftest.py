@@ -20,7 +20,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 
 @pytest.fixture
@@ -40,6 +40,9 @@ def localhost_certificate(tmp_path):
             x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False
         )
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
+        )
         .sign(key, hashes.SHA256())
     )
     pem = certificate.public_bytes(serialization.Encoding.PEM).decode("ascii")
