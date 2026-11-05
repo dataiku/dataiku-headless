@@ -63,6 +63,8 @@ platform-managed and cannot use this local manager.
 When editing, leave the API key blank to preserve the saved key or ticket. A new
 API key replaces the credential. For Design and Automation, a successful connection test is required before
 saving; changing URL, credential, certificate policy, or type requires a new test.
+Connection-test failures display the underlying exception in the form. Inspect it
+before retrying; for SSL/TLS failures, follow [HTTPS certificate trust](#https-certificate-trust).
 Deleting an active/default profile requires choosing another saved profile when
 one is available. It removes only the saved instance configuration. The Dataiku
 instance and its data stay in place.

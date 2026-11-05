@@ -189,10 +189,8 @@ def _test_connection(values: dict) -> None:
         )
         client._session.request = partial(client._session.request, timeout=15)
         client.get_auth_info()
-    except Exception:
-        raise ValueError(
-            "Could not connect. Check the URL, API key, and certificate settings."
-        ) from None
+    except Exception as exc:
+        raise ValueError(f"Could not connect: {exc}") from None
     finally:
         if client is not None:
             client._session.close()
