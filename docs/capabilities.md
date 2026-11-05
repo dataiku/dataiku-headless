@@ -12,8 +12,6 @@ or change recipe logic, code, inputs, or outputs, or to create or modify the def
 of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki article,
 data quality rule, knowledge bank, semantic model, or evaluation store. The container
 execution override below changes only which container an existing object runs in.
-The one logic exception is R: Cobuild cannot build `r` recipes or `SHINY` webapps, so
-Headless creates and updates those directly. Cobuild still deletes them.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
@@ -40,8 +38,7 @@ Dataiku permissions and API availability still apply to permitted calls.
 Automation excludes all six Cobuild tools, even conversation listing and polling,
 and `create_project`, `update_project_settings`, `set_project_variables`,
 `set_container_exec_config`, `create_upload_dataset`, `create_managed_folder`,
-`upload_file_to_managed_folder`, `write_project_library_file`, `create_r_recipe`,
-`update_r_recipe`, `create_shiny_webapp`, and `update_shiny_webapp`.
+`upload_file_to_managed_folder`, `write_project_library_file`.
 It permits `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, metric
 recomputation through `get_dataset_metrics`, and every
 project-folder operation, including creation, deletion, and moving projects.
@@ -59,13 +56,13 @@ test. Design and Automation require a successful DSS connection test in local se
 
 ## Surface
 
-**135 tools** · 92 read · 28 direct Dataiku write · 6 Cobuild · 5 execute · 3 local
+**131 tools** · 93 read · 24 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 92 | Never mutates |
-| Direct Dataiku write | 28 | Bootstrap, project configuration, cross-project, admin, R and Shiny |
+| Read / inspect | 93 | Never mutates |
+| Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 5 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -77,15 +74,14 @@ bucket here.
 
 ## Built by Cobuild — limited direct exceptions
 
-Four partial exceptions: Headless can create a dataset from a local file, create an
-empty managed folder, select container execution for an existing object (see
-*Handled directly by Headless*), and create or update R recipes and Shiny webapps,
-which Cobuild cannot build. It cannot build or change any other analytic logic here.
+Three partial exceptions: Headless can create a dataset from a local file, create an
+empty managed folder, and select container execution for an existing object (see
+*Handled directly by Headless*). It cannot build or change analytic logic here.
 
 | Area | Inspect | Direct action |
 |---|---|---|
 | Datasets | `list_datasets`, `get_dataset_info`, `get_dataset_sample`, `get_dataset_profile`, `get_dataset_metrics`, `get_dataset_column_descriptions`, `export_dataset` | `build_datasets` |
-| Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `run_recipe`; `create_r_recipe`, `update_r_recipe` (R only) |
+| Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `run_recipe` |
 | Flow & zones | `get_flow_graph`, `list_flow_zones`, `get_flow_object_metadata` | — |
 | ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | `set_container_exec_config` (single-ML-task analyses) |
 | Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
@@ -93,7 +89,7 @@ which Cobuild cannot build. It cannot build or change any other analytic logic h
 | Agent reviews | `list_agent_reviews`, `get_agent_review`, `list_agent_review_tests`, `list_agent_review_runs`, `get_agent_review_run_results` | — |
 | Scenarios | `list_scenarios`, `get_scenario_settings`, `get_scenario_run_history`, `list_messaging_channels` | `run_scenario` |
 | Dashboards & insights | `list_dashboards`, `get_dashboard_settings`, `list_insights`, `get_insight_settings` | — |
-| Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config`; `create_shiny_webapp`, `update_shiny_webapp` (SHINY only) |
+| Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config` |
 | Wikis | `list_wiki_articles`, `get_wiki_article` | — |
 | Data quality | `list_data_quality_rules`, `get_data_quality_status`, `get_data_quality_rule`, `get_data_quality_rule_results`, `get_data_quality_rule_history` | — |
 | LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_rag_llms`, `get_rag_llm_settings` | `set_container_exec_config` (knowledge banks) |
