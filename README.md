@@ -174,6 +174,21 @@ its injected API ticket. No personal API key or setup popup is needed.
 
 API keys and tickets never appear in MCP tool arguments or instance responses.
 
+### HTTPS certificate trust
+
+The server uses the operating system certificate store through `truststore` for
+HTTPS connections, including connection tests in the setup page. Corporate CAs
+trusted on the machine running Dataiku Headless are trusted automatically; no
+CA-bundle environment variable is needed. In a container or remote deployment,
+the CA must be trusted inside that environment.
+
+Keep **Skip certificate verification** unchecked. If a saved profile previously
+disabled verification, edit it in the instance manager, uncheck that option, and
+test and save the connection again.
+
+System trust is activated by `runtime/run_mcp.py` for both stdio and HTTP
+transports. Applications that import `dataiku_mcp` directly own their TLS setup.
+
 ### Where configuration lives
 
 **Saved profiles.** The setup page stores named instances and a `default_instance`

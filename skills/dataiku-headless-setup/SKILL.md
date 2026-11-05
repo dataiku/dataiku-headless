@@ -27,6 +27,15 @@ Bring a new or broken plugin installation to a verified Dataiku connection. A re
 
 Report completion with the active instance name, URL, and configured type, Dataiku version when available, and whether the Dataiku read succeeded or the selected node type has no API tools yet. Include the uv version only when runtime recovery was needed. If a restart is required, say that setup is incomplete and give the single next action.
 
+## HTTPS certificate trust
+
+The standard launcher trusts CAs in the operating system certificate store. For
+corporate HTTPS instances, keep **Skip certificate verification** unchecked. If
+verification fails, check that the internal root CA is trusted on the machine or
+container running the MCP server. Do not default to disabling verification.
+Previously saved profiles with verification disabled must be edited, retested,
+and saved with verification enabled.
+
 ## Manage existing instances
 
 Use `configure_instance` to reopen the local instance manager. It groups instances
