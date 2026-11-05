@@ -38,6 +38,7 @@ An insight tile can reference an insight by `insightId`, but the dashboard skill
    - WebApps for `web_app`.
 4. When an insight will be used on a dashboard, use `./dashboards.md` to inspect the dashboard and its existing insight references. For greenfield work, define the required source object, insight, and dashboard relationship in the Cobuild request.
 5. Route insight creation, updates, and deletion through `./cobuild.md`.
+6. When the request gives a name for a chart or table insight, include it when asking Cobuild to create the insight and check it with `get_insight_settings`. If a saved insight cannot be renamed, the dashboard tile title can carry the requested title (`./dashboards.md`).
 
 ## Preferred Tools
 

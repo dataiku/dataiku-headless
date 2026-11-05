@@ -20,6 +20,7 @@ from typing import Annotated
 from fastmcp import Context
 from pydantic import Field
 
+from ..instance_policy import PROJECT_EDIT_POLICY, PROJECT_READ_POLICY
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
@@ -55,6 +56,7 @@ def _serialize_webapp_list_item(item: dict) -> dict:
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="List Webapps",
     annotations={
         "readOnlyHint": True,
@@ -92,6 +94,7 @@ async def list_webapps(project_key: str, ctx: Context) -> str:
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="Get Webapp Settings",
     annotations={
         "readOnlyHint": True,
@@ -122,6 +125,7 @@ async def get_webapp_settings(
 
 
 @mcp.tool(
+    meta=PROJECT_READ_POLICY,
     title="Get Webapp State",
     annotations={
         "readOnlyHint": True,
@@ -149,8 +153,20 @@ async def get_webapp_state(
 
 def _write_shiny_code(webapp, ui: str | None, server: str | None) -> dict:
     """Save Shiny code, then restart the backend: Shiny code only runs there."""
-    settings = webapp.get_settings()
-    raw = settings.get_raw()
+    result = {
+        "webapp_id": webapp.webapp_id,
+        "code_saved": False,
+        "backend_startup_status": "not_attempted",
+    }
+    try:
+        settings = webapp.get_settings()
+        raw = settings.get_raw()
+    except Exception:
+        return {
+            **result,
+            "status": "partial_failure",
+            "message": "Settings could not be read. Inspect this webapp and recover with update_shiny_webapp; do not create another app.",
+        }
     if raw.get("type") != "SHINY":
         raise ValueError(
             f"WebApp {webapp.webapp_id} is a {raw.get('type')} WebApp; only SHINY "
@@ -161,15 +177,30 @@ def _write_shiny_code(webapp, ui: str | None, server: str | None) -> dict:
         params["ui"] = ui
     if server is not None:
         params["server"] = server
-    settings.save()
-    future = webapp.start_or_restart_backend()
-    return omit_empty(
-        {
-            "webapp_id": webapp.webapp_id,
-            "name": raw.get("name"),
-            "backend_future_id": future.job_id,
+    result["name"] = raw.get("name")
+    if ui is not None or server is not None:
+        try:
+            settings.save()
+        except Exception:
+            return {
+                **result,
+                "status": "partial_failure",
+                "code_saved": None,
+                "message": "Code saving failed or is uncertain. Inspect this webapp and recover with update_shiny_webapp; do not create another app.",
+            }
+        result["code_saved"] = True
+    try:
+        future = webapp.start_or_restart_backend()
+        result["backend_future_id"] = future.job_id
+    except Exception:
+        return {
+            **result,
+            "status": "partial_failure",
+            "backend_startup_status": "unknown",
+            "message": "Backend startup failed or is uncertain. Check get_webapp_state, then restart this webapp with update_shiny_webapp; do not create another app.",
         }
-    )
+    result["backend_startup_status"] = "requested"
+    return result
 
 
 SHINY_UI = "R code for the Shiny ui component."
@@ -177,6 +208,7 @@ SHINY_SERVER = "R code for the Shiny server function."
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
     title="Create Shiny Webapp",
     annotations={
         "readOnlyHint": False,
@@ -207,6 +239,7 @@ async def create_shiny_webapp(
 
 
 @mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
     title="Update Shiny Webapp",
     annotations={
         "readOnlyHint": False,

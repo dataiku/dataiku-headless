@@ -9,7 +9,7 @@ description = "Headless Dataiku agent kit: a FastMCP server for operating Dataik
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Dataiku" }]
 keywords = ["dataiku", "mcp", "fastmcp", "agent", "llm"]
 classifiers = [
@@ -25,6 +25,7 @@ dependencies = [
     "pydantic>=2.11,<3",
     "python-dotenv",
     "requests>=2.32",
+    "six>=1.17,<2",
 ]
 
 [project.urls]
@@ -70,6 +71,7 @@ update_changelog_on_bump = true
 major_version_zero = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
 version_files = [
+    ".github/plugin/plugin.json",
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".cortex-plugin/plugin.json",

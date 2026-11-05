@@ -1,5 +1,5 @@
 {
-  "name": "dataiku-headless",
+  "name": "headless",
   "displayName": "Dataiku Headless",
   "version": "0.8.0",
   "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",

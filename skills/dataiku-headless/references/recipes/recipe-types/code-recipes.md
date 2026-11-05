@@ -31,7 +31,11 @@ Use an `r` recipe only when the user explicitly asks for R. Statistical logic, R
 
 In Dataiku 15.1 and earlier, Cobuild cannot create or edit `r` recipes, so Headless writes them directly:
 
-- Create with `create_r_recipe`. A missing output dataset is created as a managed dataset.
+- Create with `create_r_recipe`. For a missing output dataset, supply `output_connection`
+  from discovered connections; the tool creates a managed dataset. If recipe creation
+  fails, it removes only its new, unreferenced output. If cleanup or creation is
+  uncertain, a partial result identifies the recipe and output: inspect both before
+  retrying. Existing datasets are never removed by this tool.
 - Inspect with `get_recipe_settings`, then replace the code, the main inputs, or both with `update_r_recipe`. The code can read only declared inputs.
 - Build with `run_recipe` and check the output with `get_dataset_sample`.
 - Delete through `../../cobuild.md`.

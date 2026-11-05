@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -33,7 +33,9 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 ## Get started with the Codex app or Claude Desktop app
 
-Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
+
+To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. For Design and Automation, test before saving; other types can be saved without testing. Then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
@@ -47,7 +49,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -61,14 +63,21 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ```bash
 codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-codex plugin add dataiku-headless@dataiku
+codex plugin add headless@dataiku
 ```
 
 ### Claude Code CLI
 
 ```bash
 claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-claude plugin install dataiku-headless@dataiku
+claude plugin install headless@dataiku
+```
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add dataiku/dataiku-headless
+copilot plugin install headless@dataiku
 ```
 
 ### Grok CLI
@@ -81,7 +90,7 @@ grok plugin install dataiku/dataiku-headless --trust
 
 ```bash
 cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
-# Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
+# Tip: use /plugins in interactive mode to install the `headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
@@ -122,11 +131,18 @@ Dataiku Headless is an MCP server and agent skill library for operating Dataiku 
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
+When the user explicitly requests R or R Shiny, Headless creates and updates R
+recipes and Shiny webapps directly because Cobuild cannot build them. Other recipe
+and webapp creation stays with Cobuild. See the [capability matrix](docs/capabilities.md).
+
 ## Capability reference
 
 For a quick reference to what Headless can inspect, what Cobuild builds, and the
 limited direct actions Headless supports, see the
 [Headless capability matrix](docs/capabilities.md).
+
+To build or update a Dataiku plugin, follow the
+[plugin development guide](skills/dataiku-headless/references/plugin-development.md).
 
 ## MCP Server
 
@@ -150,9 +166,9 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-Outside a Code Studio, configure a connection using a personal API key:
+Outside a Code Studio, configure an instance using a personal API key:
 
-1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
+1. Ask the agent to **Set up Dataiku Headless** (or run `/headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
@@ -177,8 +193,11 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
-The type metadata does not change client selection or tool availability.
-Selecting Govern records its type; Govern-specific API tools are not yet implemented.
+The configured type determines which tools can run; see the
+[instance-type policy](docs/capabilities.md#instance-types). Agent Management, Govern and Deployer
+currently support instance controls only. Their status is `unsupported`, without
+a DSS connection check. The setup page allows these profiles to be saved without testing.
+Design and Automation require a successful connection test.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -204,7 +223,7 @@ empty ones. Direct package imports do not load `.env`.
 3. The saved profiles' `default_instance`.
 
 All sources remain available through `list_instances` and `switch_instance`;
-use `get_current_instance` to verify the active connection. Environment instances
+use `get_current_instance` to verify the active instance. Environment instances
 take precedence over profiles with the same name. The explicit target must have
 a different name from `dataiku-from-code-studio` when both exist. Missing required
 credentials or environment types, unsupported types, and duplicate environment names fail startup.
@@ -258,7 +277,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── jobs.py            # Async job status/log/wait/abort tools
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
-│   │   ├── plugins.py         # Instance plugin listing, updates, and deletion
+│   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
@@ -302,9 +321,12 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .cursor-plugin/
 │   └── plugin.json             # Cursor-native plugin manifest
+├── .github/plugin/
+│   ├── plugin.json             # GitHub Copilot CLI plugin manifest
+│   └── marketplace.json        # GitHub Copilot CLI marketplace
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest
-├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+│   ├── plugin.json             # Codex plugin manifest
+│   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
