@@ -40,6 +40,10 @@ PROJECT_EDIT_TOOLS = EXPECTED_TOOLS_BY_MODULE["cobuild"] | {
     "create_managed_folder",
     "upload_file_to_managed_folder",
     "write_project_library_file",
+    "create_r_recipe",
+    "update_r_recipe",
+    "create_shiny_webapp",
+    "update_shiny_webapp",
 }
 INSTANCE_TOOLS = EXPECTED_TOOLS_BY_MODULE["instances"]
 
