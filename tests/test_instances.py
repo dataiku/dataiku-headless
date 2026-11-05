@@ -19,6 +19,7 @@ import json
 from dataclasses import replace
 
 import pytest
+from requests.exceptions import SSLError
 
 from dataiku_mcp.config import request
 from dataiku_mcp.config.models import DSSInstance
@@ -113,6 +114,7 @@ def test_get_current_instance_reports_the_dataiku_version(monkeypatch):
 
     assert result["dataiku_version"] == "14.7.2"
     assert result["connection_status"] == "connected"
+    assert "error" not in result
     assert client.info_calls == 1
 
 
@@ -138,16 +140,24 @@ def test_get_current_instance_omits_the_dataiku_version_without_credentials(
     assert result["instance_type"] == "design"
 
 
-def test_get_current_instance_reports_failed_connection(monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionError("connection failed"),
+        SSLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate has expired"),
+    ],
+)
+def test_get_current_instance_reports_failed_connection(monkeypatch, error):
     client = _FakeClient({})
 
     def unavailable_instance_info():
-        raise ConnectionError("connection failed")
+        raise error
 
     client.get_instance_info = unavailable_instance_info
     result = _current(monkeypatch, client)
 
     assert result["connection_status"] == "failed"
+    assert result["error"] == str(error)
     assert "dataiku_version" not in result
     assert client.info_calls == 0
 

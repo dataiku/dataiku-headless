@@ -28,7 +28,7 @@ Choose the anchor before building the check.
 
 ## Parity Mechanism
 
-Aggregates are gates, never verdicts. Compare fresh, exhaustive row counts and useful column aggregates against workbook-derived values before the conclusive check. `get_dataset_profile` can truncate at `max_rows`, and `get_dataset_metrics` returns last-computed values; treat either as diagnostic unless its coverage and freshness are verified.
+Aggregates are gates, never verdicts. Compare fresh, exhaustive row counts and useful column aggregates against workbook-derived values before the conclusive check. `get_dataset_profile` can truncate at `max_rows`, and `get_dataset_metrics` is fresh only when its response has `refreshed: true`; treat either as diagnostic unless its coverage and freshness are verified.
 
 Default to a full local export diff. Use in-Dataiku verification instead when the output exceeds a declared local disk or comparison-memory budget, CSV cannot preserve a required distinction, or the verdict must remain in the project. Name the path and reason in the validation plan.
 

@@ -26,6 +26,7 @@ dependencies = [
     "python-dotenv",
     "requests>=2.32",
     "six>=1.17,<2",
+    "truststore>=0.10.5,<0.11",
 ]
 
 [project.urls]

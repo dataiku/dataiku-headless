@@ -8,6 +8,7 @@
 #     "python-dotenv==1.2.2",
 #     "requests==2.34.2",
 #     "six==1.17.0",
+#     "truststore==0.10.5",
 # ]
 # ///
 
@@ -77,6 +78,12 @@ def main() -> None:
     args = parser.parse_args()
 
     load_dotenv(REPO_ROOT / ".env", override=False)
+
+    # Activate system CA trust before importing any networking libraries.
+    # Keep this application-wide SSL patch out of package imports.
+    import truststore
+
+    truststore.inject_into_ssl()
 
     from dataiku_mcp import run_http_server, run_stdio_server
 
