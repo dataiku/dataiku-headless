@@ -32,13 +32,15 @@ def _json(path: str) -> dict:
 
 
 @pytest.mark.parametrize("host", ["claude", "codex", "cortex", "cursor", "github"])
-def test_plugin_identity_is_headless(host):
+def test_plugin_identity_matches_host(host):
     path = (
         ".github/plugin/plugin.json"
         if host == "github"
         else f".{host}-plugin/plugin.json"
     )
-    assert _json(path)["name"] == "headless"
+    assert _json(path)["name"] == (
+        "headless" if host == "claude" else "dataiku-headless"
+    )
 
 
 def test_marketplace_plugin_uses_stdio():
@@ -52,18 +54,38 @@ def test_marketplace_plugin_uses_stdio():
     ]
 
 
-@pytest.mark.parametrize("directory", [".claude-plugin", ".github/plugin"])
-def test_marketplace_entry_matches_plugin_identity(directory):
-    claude = _json(f"{directory}/plugin.json")
+@pytest.mark.parametrize(
+    "directory, manifest_path",
+    [
+        (".claude-plugin", ".claude-plugin/plugin.json"),
+        (".github/plugin", ".github/plugin/plugin.json"),
+        (".cursor-plugin", ".cursor-plugin/plugin.json"),
+        (".agents/plugins", ".codex-plugin/plugin.json"),
+    ],
+)
+def test_marketplace_entry_matches_plugin_identity(directory, manifest_path):
+    manifest = _json(manifest_path)
     marketplace = _json(f"{directory}/marketplace.json")
-
-    entries = [
-        entry for entry in marketplace["plugins"] if entry["name"] == claude["name"]
-    ]
-    assert len(entries) == 1
-    assert entries[0]["source"] == "./"
+    assert len(marketplace["plugins"]) == 1
+    entry = marketplace["plugins"][0]
+    assert entry["name"] == manifest["name"]
+    assert entry["source"] == "./"
+    assert (ROOT / entry["source"]).resolve() == ROOT
+    assert (ROOT / entry["source"] / manifest_path).is_file()
     assert marketplace["name"] == "dataiku"
-    assert marketplace["renames"]["dataiku-headless"] == claude["name"]
+    if directory == ".claude-plugin":
+        assert marketplace["renames"]["dataiku-headless"] == "headless"
+    else:
+        assert "renames" not in marketplace
+
+
+def test_codex_marketplace_declares_installation_and_authentication_policy():
+    entry = _json(".agents/plugins/marketplace.json")["plugins"][0]
+    assert entry["policy"] == {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+    }
+    assert entry["category"] == "developer-tools"
 
 
 def test_public_setup_skill_is_stdio_only():
@@ -128,7 +150,7 @@ def test_copilot_launches_from_an_unrelated_working_directory(tmp_path):
     )
     assert manifest_path == plugin_root / ".github/plugin/plugin.json"
     manifest = json.loads(manifest_path.read_text())
-    assert manifest["name"] == _json(".codex-plugin/plugin.json")["name"]
+    assert manifest["name"] == "dataiku-headless"
     assert (ROOT / manifest["skills"]).is_dir()
     server = manifest["mcpServers"]["dataiku"]
     assert server["command"] == "uv"

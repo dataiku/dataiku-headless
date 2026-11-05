@@ -63,7 +63,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ```bash
 codex plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-codex plugin add headless@dataiku
+codex plugin add dataiku-headless@dataiku
 ```
 
 ### Claude Code CLI
@@ -77,7 +77,7 @@ claude plugin install headless@dataiku
 
 ```bash
 copilot plugin marketplace add dataiku/dataiku-headless
-copilot plugin install headless@dataiku
+copilot plugin install dataiku-headless@dataiku
 ```
 
 ### Grok CLI
@@ -90,7 +90,7 @@ grok plugin install dataiku/dataiku-headless --trust
 
 ```bash
 cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
-# Tip: use /plugins in interactive mode to install the `headless` plugin from this marketplace.
+# Tip: use /plugins in interactive mode to install the `dataiku-headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
@@ -98,6 +98,11 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 ```bash
 cortex plugin install dataiku/dataiku-headless
 ```
+
+Each client uses its own plugin manifest. Codex, Claude Code, Copilot, and Cursor
+also have separate marketplace catalogs. Claude Code
+uses the plugin identifier `headless`; Codex, Cursor, Copilot, and CoCo use
+`dataiku-headless`. CoCo installs directly from Git without a repo marketplace catalog.
 
 ### Other AI assistants
 
@@ -331,10 +336,13 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .cursor-plugin/
-│   └── plugin.json             # Cursor-native plugin manifest
+│   ├── plugin.json             # Cursor-native plugin manifest
+│   └── marketplace.json        # Cursor marketplace catalog
 ├── .github/plugin/
 │   ├── plugin.json             # GitHub Copilot CLI plugin manifest
 │   └── marketplace.json        # GitHub Copilot CLI marketplace
+├── .agents/plugins/
+│   └── marketplace.json        # Codex/ChatGPT marketplace catalog
 ├── .codex-plugin/
 │   ├── plugin.json             # Codex plugin manifest
 │   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest

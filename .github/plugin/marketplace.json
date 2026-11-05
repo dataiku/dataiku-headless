@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "headless",
+      "name": "dataiku-headless",
       "source": "./",
       "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
       "category": "developer-tools"
@@ -13,8 +13,5 @@
   ],
   "metadata": {
     "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets."
-  },
-  "renames": {
-    "dataiku-headless": "headless"
   }
 }
