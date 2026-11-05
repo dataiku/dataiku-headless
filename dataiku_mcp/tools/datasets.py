@@ -36,6 +36,7 @@ from .utils.metrics import compute_report_errors as _compute_report_errors
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
 from .utils.metrics import stale_metric_ids as _stale_metric_ids
+from .utils.metrics import unrefreshed_metric_ids as _unrefreshed_metric_ids
 from .utils.serialization import columnar, compact_json, is_empty
 from .utils.validation import require_non_empty_string as _require_non_empty_string
 from .utils.validation import require_positive_int as _require_positive_int
@@ -882,6 +883,7 @@ async def get_dataset_metrics(
     def _run():
         dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
         result: dict = {"refreshed": False}
+        report = None
         if refresh:
             # Stored values are not a safe default: the built-in record count probe
             # does not recompute on build, so it keeps describing older data.
@@ -901,6 +903,19 @@ async def get_dataset_metrics(
         except Exception as exc:
             result["metrics_warning"] = str(exc)
             return result
+        if result["refreshed"]:
+            expected_ids = (
+                metric_ids_list
+                if metric_ids_list is not None
+                else [metric["metric"]["id"] for metric in result["metrics"]]
+            )
+            unrefreshed = _unrefreshed_metric_ids(report, expected_ids)
+            if unrefreshed:
+                result["refreshed"] = False
+                result["unrefreshed_metric_ids"] = unrefreshed
+                result["refresh_error"] = (
+                    "Some metrics were not recomputed; stored values may be stale."
+                )
         if not result["refreshed"]:
             last_build = dataset.get_info().get_raw().get("lastBuild") or {}
             stale = _stale_metric_ids(

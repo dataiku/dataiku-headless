@@ -81,6 +81,13 @@ def compute_report_errors(report: dict | None) -> list[str]:
     ]
 
 
+def unrefreshed_metric_ids(report: dict | None, metric_ids: list[str]) -> list[str]:
+    """Ids not actually computed, including stored values from disabled probes."""
+    computed = ((report or {}).get("result") or {}).get("computed") or []
+    computed_ids = {metric.get("metricId") for metric in computed}
+    return [metric_id for metric_id in metric_ids if metric_id not in computed_ids]
+
+
 def stale_metric_ids(
     raw_metrics: list[dict[str, Any]], last_build_start: int | None
 ) -> list[str]:

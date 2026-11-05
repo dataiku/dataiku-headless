@@ -51,6 +51,7 @@ Stored metric values are not live. Dataiku's built-in `records:COUNT_RECORDS` me
 
 - Keep the default `refresh=true` when a number feeds a decision, a parity check, or a user answer.
 - Check `refreshed` in the response. When it is `false`, report the value as possibly stale, quote `refresh_error`, and name every id in `stale_metric_ids`. Those values were computed before the last build started.
+- A successful computation can leave stored values untouched, for example when their probes are disabled. `refreshed` is true only when the computation report includes every requested metric (or every returned metric when no ids are specified). `unrefreshed_metric_ids` identifies metrics absent from that report; treat them as possibly stale even if no build has occurred.
 - `refresh=false` reads stored values only. Use it for metric history or when recomputing is too expensive, and say the values may be stale.
 - An empty `stale_metric_ids` after `refresh=false` does not prove freshness. External data can change without a build.
 

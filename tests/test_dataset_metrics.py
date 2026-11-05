@@ -59,7 +59,7 @@ class _Raw:
 class _StaleCountDataset:
     """Holds 250 rows now; its stored record count still says 100."""
 
-    def __init__(self, *, compute_error=None, engine_error=None):
+    def __init__(self, *, compute_error=None, engine_error=None, count_enabled=True):
         self.live_count = "250"
         self.stored = {
             "records:COUNT_RECORDS": _metric(
@@ -69,6 +69,7 @@ class _StaleCountDataset:
         }
         self.compute_error = compute_error
         self.engine_error = engine_error
+        self.count_enabled = count_enabled
         self.compute_calls: list = []
 
     def compute_metrics(self, partition="", metric_ids=None, probes=None):
@@ -76,13 +77,22 @@ class _StaleCountDataset:
         if self.compute_error:
             raise self.compute_error
         runs = [{"engine": "SQL"}]
+        computed = []
         if self.engine_error:
             runs[0]["error"] = {"message": self.engine_error}
         else:
-            self.stored["records:COUNT_RECORDS"] = _metric(
-                "records:COUNT_RECORDS", self.live_count, REFRESH_TIME
-            )
-        return {"hasResult": True, "result": {"computed": [], "runs": runs}}
+            enabled_ids = ["basic:SIZE"]
+            if self.count_enabled:
+                enabled_ids.append("records:COUNT_RECORDS")
+            for metric_id in enabled_ids if metric_ids is None else metric_ids:
+                if metric_id not in self.stored:
+                    continue
+                value = (
+                    self.live_count if metric_id == "records:COUNT_RECORDS" else "4096"
+                )
+                self.stored[metric_id] = _metric(metric_id, value, REFRESH_TIME)
+                computed.append({"metricId": metric_id, "value": value})
+        return {"hasResult": True, "result": {"computed": computed, "runs": runs}}
 
     def get_last_metric_values(self, partition=""):
         return _Raw({"metrics": list(self.stored.values())})
@@ -139,6 +149,19 @@ def test_requested_ids_are_the_ones_recomputed(monkeypatch):
     assert dataset.compute_calls == [["records:COUNT_RECORDS"]]
     assert [m["metric"]["id"] for m in result["metrics"]] == ["records:COUNT_RECORDS"]
     assert _value(result, "records:COUNT_RECORDS") == "250"
+
+
+def test_disabled_probe_does_not_make_its_stored_count_fresh(monkeypatch):
+    dataset = _StaleCountDataset(count_enabled=False)
+
+    result = _get_metrics(monkeypatch, dataset)
+
+    assert dataset.compute_calls == [None]
+    assert result["refreshed"] is False
+    assert result["unrefreshed_metric_ids"] == ["records:COUNT_RECORDS"]
+    assert "refresh_error" in result
+    assert _value(result, "records:COUNT_RECORDS") == "100"
+    assert result["stale_metric_ids"] == ["records:COUNT_RECORDS"]
 
 
 def test_stored_read_flags_values_older_than_the_last_build(monkeypatch):
