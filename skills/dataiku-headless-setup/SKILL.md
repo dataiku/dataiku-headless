@@ -29,12 +29,27 @@ Report completion with the active instance name, URL, and configured type, Datai
 
 ## HTTPS certificate trust
 
-The standard launcher trusts CAs in the operating system certificate store. For
-corporate HTTPS instances, keep **Skip certificate verification** unchecked. If
-verification fails, check that the internal root CA is trusted on the machine or
-container running the MCP server. Do not default to disabling verification.
-Previously saved profiles with verification disabled must be edited, retested,
-and saved with verification enabled.
+The standard launcher trusts CAs in the operating system certificate store. If
+HTTPS verification fails, diagnose the cause before recommending a configuration
+change. Inspect the certificate and chain presented by the Dataiku endpoint for
+hostname mismatches, expired or not-yet-valid certificates, and missing
+intermediate certificates. Consider whether a corporate proxy is presenting its
+own certificate.
+
+When the failure points to an untrusted issuer, inspect the relevant trust
+configuration on the machine or container running the MCP server. If local tools
+or access are unavailable, explain what remains unknown.
+
+Report the finding and a concrete next step: for example, ask the Dataiku
+administrator to renew the certificate or correct its chain, or ask IT to verify
+that the required CA is installed and trusted. Do not install certificates or
+change trust settings without authorization.
+
+If immediate access is needed, explain that **Skip certificate verification** is
+available as a temporary workaround, but is discouraged because it prevents
+reliable server authentication and could expose credentials and data to
+interception. Do not enable it automatically. After the certificate issue is
+resolved, re-enable verification, test, and save the profile.
 
 ## Manage existing instances
 
