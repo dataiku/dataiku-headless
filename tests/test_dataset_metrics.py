@@ -38,7 +38,12 @@ def _metric(metric_id: str, value: str, computed: int) -> dict:
     return {
         "metric": {"id": metric_id},
         "lastValues": [
-            {"computed": computed, "partition": "NP", "dataType": "BIGINT", "value": value}
+            {
+                "computed": computed,
+                "partition": "NP",
+                "dataType": "BIGINT",
+                "value": value,
+            }
         ],
     }
 
@@ -129,9 +134,7 @@ def test_default_recomputes_instead_of_returning_the_stored_count(monkeypatch):
 def test_requested_ids_are_the_ones_recomputed(monkeypatch):
     dataset = _StaleCountDataset()
 
-    result = _get_metrics(
-        monkeypatch, dataset, metric_ids='["records:COUNT_RECORDS"]'
-    )
+    result = _get_metrics(monkeypatch, dataset, metric_ids='["records:COUNT_RECORDS"]')
 
     assert dataset.compute_calls == [["records:COUNT_RECORDS"]]
     assert [m["metric"]["id"] for m in result["metrics"]] == ["records:COUNT_RECORDS"]
