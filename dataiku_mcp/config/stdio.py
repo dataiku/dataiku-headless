@@ -230,6 +230,78 @@ def set_current_instance(instance: DSSInstance) -> None:
     _current_instance = instance
 
 
+def get_profile_config() -> StdioConfig:
+    """Refresh cached profiles and return a detached manager snapshot."""
+    global _config, _current_instance
+    with _settings_lock:
+        config = _load_config()
+        _config = config
+        if _current_instance is not None and _current_instance.source == "config":
+            _current_instance = get_instances().get(_current_instance.name)
+        return config.model_copy(deep=True)
+
+
+def _require_editable_name(name: str) -> None:
+    if any(instance.name == name for instance in _environment_instances):
+        raise ValueError("Environment instances must be changed in their environment.")
+
+
+def save_instance_profile(
+    name: str,
+    instance: StdioDSSInstanceConfig,
+    *,
+    original_name: str | None,
+    expected_instance: StdioDSSInstanceConfig | None,
+    set_default: bool,
+    activate: bool,
+) -> None:
+    """Create or explicitly edit a profile without losing its active/default identity."""
+    global _config, _current_instance
+    with _settings_lock:
+        config = _load_config()
+        _require_editable_name(name)
+        if original_name is not None:
+            _require_editable_name(original_name)
+            if (
+                original_name not in config.dss_instances
+                or config.dss_instances[original_name] != expected_instance
+            ):
+                raise ValueError(
+                    "This instance changed. Reopen the editor and test again."
+                )
+        if name != original_name and name in config.dss_instances:
+            raise ValueError("An instance with this name already exists.")
+        if original_name is not None:
+            del config.dss_instances[original_name]
+        config.dss_instances[name] = instance
+        if set_default:
+            config.default_instance = name
+        elif config.default_instance == original_name:
+            config.default_instance = None
+        was_current = (
+            _current_instance is not None
+            and _current_instance.source == "config"
+            and _current_instance.name == original_name
+        )
+        _save_config(config)
+        _config = config
+        if activate or was_current:
+            _current_instance = instance.to_instance(name)
+
+
+def set_default_instance(name: str) -> None:
+    """Choose the saved profile used at startup when no environment target exists."""
+    global _config
+    with _settings_lock:
+        config = _load_config()
+        _require_editable_name(name)
+        if name not in config.dss_instances:
+            raise ValueError("This saved instance no longer exists. Refresh the list.")
+        config.default_instance = name
+        _save_config(config)
+        _config = config
+
+
 def add_instance_to_config(
     name: str,
     url: str,
@@ -266,16 +338,28 @@ def add_instance_to_config(
         }
 
 
-def delete_instance_from_config(name: str) -> dict:
+def delete_instance_from_config(
+    name: str,
+    *,
+    replacement: str | None = None,
+    expected_instance: StdioDSSInstanceConfig | None = None,
+) -> dict:
     """Remove a profile-file instance and update the active/default selection."""
     global _config, _current_instance
     with _settings_lock:
         config = _load_config()
         instances = config.dss_instances
+        _require_editable_name(name)
         if name not in instances:
             raise ValueError(
                 f"Instance '{name}' not found in config file. Available: {list(instances)}"
             )
+        if expected_instance is not None and instances[name] != expected_instance:
+            raise ValueError("This instance changed. Review it again before deleting.")
+        if replacement is not None:
+            _require_editable_name(replacement)
+            if replacement == name or replacement not in instances:
+                raise ValueError("Choose another saved instance as the replacement.")
 
         was_current = (
             _current_instance is not None
@@ -283,15 +367,19 @@ def delete_instance_from_config(name: str) -> dict:
             and _current_instance.name == name
         )
         instances.pop(name)
+        environment_names = {instance.name for instance in _environment_instances}
         if config.default_instance == name:
-            config.default_instance = next(iter(instances), None)
+            config.default_instance = replacement or next(
+                (name for name in instances if name not in environment_names), None
+            )
         _save_config(config)
         _config = config
         if was_current:
+            next_name = replacement or config.default_instance
+            if next_name in environment_names:
+                next_name = None
             _current_instance = (
-                instances[config.default_instance].to_instance(config.default_instance)
-                if config.default_instance
-                else None
+                instances[next_name].to_instance(next_name) if next_name else None
             )
         return {
             "deleted": name,

@@ -15,6 +15,10 @@
 """Contract tests for the fixed MCP tool surface."""
 
 import asyncio
+import json
+from pathlib import Path
+import re
+import runpy
 from collections import defaultdict
 
 import pytest
@@ -132,10 +136,10 @@ EXPECTED_TOOLS_BY_MODULE = {
         {
             "get_knowledge_bank_settings",
             "get_llm_info",
-            "get_retrieval_augmented_llm_settings",
+            "get_rag_llm_settings",
             "list_knowledge_banks",
             "list_llms",
-            "list_retrieval_augmented_llms",
+            "list_rag_llms",
             "search_knowledge_bank",
         }
     ),
@@ -166,6 +170,8 @@ EXPECTED_TOOLS_BY_MODULE = {
     ),
     "plugins": frozenset(
         {
+            "install_plugin",
+            "ensure_plugin_code_env",
             "delete_plugin",
             "list_plugins",
             "list_plugin_usages",
@@ -213,7 +219,7 @@ EXPECTED_TOOLS_BY_MODULE = {
         }
     ),
     "semantic_models": frozenset(
-        {"get_semantic_model_version_settings", "list_semantic_models"}
+        {"get_semantic_model_version_config", "list_semantic_models"}
     ),
     "users": frozenset({"create_user", "delete_user", "list_users", "update_user"}),
     "webapps": frozenset({"get_webapp_settings", "get_webapp_state", "list_webapps"}),
@@ -234,6 +240,38 @@ def registered_tools_by_module() -> dict[str, frozenset[str]]:
 
 def test_registered_tool_modules_are_fixed(registered_tools_by_module):
     assert registered_tools_by_module.keys() == EXPECTED_TOOLS_BY_MODULE.keys()
+
+
+@pytest.mark.parametrize("distribution", ["stdio", "http"])
+def test_registered_tool_names_fit_bedrock_limit(
+    registered_tools_by_module, tmp_path, distribution
+):
+    root = Path(__file__).resolve().parents[1]
+    if distribution == "http":
+        renderer = runpy.run_path(str(root / "scripts/build_http_plugin.py"))
+        root = renderer["render"](
+            tmp_path / "http-plugin",
+            endpoint="https://mcp.customer.example/mcp",
+            archive=False,
+        )
+    manifest = json.loads((root / ".claude-plugin/plugin.json").read_text())
+    codex = json.loads((root / ".codex-plugin/plugin.json").read_text())
+    bundled_mcp = json.loads((root / codex["mcpServers"]).read_text())
+    servers = bundled_mcp["mcpServers"] | manifest["mcpServers"]
+    full_names = [
+        re.sub(
+            r"[^a-zA-Z0-9_-]",
+            "_",
+            f"mcp__plugin_{manifest['name']}_{server}__{name}",
+        )
+        for server in servers
+        for names in registered_tools_by_module.values()
+        for name in sorted(names)
+    ]
+    overlong_names = {name: len(name) for name in full_names if len(name) > 64}
+    assert not overlong_names, (
+        f"Claude Code tool names exceed Bedrock's 64-character limit: {overlong_names}"
+    )
 
 
 @pytest.mark.parametrize("module", EXPECTED_TOOLS_BY_MODULE)

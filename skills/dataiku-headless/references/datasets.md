@@ -5,6 +5,8 @@ description: Understand and inspect Dataiku datasets, including their storage, s
 
 # Datasets
 
+Dataset inspection, export, and builds are available on `design` and `automation`. New dataset creation, including direct uploads and Cobuild, requires `design`.
+
 Use this guide to understand, inspect, and locally export Dataiku datasets, gather context for Cobuild, and handle the direct Uploaded Files creation exception.
 
 ## Dataset Concepts
@@ -40,8 +42,18 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
 5. In stdio, use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling. It is unavailable in Streamable HTTP because it writes a local CSV. On large datasets this can take a while to run, so prefer the lighter inspection tools unless a full local CSV is truly needed. Use `limit` to bound the export; the tool will not export more than 1,000,000 rows in one call.
-6. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter.
+6. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter. `get_dataset_metrics` recomputes the requested metrics on the current data before it reads them, which needs project write access and scans the data for record counts. See [Metric Freshness](#metric-freshness).
 7. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
+
+## Metric Freshness
+
+Stored metric values are not live. Dataiku's built-in `records:COUNT_RECORDS` metric does not recompute on build by default, so its stored value can describe data from before the latest build. External datasets can also change without any Dataiku build.
+
+- Keep the default `refresh=true` when a number feeds a decision, a parity check, or a user answer.
+- Check `refreshed` in the response. When it is `false`, report the value as possibly stale, quote `refresh_error`, and name every id in `stale_metric_ids`. Those values were computed before the last build started.
+- A successful computation can leave stored values untouched, for example when their probes are disabled. `refreshed` is true only when the computation report includes every requested metric (or every returned metric when no ids are specified). `unrefreshed_metric_ids` identifies metrics absent from that report; treat them as possibly stale even if no build has occurred.
+- `refresh=false` reads stored values only. Use it for metric history or when recomputing is too expensive, and say the values may be stale.
+- An empty `stale_metric_ids` after `refresh=false` does not prove freshness. External data can change without a build.
 
 ## Modification Routing
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataiku-headless"
-version = "0.8.0"
+version = "0.9.0"
 description = "Headless Dataiku agent kit: a FastMCP server for operating Dataiku from an AI agent harness. The companion agent skill library ships via the Claude Code / Codex / Cortex Code plugin, not this package."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,8 @@ dependencies = [
     "pydantic>=2.11,<3",
     "python-dotenv",
     "requests>=2.32",
+    "six>=1.17,<2",
+    "truststore>=0.10.5,<0.11",
 ]
 
 [project.urls]
@@ -70,6 +72,7 @@ update_changelog_on_bump = true
 major_version_zero = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
 version_files = [
+    ".github/plugin/plugin.json",
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     ".cortex-plugin/plugin.json",
