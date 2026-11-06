@@ -60,10 +60,10 @@ def _allowed(tool_name):
     if tool_name in INSTANCE_TOOLS:
         return set(get_args(InstanceType))
     if tool_name in EXPECTED_TOOLS_BY_MODULE["operations"]:
-        return {"deployer", "govern"}
+        return {"deployer", "govern", "agent-management"}
     if tool_name in PROJECT_EDIT_TOOLS:
-        return {"design"}
-    return {"design", "automation"}
+        return {"design", "agent-management"}
+    return {"design", "automation", "agent-management"}
 
 
 def test_every_registered_tool_declares_its_exact_instance_policy():
@@ -126,7 +126,7 @@ def test_mcp_dispatch_denies_every_disallowed_tool_before_validation_or_sdk(
     asyncio.run(dispatch())
 
 
-@pytest.mark.parametrize("instance_type", ["design", "automation"])
+@pytest.mark.parametrize("instance_type", ["design", "automation", "agent-management"])
 def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
     monkeypatch.setattr(stdio, "_current_instance", _instance(instance_type))
     calls = []
@@ -152,26 +152,6 @@ def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
 
     asyncio.run(dispatch())
     assert calls == [instance_type]
-
-
-@pytest.mark.parametrize("instance_type", ["agent-management"])
-def test_mcp_unsupported_status_needs_no_client(monkeypatch, instance_type):
-    from dataiku_mcp.tools import instances
-
-    monkeypatch.setattr(stdio, "_current_instance", _instance(instance_type))
-    monkeypatch.setattr(
-        instances, "get_dss_client", lambda: pytest.fail("No SDK call is allowed")
-    )
-
-    async def dispatch():
-        async with Client(mcp) as client:
-            result = await client.call_tool("get_current_instance", {})
-            data = json.loads(result.content[0].text)
-            assert data["connection_status"] == "unsupported"
-            assert "dataiku_version" not in data
-            assert "private-key" not in result.content[0].text
-
-    asyncio.run(dispatch())
 
 
 @pytest.mark.parametrize(

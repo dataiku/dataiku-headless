@@ -170,7 +170,7 @@ def _post_setup_form(url: str, form: dict[str, str]) -> tuple[int, str]:
 
 
 @pytest.mark.parametrize(
-    "instance_type", ["design", "automation", "deployer", "govern"]
+    "instance_type", ["design", "automation", "deployer", "govern", "agent-management"]
 )
 def test_setup_server_requires_a_successful_test_before_saving(
     monkeypatch, instance_type
@@ -237,48 +237,7 @@ def test_setup_server_invalidates_a_test_when_connection_settings_change(
     )
 
 
-@pytest.mark.parametrize("instance_type", ["agent-management"])
-def test_unsupported_profile_can_be_saved_after_unavailable_test(
-    monkeypatch, instance_type
-):
-    saved = []
-    monkeypatch.setattr(
-        setup_server.dataikuapi,
-        "DSSClient",
-        lambda *args: pytest.fail(
-            "Unsupported profiles must not construct a DSS client"
-        ),
-    )
-    monkeypatch.setattr(
-        setup_server.stdio,
-        "add_instance_to_config",
-        lambda **values: (
-            saved.append(values)
-            or {"name": values["name"], "instance_type": values["instance_type"]}
-        ),
-    )
-    monkeypatch.setattr(setup_server.request, "set_current_instance", lambda name: None)
-    session = setup_server.start_setup_server(open_browser=False)
-    form = {
-        "name": instance_type,
-        "url": "https://example.com",
-        "api_key": "secret",
-        "instance_type": instance_type,
-    }
-    try:
-        status, page = _post_setup_form(session.url, {**form, "action": "test"})
-        assert status == 400
-        assert f"Connection testing is unavailable for {instance_type}" in page
-        assert session.validated_connection is None
-        status, page = _post_setup_form(session.url, {**form, "action": "save"})
-        assert status == 200
-        assert "Instance saved" in page
-        assert saved[0]["instance_type"] == instance_type
-    finally:
-        session.close()
-
-
-@pytest.mark.parametrize("instance_type", ["design", "deployer"])
+@pytest.mark.parametrize("instance_type", ["design", "deployer", "agent-management"])
 def test_supported_connection_test_uses_dss_client(monkeypatch, instance_type):
     calls = []
 
