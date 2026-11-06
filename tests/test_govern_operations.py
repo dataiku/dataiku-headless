@@ -298,30 +298,77 @@ def test_search_pages_all_operations_without_increasing_tool_catalog(monkeypatch
     )
 
 
-def test_govern_sdk_failure_is_sanitized_without_retry(monkeypatch):
+def _govern_failure(monkeypatch, client, operation_id, arguments, tool):
     monkeypatch.setattr(stdio, "_current_instance", _instance("govern"))
+    monkeypatch.setattr(govern, "get_govern_client", lambda: client)
+
+    async def run():
+        async with Client(mcp) as mcp_client:
+            result = await mcp_client.call_tool(
+                tool,
+                {"operation_id": operation_id, "arguments": arguments},
+                raise_on_error=False,
+            )
+            assert result.is_error
+            return result.content[0].text
+
+    return asyncio.run(run())
+
+
+def test_govern_read_failure_returns_server_message_without_retry(monkeypatch):
     calls = []
 
     def fail():
         calls.append(1)
-        raise DataikuException(SECRET)
+        raise DataikuException(
+            "com.dataiku.dip.server.controllers.NotFoundException: Artifact not found: ar.16"
+        )
 
-    monkeypatch.setattr(
-        govern, "get_govern_client", lambda: SimpleNamespace(get_instance_info=fail)
+    text = _govern_failure(
+        monkeypatch,
+        SimpleNamespace(get_instance_info=fail),
+        "govern.get_instance_info",
+        {},
+        "run_read_operation",
     )
-
-    async def run():
-        async with Client(mcp) as client:
-            result = await client.call_tool(
-                "run_read_operation",
-                {"operation_id": "govern.get_instance_info", "arguments": {}},
-                raise_on_error=False,
-            )
-            assert result.is_error
-            assert SECRET not in result.content[0].text
-
-    asyncio.run(run())
+    assert "Govern request failed: Artifact not found: ar.16" in text
+    assert "NotFoundException" not in text
+    assert "Re-read" not in text
     assert len(calls) == 1
+
+
+def test_govern_long_failure_message_is_truncated(monkeypatch):
+    def fail():
+        raise DataikuException("x" * (govern.ERROR_MESSAGE_MAX_CHARS + 500))
+
+    text = _govern_failure(
+        monkeypatch,
+        SimpleNamespace(get_instance_info=fail),
+        "govern.get_instance_info",
+        {},
+        "run_read_operation",
+    )
+    assert "x" * govern.ERROR_MESSAGE_MAX_CHARS + " [truncated]" in text
+    assert "x" * (govern.ERROR_MESSAGE_MAX_CHARS + 1) not in text
+
+
+def test_govern_write_failure_asks_to_reread(monkeypatch):
+    class Artifact:
+        def delete(self):
+            raise DataikuException(
+                "com.dataiku.gh.core.services.validation.errors.ValidationException: "
+                "Artifact is locked"
+            )
+
+    text = _govern_failure(
+        monkeypatch,
+        SimpleNamespace(get_artifact=lambda artifact_id: Artifact()),
+        "govern.delete_artifact",
+        {"artifact_id": "ar.1"},
+        "run_write_operation",
+    )
+    assert "Govern request failed: Artifact is locked" in text
+    assert "Re-read the affected object before retrying" in text
 
 
 def test_govern_catalog_covers_expected_actions_without_new_mcp_tools():

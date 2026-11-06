@@ -41,6 +41,7 @@ from dataikuapi.govern.artifact_search import (
 from dataikuapi.utils import DataikuException
 from requests import RequestException
 from pydantic import BaseModel
+from .utils.errors import dataiku_message
 from .utils.redaction import redact_sensitive_data
 
 from ..auth import get_govern_client
@@ -61,6 +62,8 @@ DOMAINS = (
 )
 
 _CHUNK_SIZE = 1024 * 1024
+# Govern messages are shown to the agent; the cap bounds hook tracebacks and HTML error pages.
+ERROR_MESSAGE_MAX_CHARS = 1000
 
 
 @dataclass(frozen=True)
@@ -1856,10 +1859,14 @@ def operation_handler(spec: GovernOperation):
             client = get_govern_client()
             try:
                 return redact_sensitive_data(spec.run(client, params))
-            except (DataikuException, RequestException):
-                raise RuntimeError(
-                    "Govern request failed. Check permissions, backend version and IDs. For a write, re-read the affected object before retrying; it may have reached Govern."
-                ) from None
+            except (DataikuException, RequestException) as err:
+                message = dataiku_message(err)
+                if len(message) > ERROR_MESSAGE_MAX_CHARS:
+                    message = message[:ERROR_MESSAGE_MAX_CHARS] + " [truncated]"
+                text = f"Govern request failed: {message}"
+                if spec.kind != "read":
+                    text += "\nRe-read the affected object before retrying; the write may have reached Govern."
+                raise RuntimeError(text) from None
 
         return compact_json(await run_blocking(_run))
 
