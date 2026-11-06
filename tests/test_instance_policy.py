@@ -60,7 +60,7 @@ def _allowed(tool_name):
     if tool_name in INSTANCE_TOOLS:
         return set(get_args(InstanceType))
     if tool_name in EXPECTED_TOOLS_BY_MODULE["operations"]:
-        return {"deployer"}
+        return {"deployer", "govern"}
     if tool_name in PROJECT_EDIT_TOOLS:
         return {"design"}
     return {"design", "automation"}
@@ -154,7 +154,7 @@ def test_mcp_allowed_read_and_recovery_after_denial(monkeypatch, instance_type):
     assert calls == [instance_type]
 
 
-@pytest.mark.parametrize("instance_type", ["govern", "agent-management"])
+@pytest.mark.parametrize("instance_type", ["agent-management"])
 def test_mcp_unsupported_status_needs_no_client(monkeypatch, instance_type):
     from dataiku_mcp.tools import instances
 
