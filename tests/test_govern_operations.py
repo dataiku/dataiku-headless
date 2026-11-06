@@ -210,6 +210,59 @@ def test_govern_artifact_field_merge_uses_real_sdk_and_preserves_definition(
     ]
 
 
+@pytest.mark.parametrize(
+    ("arguments", "path", "statuses"),
+    [
+        ({}, "/blueprint/bp.example/versions", ["ACTIVE"]),
+        (
+            {"include_drafts": True},
+            "/admin/blueprint/bp.example/versions",
+            ["DRAFT", "ACTIVE"],
+        ),
+    ],
+)
+def test_govern_list_blueprint_versions_finds_drafts_only_with_designer_listing(
+    monkeypatch, arguments, path, statuses
+):
+    monkeypatch.setattr(stdio, "_current_instance", _instance("govern"))
+    client = dataikuapi.GovernClient("https://govern.example", api_key="placeholder")
+
+    def version(version_id, status):
+        return {
+            "blueprintVersion": {
+                "id": {"blueprintId": "bp.example", "versionId": version_id}
+            },
+            "blueprintVersionTrace": {"status": status},
+        }
+
+    versions = {
+        "/blueprint/bp.example/versions": [version("bv.live", "ACTIVE")],
+        "/admin/blueprint/bp.example/versions": [
+            version("bv.draft", "DRAFT"),
+            version("bv.live", "ACTIVE"),
+        ],
+    }
+    calls = []
+
+    def perform(method, called_path, **kwargs):
+        calls.append((method, called_path))
+        return copy.deepcopy(versions[called_path])
+
+    monkeypatch.setattr(client, "_perform_json", perform)
+    monkeypatch.setattr(govern, "get_govern_client", lambda: client)
+    result = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="govern.list_blueprint_versions",
+            arguments={"blueprint_id": "bp.example", **arguments},
+        )
+    )
+    assert calls == [("GET", path)]
+    assert [
+        item["blueprintVersionTrace"]["status"] for item in result["result"]
+    ] == statuses
+
+
 def test_govern_decision_defaults_do_not_send_notifications(monkeypatch):
     monkeypatch.setattr(stdio, "_current_instance", _instance("govern"))
     captured = {}

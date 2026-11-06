@@ -59,7 +59,8 @@ licensing blocker, not as a tool gap.
    are not in context. Never guess an operation ID.
 2. Discover identifiers through `list_blueprints`, `list_blueprint_versions`,
    `search_artifacts`, `list_roles`, `list_custom_pages`, `list_users`, and
-   `list_groups`. Do not invent IDs.
+   `list_groups`. Do not invent IDs. `list_blueprint_versions` returns DRAFT
+   versions only with `include_drafts: true`.
 3. Read the full target before changing it: `get_artifact`,
    `get_blueprint_version`, `get_signoff`, `get_role`, `get_custom_page_definition`.
 4. Run the write with the exact operation_id and arguments. Update operations

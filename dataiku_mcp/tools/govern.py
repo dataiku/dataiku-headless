@@ -815,15 +815,23 @@ def _get_blueprint(client, p):
     "list_blueprint_versions",
     domain="blueprints",
     kind="read",
-    description="List the versions of a blueprint with their status.",
-    sdk="GovernBlueprint.list_versions",
-    params=(BLUEPRINT_ID,),
+    description="List the versions of a blueprint with their status. Set include_drafts to also list DRAFT versions.",
+    sdk="GovernBlueprint.list_versions, GovernAdminBlueprint.list_versions",
+    params=(
+        BLUEPRINT_ID,
+        _p(
+            "include_drafts",
+            "boolean",
+            "Use the blueprint designer listing, which also returns DRAFT versions. Needs blueprint designer rights.",
+        ),
+    ),
 )
 def _list_blueprint_versions(client, p):
-    return [
-        item.get_raw()
-        for item in client.get_blueprint(p["blueprint_id"]).list_versions()
-    ]
+    if p.get("include_drafts"):
+        blueprint = _admin_blueprint(client, p)
+    else:
+        blueprint = client.get_blueprint(p["blueprint_id"])
+    return [item.get_raw() for item in blueprint.list_versions()]
 
 
 @_register(
