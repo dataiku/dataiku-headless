@@ -125,6 +125,12 @@ class _FakeProject:
     def get_scenario(self, scenario_id: str) -> _FakeScenario:
         return self.scenarios[scenario_id]
 
+    def list_scenarios(self) -> list[dict]:
+        return [
+            {"id": scenario.id, "name": scenario.definition["name"]}
+            for scenario in self.scenarios.values()
+        ]
+
 
 class _FakeClient:
     def __init__(self, project: _FakeProject):
@@ -203,6 +209,17 @@ def test_create_makes_an_inactive_trigger_free_python_scenario(monkeypatch):
         "trigger_count": 0,
     }
     assert project.scenarios["NIGHTLY_CHECK"].script == SCRIPT
+
+
+def test_create_refuses_a_name_already_used(monkeypatch):
+    """A retried call must not leave a second scenario holding the sample script."""
+    project = _install(monkeypatch)
+    _existing(project)
+
+    with pytest.raises(ValueError, match=r"named 'Weekly refresh' \(id 'WEEKLY'\)"):
+        _create(name="Weekly refresh")
+
+    assert project.create_calls == []
 
 
 def test_refused_create_propagates_and_creates_nothing(monkeypatch):

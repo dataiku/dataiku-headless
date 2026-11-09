@@ -7,19 +7,19 @@ its object-specific references as directed.
 
 ## The rule
 
-**Flow and analytic logic is always built by Cobuild.** Headless has no tool to create
+**Flow and analytic logic is built by Cobuild, with one exception.** Headless has no tool to create
 or change recipe logic, code, inputs, or outputs, or to create or modify the definition
 of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki article,
 data quality rule, knowledge bank, semantic model, or evaluation store. The container
 execution override below changes only which container an existing object runs in.
-Python-script scenarios are the one scenario exception: Cobuild creates only step-based
-scenarios and cannot edit a scenario's script, so Headless creates them and replaces
-their script directly.
+Python-script scenarios are that exception: Cobuild creates only step-based scenarios
+and cannot edit a scenario's script, so Headless creates them and replaces their script
+directly.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
 configuration**, **cross-project**, and **instance-level administration**. It also
-re-runs assets that already exist. Some bootstrap writes do land inside a project —
+authors Python-script scenarios, the exception above, and re-runs assets that already exist. Some bootstrap writes do land inside a project —
 see the table below.
 Local profile actions are listed separately because they only change which Dataiku
 instance the local client targets.
@@ -134,8 +134,9 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
-The **in-project** writes above configure or supply a project; they do not build its
-analytic logic. None of them build recipe logic, a model, or an agent.
+Except for Python-script scenarios, the **in-project** writes above configure or supply
+a project; they do not build its analytic logic. None of them build recipe logic, a
+model, or an agent.
 
 The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
 explains how to write, test, and package plugins locally with the agent's file and

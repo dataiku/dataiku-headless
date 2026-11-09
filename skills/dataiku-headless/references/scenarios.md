@@ -48,13 +48,13 @@ When describing automation to Cobuild, state the intended trigger, work sequence
 
 Create a Python-script scenario only when the user explicitly asks for one or for scripted automation. Otherwise describe a step-based scenario to Cobuild.
 
-1. Use `list_scenarios` to check that no scenario already has the intended name. Dataiku derives the `scenario_id` from the name and does not reject a duplicate name.
+1. Use `list_scenarios` to choose a name no scenario uses. `create_python_scenario` refuses a name already in use and returns that scenario's id.
 2. Write the complete script. Use the `dataiku.scenario` API for builds and other work, and limit side effects to what the user asked for.
-3. Call `create_python_scenario`. It creates the scenario inactive and without triggers, saves the script, and confirms it by reading it back. Keep the returned `scenario_id`.
+3. Call `create_python_scenario`. It creates the scenario inactive and without triggers, saves the script, and confirms it by reading it back. Keep the returned `scenario_id`, which Dataiku derives from the name.
 4. If the status is `python_scenario_script_unconfirmed`, the scenario exists but may still hold Dataiku's sample script. Do not run it. Call `set_python_scenario_script` with the returned `scenario_id` and the same script; do not create the scenario again.
 5. To change an existing script, read it with `get_scenario_settings`, which returns the `script` of a Python-script scenario. Then call `set_python_scenario_script` with the complete new script. It replaces the whole script and keeps the name, triggers, reporters, activation, and other settings.
 6. Confirm the saved script with `get_scenario_settings`. Run the scenario only when the user asks, with `run_scenario`, and check the outcome with `get_scenario_run_history`.
-7. Route trigger, reporter, and activation changes through `./cobuild.md`, as for any scenario. These tools do not change the scenario's Python code environment; it uses the inherited default.
+7. Route trigger, reporter, and activation changes through `./cobuild.md`, as for any scenario. These tools do not change a scenario's Python code environment; a created scenario uses the inherited default.
 
 ## Scenario Run Identification
 

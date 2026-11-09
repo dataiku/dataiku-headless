@@ -221,11 +221,24 @@ async def create_python_scenario(
     """Create a scenario defined by a Python script, inactive and without triggers."""
     project_key = _require_non_empty_string(project_key, "project_key")
     name = _require_non_empty_string(name, "name")
+    # Validate only: the script is saved exactly as given.
     _require_non_empty_string(script, "script")
     await ctx.info(f"Creating Python scenario '{name}' in {project_key}...")
 
     def _run():
         project = get_dss_client().get_project(project_key)
+        # Dataiku accepts duplicate names, so a retried call would otherwise
+        # leave a second scenario holding Dataiku's sample script.
+        existing = next(
+            (item for item in project.list_scenarios() if item.get("name") == name),
+            None,
+        )
+        if existing is not None:
+            raise ValueError(
+                f"Project '{project_key}' already has a scenario named '{name}' "
+                f"(id '{existing.get('id')}'). Choose another name, or use "
+                "set_python_scenario_script to change that scenario's script"
+            )
         try:
             scenario = project.create_scenario(
                 name,
@@ -300,6 +313,7 @@ async def set_python_scenario_script(
     """Replace the script of an existing Python-script scenario, keeping its settings."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
+    # Validate only: the script is saved exactly as given.
     _require_non_empty_string(script, "script")
     await ctx.info(f"Saving the script of scenario {scenario_id} in {project_key}...")
 
