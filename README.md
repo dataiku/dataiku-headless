@@ -134,7 +134,7 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in or which code environment an existing Python recipe uses, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 ## Capability reference
 
@@ -304,7 +304,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── webapps.py         # WebApp/backend-state inspection tools
 │   │   ├── wikis.py           # Wiki article inspection tools
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
-│   │   ├── recipes.py         # Recipe inspection tools
+│   │   ├── recipes.py         # Recipe inspection and Python code-env selection
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
 │   │   └── utils/             # Tool validation and response-shaping utilities
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing

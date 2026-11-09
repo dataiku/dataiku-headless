@@ -25,7 +25,7 @@ Matching a workload's language does not establish package or runtime compatibili
 6. Create only managed Design-node `PYTHON` or `R` environments. Package-spec changes are also limited to managed Design-node environments; permissions, build targets, and rebuilds can be updated on other environment types.
 7. Requested-package changes automatically update the local environment and rebuild images. Container or Spark Kubernetes target changes rebuild images. Use `force_rebuild=true` only when a clean local environment rebuild is intended; it does not rebuild images by itself.
 8. Use `delete_code_env` when deletion is requested. It checks Dataiku usages first and returns any blocking PROJECT, NOTEBOOK, SCENARIO_STEP, or other usage records with remediation guidance; do not infer that deletion succeeded until `deleted` is true.
-9. Route recipe, ML analysis, and code-agent environment selection changes through `../cobuild.md`.
+9. To select the environment of an existing Python recipe, use `set_recipe_code_env` as described in `../recipes.md`. Route other recipe, ML analysis, and code-agent environment selection changes through `../cobuild.md`.
 
 ## Permissions
 

@@ -21,6 +21,6 @@ Read this reference only after the user explicitly requests a code-based transfo
 ## Selection Notes
 
 - Inspect existing code before requesting a change to an existing Code recipe.
-- Select a code environment from discovered names only when explicit environment selection is needed.
+- Select a code environment from discovered names only when explicit environment selection is needed. For an existing Python recipe, change the selection with `set_recipe_code_env` as described in `../../recipes.md`.
 - Use project-library context when the recipe depends on shared source files.
 - For SQL, inspect dataset and storage context before describing the intended query behavior.

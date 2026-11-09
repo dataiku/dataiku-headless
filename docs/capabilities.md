@@ -11,7 +11,9 @@ its object-specific references as directed.
 or change recipe logic, code, inputs, or outputs, or to create or modify the definition
 of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki article,
 data quality rule, knowledge bank, semantic model, or evaluation store. The container
-execution override below changes only which container an existing object runs in.
+execution override below changes only which container an existing object runs in, and
+the Python recipe code-environment selection changes only which environment an existing
+Python recipe runs with.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
@@ -37,8 +39,8 @@ Dataiku permissions and API availability still apply to permitted calls.
 
 Automation excludes all six Cobuild tools, even conversation listing and polling,
 and `create_project`, `update_project_settings`, `set_project_variables`,
-`set_container_exec_config`, `create_upload_dataset`, `create_managed_folder`,
-`upload_file_to_managed_folder`, `write_project_library_file`.
+`set_container_exec_config`, `set_recipe_code_env`, `create_upload_dataset`,
+`create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`.
 It permits `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, metric
 recomputation through `get_dataset_metrics`, and every
 project-folder operation, including creation, deletion, and moving projects.
@@ -56,13 +58,13 @@ test. Design and Automation require a successful DSS connection test in local se
 
 ## Surface
 
-**131 tools** · 93 read · 24 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**132 tools** · 93 read · 25 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
+| Direct Dataiku write | 25 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 5 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -74,14 +76,15 @@ bucket here.
 
 ## Built by Cobuild — limited direct exceptions
 
-Three partial exceptions: Headless can create a dataset from a local file, create an
-empty managed folder, and select container execution for an existing object (see
-*Handled directly by Headless*). It cannot build or change analytic logic here.
+Four partial exceptions: Headless can create a dataset from a local file, create an
+empty managed folder, select container execution for an existing object, and select the
+code environment of an existing Python recipe (see *Handled directly by Headless*). It
+cannot build or change analytic logic here.
 
 | Area | Inspect | Direct action |
 |---|---|---|
 | Datasets | `list_datasets`, `get_dataset_info`, `get_dataset_sample`, `get_dataset_profile`, `get_dataset_metrics`, `get_dataset_column_descriptions`, `export_dataset` | `build_datasets` |
-| Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `run_recipe` |
+| Recipes | `list_recipes`, `get_recipe_settings` | `set_container_exec_config`, `set_recipe_code_env` (Python recipes), `run_recipe` |
 | Flow & zones | `get_flow_graph`, `list_flow_zones`, `get_flow_object_metadata` | — |
 | ML analyses | `list_ml_analyses`, `get_ml_analysis_summary`, `get_ml_analysis_settings`, `list_ml_analysis_models`, `get_ml_model_details` | `set_container_exec_config` (single-ML-task analyses) |
 | Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
@@ -115,6 +118,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
+| Python recipe code environment | `get_recipe_settings`, `list_code_envs` | `set_recipe_code_env` | Project configuration, **in-project** — selects the inherited, an explicit, or the built-in environment for one existing Python recipe. Its code, inputs, outputs, and other settings are unchanged. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |

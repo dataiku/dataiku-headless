@@ -12,19 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Recipe inspection tools."""
+"""Recipe inspection tools and Python recipe code-environment selection."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context
+from pydantic import Field
 
-from ..instance_policy import PROJECT_READ_POLICY
+from ..instance_policy import PROJECT_EDIT_POLICY, PROJECT_READ_POLICY
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.serialization import columnar, compact_json
+from .utils.validation import require_non_empty_string
+
+PythonEnvMode = Literal["INHERIT", "EXPLICIT_ENV", "USE_BUILTIN_MODE"]
+PythonEnvName = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Python environment name from list_code_envs, copied exactly; "
+            "only with env_mode='EXPLICIT_ENV'."
+        )
+    ),
+]
 
 CODE_RECIPE_TYPES = {
     "python",
@@ -112,6 +125,40 @@ def _settings_view(settings, include_engine_params: bool = False) -> dict:
     return result
 
 
+def _python_env_selection(settings, recipe_name: str) -> dict:
+    """Return the live code-environment selection of one Python recipe.
+
+    The selection is a reference into the settings, so replacing it in the
+    params and calling ``settings.save()`` writes back only the environment
+    choice; the code, inputs, outputs, and other params are saved unchanged.
+    """
+    recipe_type = _get_recipe_type(settings)
+    if recipe_type != "python":
+        raise ValueError(
+            f"Recipe '{recipe_name}' is a '{recipe_type}' recipe; only Python "
+            "recipes are supported"
+        )
+    params = settings.get_recipe_params()
+    selection = params.get("envSelection") if isinstance(params, dict) else None
+    if not isinstance(selection, dict):
+        raise ValueError(
+            f"Recipe '{recipe_name}' does not expose a code environment selection"
+        )
+    return selection
+
+
+def _require_python_env(client, env_name: str) -> None:
+    """Refuse an unknown name, which Dataiku can store and only reject at run time."""
+    if not any(
+        env.get("envName") == env_name and env.get("envLang") == "PYTHON"
+        for env in client.list_code_envs()
+    ):
+        raise ValueError(
+            f"No Python code environment named '{env_name}'. Use "
+            "list_code_envs(language='PYTHON') and copy a returned name exactly"
+        )
+
+
 @mcp.tool(
     meta=PROJECT_READ_POLICY,
     title="List Recipes",
@@ -160,5 +207,55 @@ async def get_recipe_settings(
         return _settings_view(
             recipe.get_settings(), include_engine_params=include_engine_params
         )
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
+    title="Set Recipe Code Environment",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def set_recipe_code_env(
+    project_key: str,
+    recipe_name: str,
+    env_mode: PythonEnvMode,
+    ctx: Context,
+    env_name: PythonEnvName = None,
+) -> str:
+    """Select which code environment one existing Python recipe runs with."""
+    project_key = require_non_empty_string(project_key, "project_key")
+    recipe_name = require_non_empty_string(recipe_name, "recipe_name")
+    if env_mode == "EXPLICIT_ENV":
+        env_name = require_non_empty_string(env_name, "env_name")
+        selection = {"envMode": env_mode, "envName": env_name}
+    elif env_name is not None:
+        raise ValueError("'env_name' is only valid with env_mode='EXPLICIT_ENV'")
+    else:
+        selection = {"envMode": env_mode}
+    await ctx.info(
+        f"Setting the code environment of recipe '{recipe_name}' in {project_key}..."
+    )
+
+    def _run():
+        client = get_dss_client()
+        recipe = client.get_project(project_key).get_recipe(recipe_name)
+        settings = recipe.get_settings()
+        previous = dict(_python_env_selection(settings, recipe_name))
+        if env_mode == "EXPLICIT_ENV":
+            _require_python_env(client, env_name)
+        settings.get_recipe_params()["envSelection"] = selection
+        settings.save()
+        return {
+            "project_key": project_key,
+            "recipe_name": recipe_name,
+            "previous_env_selection": previous,
+            "env_selection": _python_env_selection(recipe.get_settings(), recipe_name),
+        }
 
     return compact_json(await run_blocking(_run))

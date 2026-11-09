@@ -208,7 +208,9 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_project_settings",
         }
     ),
-    "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
+    "recipes": frozenset(
+        {"get_recipe_settings", "list_recipes", "set_recipe_code_env"}
+    ),
     "scenarios": frozenset(
         {
             "get_scenario_run_history",

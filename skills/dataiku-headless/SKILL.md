@@ -30,7 +30,8 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 Automation excludes all Cobuild tools, including conversation listing and polling,
 and project creation, project settings/variables updates, container placement,
-dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
+recipe code-environment selection, dataset/folder creation, file upload, and library
+writes. Builds, recipe/scenario
 runs, and job aborts remain available and can change outputs. For project
 construction or edits, ask which Design instance to use and
 switch to it; do not bypass the policy through raw APIs.
@@ -64,6 +65,7 @@ unsupported calls fail before execution.
 | Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
 | Inspect recipes, choose a recipe family, or ground a flow transformation | `./references/recipes.md` |
 | Select which container one existing recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in | `./references/container-execution.md` |
+| Select which code environment one existing Python recipe runs with | `./references/recipes.md` |
 | Run an existing dataset or recipe, or track jobs, waits, and logs | `./references/jobs.md` |
 | Inspect managed folders, create one on a chosen connection, or upload a user-supplied local file into one | `./references/managed_folders.md` |
 | Inspect the project library or write one user-supplied local source file | `./references/project-libraries.md` |
