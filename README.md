@@ -134,7 +134,7 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, Python-script scenario authoring that Cobuild does not support, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 ## Capability reference
 
@@ -296,7 +296,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
-│   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
+│   │   ├── scenarios.py       # Scenario inspection, runs, and Python-script scenarios
 │   │   ├── semantic_models.py # Semantic model inspection tools
 │   │   ├── groups.py          # Instance group administration tools
 │   │   ├── licensing.py       # Instance licensing status inspection tool

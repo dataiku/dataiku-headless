@@ -12,17 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Scenario inspection and execution tools for Dataiku."""
+"""Scenario inspection, execution, and Python-script scenario authoring tools."""
 
 import asyncio
 import time
 from typing import Annotated
 
+from dataikuapi.utils import DataikuException
 from fastmcp import Context
 from pydantic import Field
 
 from ..instance_policy import (
     ADMIN_POLICY,
+    PROJECT_EDIT_POLICY,
     PROJECT_EXECUTION_POLICY,
     PROJECT_READ_POLICY,
 )
@@ -41,6 +43,42 @@ SCENARIO_POLL_INTERVAL_SECONDS = 2
 # Dataiku creates a scenario run asynchronously after firing its trigger.
 SCENARIO_RUN_ID_RESOLVE_BUDGET_SECONDS = 4
 MAX_SCENARIO_WAIT_SECONDS = 3600
+
+PythonScript = Annotated[
+    str, Field(description="Complete Python source; replaces the whole script.")
+]
+
+
+def _python_scenario_settings(scenario, scenario_id: str):
+    """Read one scenario's settings, refusing a scenario without a Python script."""
+    settings = scenario.get_settings()
+    scenario_type = settings.get_raw().get("type")
+    if scenario_type != "custom_python":
+        raise ValueError(
+            f"Scenario '{scenario_id}' is a '{scenario_type}' scenario; only "
+            "Python-script (custom_python) scenarios have a script"
+        )
+    return settings
+
+
+def _save_script(settings, script: str) -> None:
+    # The SDK saves the definition before the script. That definition save runs
+    # Dataiku's code-permission and license checks, which the script endpoint
+    # alone does not, so a refused caller never reaches the script write.
+    settings.code = script
+    settings.save()
+
+
+def _python_scenario_summary(project_key: str, settings) -> dict:
+    raw = settings.get_raw()
+    return {
+        "project_key": project_key,
+        "scenario_id": raw.get("id"),
+        "name": raw.get("name"),
+        "type": raw.get("type"),
+        "active": raw.get("active", False),
+        "trigger_count": len(raw.get("triggers") or []),
+    }
 
 
 async def _resolve_scenario_run_id(trigger_fire, budget_seconds: int):
@@ -148,21 +186,135 @@ async def get_scenario_settings(
     scenario_id: str,
     ctx: Context,
 ) -> str:
-    """Read what a scenario does, on what trigger, and who it reports to."""
+    """Read a scenario's steps or Python script, its triggers, and who it reports to."""
     project_key = _require_non_empty_string(project_key, "project_key")
     scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
     await ctx.info(f"Fetching settings for scenario {scenario_id} in {project_key}...")
 
-    raw = await run_blocking(
-        lambda: (
-            get_dss_client()
-            .get_project(project_key)
-            .get_scenario(scenario_id)
-            .get_settings()
-            .get_raw()
-        )
-    )
-    return compact_json(raw)
+    def _run():
+        scenario = get_dss_client().get_project(project_key).get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        raw = settings.get_raw()
+        if raw.get("type") == "custom_python":
+            return {**raw, "script": settings.code}
+        return raw
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
+    title="Create Python Scenario",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def create_python_scenario(
+    project_key: str,
+    name: str,
+    script: PythonScript,
+    ctx: Context,
+) -> str:
+    """Create a scenario defined by a Python script, inactive and without triggers."""
+    project_key = _require_non_empty_string(project_key, "project_key")
+    name = _require_non_empty_string(name, "name")
+    _require_non_empty_string(script, "script")
+    await ctx.info(f"Creating Python scenario '{name}' in {project_key}...")
+
+    def _run():
+        project = get_dss_client().get_project(project_key)
+        try:
+            scenario = project.create_scenario(
+                name,
+                "custom_python",
+                definition={
+                    "params": {},
+                    "active": False,
+                    "triggers": [],
+                    "reporters": [],
+                },
+            )
+        except DataikuException:
+            # Dataiku answered and refused, so nothing was created.
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Dataiku did not confirm creating scenario '{name}'. Check "
+                "list_scenarios before retrying because the request may have "
+                "reached Dataiku."
+            ) from exc
+
+        # Dataiku creates the scenario with a sample script, so until the real
+        # script is confirmed the result must say the scenario is not ready.
+        error = None
+        try:
+            _save_script(_python_scenario_settings(scenario, scenario.id), script)
+            saved = _python_scenario_settings(scenario, scenario.id)
+            if saved.code == script:
+                return {
+                    "status": "python_scenario_created",
+                    **_python_scenario_summary(project_key, saved),
+                }
+        except Exception as exc:
+            error = exc
+        return {
+            "status": "python_scenario_script_unconfirmed",
+            "project_key": project_key,
+            "scenario_id": scenario.id,
+            "name": name,
+            **(
+                {"error_type": type(error).__name__, "error": _safe_error_text(error)}
+                if error is not None
+                else {}
+            ),
+            "hint": (
+                "The scenario exists, inactive and without triggers, but its script "
+                "was not confirmed and may still be Dataiku's sample script. Do not "
+                "run it. Call set_python_scenario_script with this scenario_id and "
+                "the same script; do not create the scenario again."
+            ),
+        }
+
+    return compact_json(await run_blocking(_run))
+
+
+@mcp.tool(
+    meta=PROJECT_EDIT_POLICY,
+    title="Set Python Scenario Script",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def set_python_scenario_script(
+    project_key: str,
+    scenario_id: str,
+    script: PythonScript,
+    ctx: Context,
+) -> str:
+    """Replace the script of an existing Python-script scenario, keeping its settings."""
+    project_key = _require_non_empty_string(project_key, "project_key")
+    scenario_id = _require_non_empty_string(scenario_id, "scenario_id")
+    _require_non_empty_string(script, "script")
+    await ctx.info(f"Saving the script of scenario {scenario_id} in {project_key}...")
+
+    def _run():
+        scenario = get_dss_client().get_project(project_key).get_scenario(scenario_id)
+        _save_script(_python_scenario_settings(scenario, scenario_id), script)
+        saved = _python_scenario_settings(scenario, scenario_id)
+        if saved.code != script:
+            raise RuntimeError(
+                f"Dataiku did not confirm the new script of scenario '{scenario_id}'. "
+                "Inspect it with get_scenario_settings; repeating this call is safe."
+            )
+        return _python_scenario_summary(project_key, saved)
+
+    return compact_json(await run_blocking(_run))
 
 
 @mcp.tool(

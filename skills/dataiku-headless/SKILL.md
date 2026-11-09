@@ -30,7 +30,8 @@ Use this for any Dataiku task. Choose the right reference guide first, inspect t
 
 Automation excludes all Cobuild tools, including conversation listing and polling,
 and project creation, project settings/variables updates, container placement,
-dataset/folder creation, file upload, and library writes. Builds, recipe/scenario
+Python-script scenario authoring, dataset/folder creation, file upload, and library
+writes. Builds, recipe/scenario
 runs, and job aborts remain available and can change outputs. For project
 construction or edits, ask which Design instance to use and
 switch to it; do not bypass the policy through raw APIs.
@@ -76,7 +77,7 @@ unsupported calls fail before execution.
 | Inspect Agent Reviews | `./references/agent-reviews.md` |
 | Inspect dashboards | `./references/dashboards.md` |
 | Inspect insights | `./references/insights.md` |
-| Inspect scenarios and automation history, or run an existing scenario | `./references/scenarios.md` |
+| Inspect scenarios and automation history, run an existing scenario, or create a Python-script scenario or edit its script | `./references/scenarios.md` |
 | Inspect semantic models | `./references/semantic-models.md` |
 | Inspect WebApps and backend state | `./references/webapps.md` |
 | Inspect wiki hierarchy or article content | `./references/wikis.md` |

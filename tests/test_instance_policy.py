@@ -36,6 +36,8 @@ PROJECT_EDIT_TOOLS = EXPECTED_TOOLS_BY_MODULE["cobuild"] | {
     "update_project_settings",
     "set_project_variables",
     "set_container_exec_config",
+    "create_python_scenario",
+    "set_python_scenario_script",
     "create_upload_dataset",
     "create_managed_folder",
     "upload_file_to_managed_folder",
