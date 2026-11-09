@@ -89,18 +89,16 @@ class _FakeClient(FakeDSSClient):
         return copy.deepcopy(self.envs)
 
 
-def _recipe_state(recipe_type: str = "python", params: dict | None = None) -> dict:
-    if params is None:
-        params = {
-            "envSelection": {"envMode": "INHERIT"},
-            "containerSelection": {"containerMode": "NONE"},
-            "skipPrerunValidate": False,
-        }
+def _recipe_state(recipe_type: str = "python") -> dict:
     return {
         "recipe": {
             "name": "compute_scores",
             "type": recipe_type,
-            "params": params,
+            "params": {
+                "envSelection": {"envMode": "INHERIT"},
+                "containerSelection": {"containerMode": "NONE"},
+                "skipPrerunValidate": False,
+            },
             "inputs": {"main": {"items": [{"ref": "raw_scores"}]}},
             "outputs": {"main": {"items": [{"ref": "scores", "appendMode": False}]}},
             "tags": ["kept"],
@@ -196,11 +194,14 @@ def test_only_python_recipes_are_supported(monkeypatch, recipe_type):
     assert client.list_code_envs_calls == 0
 
 
-@pytest.mark.parametrize("params", [{}, None, {"envSelection": "INHERIT"}])
+@pytest.mark.parametrize(
+    "params",
+    [None, {}, {"envSelection": "INHERIT"}],
+    ids=["no-params", "no-selection", "malformed-selection"],
+)
 def test_recipe_without_a_selection_is_refused(monkeypatch, params):
-    state = _recipe_state(params=params)
-    if params is None:
-        del state["recipe"]["params"]
+    state = _recipe_state()
+    state["recipe"]["params"] = params
     recipe, _ = _install(monkeypatch, state)
 
     with pytest.raises(ValueError, match="does not expose"):

@@ -213,7 +213,7 @@ async def get_recipe_settings(
 
 @mcp.tool(
     meta=PROJECT_EDIT_POLICY,
-    title="Set Recipe Code Environment",
+    title="Set Python Recipe Code Environment",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
