@@ -15,17 +15,23 @@
 """Audited operation declarations for the Project and API Deployer."""
 
 from types import MappingProxyType
+from typing import Callable
 
 from .models import Operation, arguments_for
 from .handlers import deployer
 
 
 def _deployer(
-    name: str, example: dict, *, effect="read", destructive=False, idempotent=False
+    operation_id: str,
+    handler: Callable,
+    example: dict,
+    *,
+    effect="read",
+    destructive=False,
+    idempotent=False,
 ):
-    handler = getattr(deployer, name)
     return Operation(
-        operation_id="deployer." + name.replace("_deployer", ""),
+        operation_id=operation_id,
         domain="deployer",
         description=handler.__doc__,
         effect=effect,
@@ -41,32 +47,54 @@ def _deployer(
 
 
 _DEPLOYER_OPERATIONS = [
-    _deployer("list_deployer_stages", {"deployer_type": "project"}),
-    _deployer("list_deployer_infrastructures", {"deployer_type": "project"}),
     _deployer(
-        "get_deployer_infrastructure",
+        "deployer.list_stages",
+        deployer.list_deployer_stages,
+        {"deployer_type": "project"},
+    ),
+    _deployer(
+        "deployer.list_infrastructures",
+        deployer.list_deployer_infrastructures,
+        {"deployer_type": "project"},
+    ),
+    _deployer(
+        "deployer.get_infrastructure",
+        deployer.get_deployer_infrastructure,
         {"deployer_type": "project", "infra_id": "discovered-infra"},
     ),
-    _deployer("list_deployer_published_items", {"deployer_type": "api"}),
     _deployer(
-        "get_deployer_published_item",
+        "deployer.list_published_items",
+        deployer.list_deployer_published_items,
+        {"deployer_type": "api"},
+    ),
+    _deployer(
+        "deployer.get_published_item",
+        deployer.get_deployer_published_item,
         {"deployer_type": "api", "source_id": "discovered-service"},
     ),
-    _deployer("list_deployer_deployments", {"deployer_type": "project"}),
     _deployer(
-        "get_deployer_deployment",
+        "deployer.list_deployments",
+        deployer.list_deployer_deployments,
+        {"deployer_type": "project"},
+    ),
+    _deployer(
+        "deployer.get_deployment",
+        deployer.get_deployer_deployment,
         {"deployer_type": "project", "deployment_id": "discovered-deployment"},
     ),
     _deployer(
-        "list_deployer_updates",
+        "deployer.list_updates",
+        deployer.list_deployer_updates,
         {"deployer_type": "project", "deployment_id": "discovered-deployment"},
     ),
     _deployer(
-        "get_deployer_update",
+        "deployer.get_update",
+        deployer.get_deployer_update,
         {"deployer_type": "project", "deployment_id": "discovered-deployment"},
     ),
     _deployer(
-        "create_deployer_deployment",
+        "deployer.create_deployment",
+        deployer.create_deployer_deployment,
         {
             "deployer_type": "project",
             "deployment_id": "requested-deployment",
@@ -77,7 +105,8 @@ _DEPLOYER_OPERATIONS = [
         effect="write",
     ),
     _deployer(
-        "update_deployer_deployment",
+        "deployer.update_deployment",
+        deployer.update_deployer_deployment,
         {
             "deployer_type": "api",
             "deployment_id": "discovered-deployment",
@@ -88,12 +117,17 @@ _DEPLOYER_OPERATIONS = [
         idempotent=True,
     ),
     _deployer(
-        "start_deployer_update",
+        "deployer.start_update",
+        deployer.start_deployer_update,
         {"deployer_type": "project", "deployment_id": "discovered-deployment"},
         effect="write",
         destructive=True,
     ),
-    _deployer("get_deployer_future_status", {"future_id": "returned-future"}),
+    _deployer(
+        "deployer.get_future_status",
+        deployer.get_deployer_future_status,
+        {"future_id": "returned-future"},
+    ),
 ]
 
 
