@@ -13,13 +13,11 @@ Start by identifying the configured instance type. The default project workflow 
 | --- | --- | --- |
 | `design` | Development environment for building projects, pipelines, models, applications and agents. | Use the Design workflow below; project construction goes through Cobuild. |
 | `automation` | Production environment for running deployed project bundles, schedules and monitoring. | Inspect and execute existing assets; return to Design for project edits. |
-| `deployer` | Control plane for deploying published project bundles and API service versions. | Use [Deployer operations](./references/deployer.md), including for a local Deployer selected through its own profile. |
-| `govern` | Central governance of analytics, models and agents through governed items and sign-off workflows. | Instance controls only; product support is deferred. |
-| `agent-management` | Agent inventory, performance/value monitoring and risk management, with Design projects for supporting pipelines. | Instance controls only; product support is deferred. |
+| `deployer` | Control plane for deploying published project bundles and API service versions. | Use [Deployer operations](./references/deployer.md). |
+| `govern` | Governance and sign-off workflows for analytics, models and agents. | Instance controls only; product support is deferred. |
+| `agent-management` | Agent inventory, monitoring and risk management. | Instance controls only; product support is deferred. |
 
-Descriptions follow Dataiku’s [deployment documentation](https://doc.dataiku.com/dss/latest/deployment/index.html), [deployment knowledge base](https://knowledge.dataiku.com/latest/deploy/project-deployment/concept-project-deployment.html), [Govern architecture knowledge base](https://knowledge.dataiku.com/latest/govern/overview/concept-govern-in-dataiku-architecture.html), and [Agent Management product reference](https://www.dataiku.com/product/agent-management).
-
-Configured type selects Headless policy; it does not establish live features or permissions. Use `list_instances` and `get_current_instance` first. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
+The configured instance type controls which tools are allowed; it does not establish available features or permissions. Use `list_instances` and `get_current_instance` first.
 
 ## Shared Operating Rules
 
@@ -29,7 +27,7 @@ Configured type selects Headless policy; it does not establish live features or 
 4. Read before write. Inspect the current object, flow context, jobs, or run history before changing anything.
 5. Treat the matching reference guide as the source of truth for object-specific concepts, inspection steps, and required references.
 6. Route in-project asset creation and modification through `./references/cobuild.md` unless the matching guide documents a narrow direct exception.
-7. Direct-write exceptions are allowed for operations that Cobuild cannot perform, especially bootstrap, cross-project, instance-level, or administrative actions. Treat them as narrow documented exceptions, not as the default mutation path.
+7. Use direct writes only for exceptions documented in the matching reference guide. Missing Cobuild coverage does not authorize a new direct-write path.
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
 9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
 10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
@@ -84,5 +82,5 @@ On Automation, use the relevant inspection/execution guide without creating or e
 ## Routing Notes
 
 - `./references/cobuild.md` is the default write path for in-project assets, but it should be grounded by the relevant guide first.
-- Direct writes may grow over time for documented non-project, cross-project, instance-level, or administrative operations that Cobuild does not handle.
+- Direct writes are limited to documented exceptions.
 - `./references/jobs.md` is the follow-up guide after builds, runs, training, or other uncertain execution. For Deployer updates, follow `./references/deployer.md` for future polling and deployment history.
