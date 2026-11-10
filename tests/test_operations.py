@@ -26,9 +26,9 @@ from dataikuapi.dss.projectdeployer import DSSProjectDeployer
 
 from dataiku_mcp import mcp, server
 from dataiku_mcp.config import http, request, stdio
-from dataiku_mcp.operations_catalog import OPERATIONS
-from dataiku_mcp.operation_registry import get_operation
-from dataiku_mcp.tools import deployer
+from dataiku_mcp.operations.catalog import OPERATIONS
+from dataiku_mcp.operations.catalog import get_operation
+from dataiku_mcp.operations.handlers import deployer
 from tests.test_instance_policy import _instance
 from tests.test_deployer import Backend
 
@@ -168,7 +168,7 @@ def test_v2_tools_reject_design_and_automation_before_exchange(
 
 
 def test_each_v2_operation_requires_its_matching_instance_type():
-    from dataiku_mcp.operation_registry import require_operation
+    from dataiku_mcp.operations.catalog import require_operation
 
     for operation in OPERATIONS.values():
         assert operation.allowed_instance_types == (operation.domain,)

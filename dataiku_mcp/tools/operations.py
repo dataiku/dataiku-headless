@@ -19,14 +19,14 @@ from typing import Literal
 
 from ..config import request
 from ..instance_policy import API_OPERATIONS_POLICY
-from ..operation_registry import (
+from ..operations.catalog import (
     get_operation,
     get_operations,
     require_operation,
-    require_transport,
 )
+from ..operations.models import require_transport
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from .utils.serialization import compact_json
+from dataiku_mcp.utils.serialization import compact_json
 
 
 @mcp.tool(

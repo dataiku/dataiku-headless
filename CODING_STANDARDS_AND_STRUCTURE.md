@@ -29,7 +29,7 @@ export DKU_API_KEY="your-api-key"
 | What to change | Where |
 | --- | --- |
 | MCP tool logic | `dataiku_mcp/tools/**/*.py` |
-| Shared validation helpers | `dataiku_mcp/tools/utils/validation.py` |
+| Shared validation helpers | `dataiku_mcp/utils/validation.py` |
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
 | Project/dataset/folder/recipe/ML skills | `skills/**/SKILL.md` |
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
@@ -74,7 +74,7 @@ export DKU_API_KEY="your-api-key"
 ## Tool Input Validation
 - Assume FastMCP/Pydantic type validation for tool signatures; avoid duplicating type checks in tool code unless there is a clear compatibility/safety reason.
 - Keep validation for structured inputs (JSON payloads/lists), enum-like parameters, and semantic risk parameters (`overwrite`, `drop_data`, replace modes, recursive build modes).
-- Put reusable validation logic in `dataiku_mcp/tools/utils/validation.py` and reuse those helpers from tool modules instead of creating ad-hoc local validators.
+- Put reusable validation logic in `dataiku_mcp/utils/validation.py` and reuse those helpers from tool modules instead of creating ad-hoc local validators.
 - When reducing validation, preserve existing destructive-action safeguards and return clear errors from downstream API calls.
 
 ## Async And Blocking Style

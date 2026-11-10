@@ -34,8 +34,8 @@ from .utils.job_summaries import (
     get_job_status_full as _get_job_status_full,
     summarize_listed_job as _summarize_listed_job,
 )
-from .utils.serialization import columnar, compact_json
-from .utils.validation import (
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.validation import (
     require_non_empty_list as _require_non_empty_list,
     require_non_empty_string as _require_non_empty_string,
     require_int_in_range as _require_int_in_range,

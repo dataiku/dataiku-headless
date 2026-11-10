@@ -31,8 +31,10 @@ from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking, run_cobuild_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
 
 TURN_WAIT_TIMEOUT_SECONDS = 240
 

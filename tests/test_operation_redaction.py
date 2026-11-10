@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from dataiku_mcp.config import stdio
-from dataiku_mcp.tools import deployer
+from dataiku_mcp.operations.handlers import deployer
 from tests.test_instance_policy import _instance
 from tests.test_operations import _call
 
@@ -58,6 +58,6 @@ def test_deployer_future_status_does_not_fetch_results(monkeypatch):
     ],
 )
 def test_operation_redaction_covers_secret_containers_and_url_credentials(value):
-    from dataiku_mcp.tools.utils.redaction import redact_sensitive_data
+    from dataiku_mcp.utils.redaction import redact_sensitive_data
 
     assert SECRET not in json.dumps(redact_sensitive_data(value))

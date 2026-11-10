@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .validation import require_non_empty_strings
+from dataiku_mcp.utils.validation import require_non_empty_strings
 
 
 def parse_json_object(raw_json: str, field_name: str) -> dict:

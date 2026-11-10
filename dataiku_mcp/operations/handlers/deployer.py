@@ -20,11 +20,11 @@ from dataikuapi.utils import DataikuException
 from pydantic import Field
 from requests import RequestException
 
-from ..auth import get_dss_client
-from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json
-from .utils.validation import require_non_empty_string
-from .utils.validation import PathSegment as Identifier
+from ...auth import get_dss_client
+from ...executors import run_blocking
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.validation import require_non_empty_string
+from dataiku_mcp.utils.validation import PathSegment as Identifier
 
 
 DeployerType = Literal["project", "api"]

@@ -16,13 +16,12 @@
 
 import inspect
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Awaitable, Callable, Literal, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-from .config.models import InstanceType
-from .tools.utils.redaction import contains_redacted_values
+from ..config.models import InstanceType
+from dataiku_mcp.utils.redaction import contains_redacted_values
 
 Effect = Literal["read", "write"]
 
@@ -116,42 +115,6 @@ def arguments_for(
             if name not in exclude
         },
     )
-
-
-def get_operations():
-    # Lazy import keeps server construction independent of tool registration.
-    from .operations_catalog import OPERATIONS
-
-    return OPERATIONS
-
-
-def get_operation(operation_id: str) -> Operation:
-    try:
-        return get_operations()[operation_id]
-    except (KeyError, TypeError):
-        raise ValueError("Unknown operation_id. Use search_operations.") from None
-
-
-def require_operation(
-    operation_id: str, effect: Effect, instance_type: InstanceType
-) -> Operation:
-    operation = get_operation(operation_id)
-    if operation.effect != effect:
-        raise ValueError(
-            f"Operation '{operation_id}' requires the {operation.effect} dispatcher."
-        )
-    if instance_type not in operation.allowed_instance_types:
-        raise ValueError(
-            f"Operation '{operation_id}' is unavailable for instance type '{instance_type}'. Use switch_instance."
-        )
-    return operation
-
-
-def make_catalog(operations: list[Operation]):
-    result = {operation.operation_id: operation for operation in operations}
-    if len(result) != len(operations):
-        raise ValueError("Duplicate operation_id")
-    return MappingProxyType(result)
 
 
 def require_transport(operation: Operation, arguments: dict, is_http: bool) -> None:

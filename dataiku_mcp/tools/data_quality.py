@@ -24,8 +24,8 @@ from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.parsing import coerce_json_array as _coerce_json_array
-from .utils.serialization import compact_json, is_empty, omit_empty
-from .utils.validation import (
+from dataiku_mcp.utils.serialization import compact_json, is_empty, omit_empty
+from dataiku_mcp.utils.validation import (
     require_non_empty_string as _require_non_empty_string,
     require_non_empty_strings as _require_non_empty_strings,
     require_non_negative_int as _require_non_negative_int,

@@ -38,8 +38,8 @@ from ..server import mcp
 from .code_environments import PythonInterpreter
 from .utils.errors import dataiku_message
 from .utils.parsing import parse_json_object
-from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import (
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.validation import (
     require_allowed_value as _require_allowed_value,
     require_git_repository_url as _require_git_repository_url,
     require_int_in_range as _require_int_in_range,

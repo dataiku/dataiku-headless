@@ -28,7 +28,7 @@ from ..config import request, stdio
 from ..executors import run_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from ..setup_server import SESSION_LIFETIME_SECONDS, start_setup_server
-from .utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
 
 InstanceName = Annotated[
     str, Field(description="A configured instance name, from list_instances.")

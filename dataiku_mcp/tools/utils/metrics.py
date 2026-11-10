@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .validation import require_non_empty_strings
+from dataiku_mcp.utils.validation import require_non_empty_strings
 
 
 def parse_metric_ids(metric_ids: str | None) -> list[str] | None:

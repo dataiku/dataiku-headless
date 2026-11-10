@@ -28,7 +28,7 @@ from fastmcp import Client
 from requests import Timeout
 
 from dataiku_mcp import mcp
-from dataiku_mcp.tools import deployer
+from dataiku_mcp.operations.handlers import deployer
 
 SECRET = "DO_NOT_RETURN_THIS_SECRET"
 
@@ -425,7 +425,7 @@ def test_mcp_keeps_deployer_target_when_active_instance_changes(backend, monkeyp
 
 
 def test_deployer_is_exposed_only_as_operations():
-    from dataiku_mcp.operations_catalog import OPERATIONS
+    from dataiku_mcp.operations.catalog import OPERATIONS
 
     tools = asyncio.run(mcp.list_tools())
     assert not any("deployer" in tool.name for tool in tools)

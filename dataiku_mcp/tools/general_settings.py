@@ -23,7 +23,7 @@ from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.serialization import columnar, compact_json
 
 _CONTAINER_SUMMARY_COLUMNS = [
     "name",

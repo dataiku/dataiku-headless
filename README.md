@@ -256,6 +256,11 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── dataiku_mcp/
 │   ├── auth.py                # Dataiku client creation and HTTP token exchange
 │   ├── executors.py           # Shared blocking and Cobuild executors
+│   ├── operations/            # Operation models, catalog, and undecorated handlers
+│   │   ├── models.py          # Typed operation definitions and argument schemas
+│   │   ├── catalog.py         # Explicit registration and lookup
+│   │   └── handlers/deployer.py  # Internal Deployer SDK adapters
+│   ├── utils/                 # Shared validation, serialization, and redaction
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
@@ -268,7 +273,6 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
 │   │   ├── dashboards.py      # Dashboard inspection tools
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
-│   │   ├── deployer.py        # Internal Deployer operation adapters
 │   │   ├── operations.py      # Shared discovery/read/write MCP tools
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
@@ -289,7 +293,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Tool validation and response-shaping utilities
+│   │   └── utils/             # Tool-specific helpers
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
 │   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation

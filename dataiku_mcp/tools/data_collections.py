@@ -19,9 +19,11 @@ from fastmcp import Context
 from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.serialization import columnar, compact_json
 from ..auth import get_dss_client
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
 
 
 @mcp.tool(
