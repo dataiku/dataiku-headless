@@ -19,8 +19,10 @@ across instance switches. Other profile types cannot use these tools.
    returned next_offset to page with offset, or narrow the query. All four v2
    tools require a selected profile; search and describe inspect the local catalog
    without contacting Dataiku.
-3. Describe a returned operation_id. Inspect input_schema, category, effects,
-   allowed types, requirements, transports, local_file_fields and response_contract.
+3. Describe a returned operation_id. Inspect input_schema, effect, allowed types,
+   requirements, transports and response_contract. Identifier strings are validated
+   in the handler before SDK calls; URL delimiters, percent escapes, dot segments
+   and control characters are rejected.
    Definitions and settings vary by backend release, infrastructure or blueprint;
    nested objects explicitly described as backend-defined are not fully specified
    by the structural schema. Read their current definitions before replacing them.

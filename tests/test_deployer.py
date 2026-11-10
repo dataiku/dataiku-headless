@@ -157,11 +157,11 @@ def backend(request, monkeypatch):
 
 def call(function, backend, **kwargs):
     result = asyncio.run(function(deployer_type=backend.kind, **kwargs))
-    assert SECRET not in result
+    assert SECRET not in json.dumps(result)
     assert all(
         path.startswith(f"/{backend.kind}-deployer/") for _, path, _ in backend.calls
     )
-    return json.loads(result)
+    return result
 
 
 @pytest.mark.parametrize(
@@ -445,3 +445,64 @@ def test_start_without_future_id_does_not_fetch_or_leak_result(backend, monkeypa
     result = call(deployer.start_deployer_update, backend, deployment_id="deployment")
     assert result["future_id"] is None
     assert "inspect update history" in result["hint"]
+
+
+def test_dispatch_normalizes_identifiers_before_sdk_calls(backend, monkeypatch):
+    from dataiku_mcp.config import stdio
+    from tests.test_instance_policy import _instance
+    from tests.test_operations import _call
+
+    monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
+    result = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="deployer.get_update",
+            arguments={
+                "deployer_type": backend.kind,
+                "deployment_id": " deployment ",
+                "timestamp": " 123 ",
+            },
+        )
+    )
+    assert result["result"]["status"] == "DONE"
+    assert [(method, path) for method, path, _ in backend.calls] == [
+        ("GET", f"/{backend.kind}-deployer/deployments/deployment/update/123")
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation_id,field",
+    [
+        ("deployer.get_infrastructure", "infra_id"),
+        ("deployer.get_published_item", "source_id"),
+        ("deployer.get_deployment", "deployment_id"),
+        ("deployer.list_updates", "deployment_id"),
+        ("deployer.get_update", "deployment_id"),
+        ("deployer.get_update", "timestamp"),
+        ("deployer.create_deployment", "deployment_id"),
+        ("deployer.create_deployment", "source_id"),
+        ("deployer.create_deployment", "infra_id"),
+        ("deployer.create_deployment", "deployed_project_key"),
+        ("deployer.create_deployment", "project_folder_id"),
+        ("deployer.create_deployment", "endpoint_id"),
+        ("deployer.update_deployment", "deployment_id"),
+        ("deployer.start_update", "deployment_id"),
+        ("deployer.get_future_status", "future_id"),
+    ],
+)
+def test_direct_handlers_validate_identifiers_before_sdk_calls(
+    monkeypatch, operation_id, field
+):
+    from dataiku_mcp.operations.catalog import get_operation
+
+    monkeypatch.setattr(
+        deployer,
+        "get_dss_client",
+        lambda: pytest.fail("Invalid identifier reached SDK"),
+    )
+    operation = get_operation(operation_id)
+    arguments = {**operation.example, field: "invalid?identifier"}
+    if field == "endpoint_id":
+        arguments["deployer_type"] = "api"
+    with pytest.raises(ValueError, match=field):
+        asyncio.run(operation.handler(**arguments))

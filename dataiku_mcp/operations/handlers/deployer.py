@@ -12,19 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Project and API Deployer inspection and deployment operations."""
+"""Project and API Deployer handlers with body validation of identifiers."""
 
 from typing import Annotated, Literal
 
+from dataikuapi.dss.future import DSSFuture
 from dataikuapi.utils import DataikuException
 from pydantic import Field
 from requests import RequestException
 
 from ...auth import get_dss_client
 from ...executors import run_blocking
-from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.serialization import columnar
 from dataiku_mcp.utils.validation import require_non_empty_string
-from dataiku_mcp.utils.validation import PathSegment as Identifier
+from dataiku_mcp.utils.validation import require_path_segment
 
 
 DeployerType = Literal["project", "api"]
@@ -96,7 +97,7 @@ def _summary(raw: dict) -> dict:
     return result
 
 
-async def _execute(deployer_type: DeployerType, operation) -> str:
+async def _execute(deployer_type: DeployerType, operation) -> dict:
     def _run():
         client = get_dss_client()
         deployer = (
@@ -114,10 +115,10 @@ async def _execute(deployer_type: DeployerType, operation) -> str:
                 "the request may have reached Dataiku."
             ) from None
 
-    return compact_json(await run_blocking(_run))
+    return await run_blocking(_run)
 
 
-async def list_deployer_stages(deployer_type: DeployerType) -> str:
+async def list_deployer_stages(deployer_type: DeployerType) -> dict:
     """Discover configured infrastructure stages for a Project or API Deployer."""
     return await _execute(
         deployer_type,
@@ -125,7 +126,7 @@ async def list_deployer_stages(deployer_type: DeployerType) -> str:
     )
 
 
-async def list_deployer_infrastructures(deployer_type: DeployerType) -> str:
+async def list_deployer_infrastructures(deployer_type: DeployerType) -> dict:
     """Discover deployment targets and the current user’s deployment permissions."""
     return await _execute(
         deployer_type,
@@ -138,17 +139,17 @@ async def list_deployer_infrastructures(deployer_type: DeployerType) -> str:
 
 
 async def get_deployer_infrastructure(
-    deployer_type: DeployerType, infra_id: Identifier
-) -> str:
+    deployer_type: DeployerType, infra_id: str
+) -> dict:
     """Inspect an infrastructure’s summary and associated deployments without credentials."""
-    infra_id = require_non_empty_string(infra_id, "infra_id")
+    infra_id = require_path_segment(infra_id, "infra_id")
     return await _execute(
         deployer_type,
         lambda deployer: _summary(deployer.get_infra(infra_id).get_status().get_raw()),
     )
 
 
-async def list_deployer_published_items(deployer_type: DeployerType) -> str:
+async def list_deployer_published_items(deployer_type: DeployerType) -> dict:
     """Discover published projects or API services available for deployment."""
 
     def _run(deployer):
@@ -163,10 +164,10 @@ async def list_deployer_published_items(deployer_type: DeployerType) -> str:
 
 
 async def get_deployer_published_item(
-    deployer_type: DeployerType, source_id: Identifier
-) -> str:
+    deployer_type: DeployerType, source_id: str
+) -> dict:
     """Inspect a published project or API service and its available bundles or versions."""
-    source_id = require_non_empty_string(source_id, "source_id")
+    source_id = require_path_segment(source_id, "source_id")
 
     def _run(deployer):
         item = (
@@ -179,7 +180,7 @@ async def get_deployer_published_item(
     return await _execute(deployer_type, _run)
 
 
-async def list_deployer_deployments(deployer_type: DeployerType) -> str:
+async def list_deployer_deployments(deployer_type: DeployerType) -> dict:
     """Discover deployment IDs and configured target versions; use detail for live health."""
     return await _execute(
         deployer_type,
@@ -192,10 +193,10 @@ async def list_deployer_deployments(deployer_type: DeployerType) -> str:
 
 
 async def get_deployer_deployment(
-    deployer_type: DeployerType, deployment_id: Identifier
-) -> str:
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
     """Inspect configured deployment version, current health and governance status."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
 
     def _run(deployer):
         deployment = deployer.get_deployment(deployment_id)
@@ -220,10 +221,10 @@ async def get_deployer_deployment(
 
 
 async def list_deployer_updates(
-    deployer_type: DeployerType, deployment_id: Identifier
-) -> str:
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
     """Find deployment update timestamps and outcomes for recovery and auditing."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
     return await _execute(
         deployer_type,
         lambda deployer: {
@@ -237,13 +238,13 @@ async def list_deployer_updates(
 
 async def get_deployer_update(
     deployer_type: DeployerType,
-    deployment_id: Identifier,
-    timestamp: Identifier | None = None,
-) -> str:
+    deployment_id: str,
+    timestamp: str | None = None,
+) -> dict:
     """Inspect one deployment update outcome, using a timestamp or the latest update."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
     if timestamp is not None:
-        timestamp = require_non_empty_string(timestamp, "timestamp")
+        timestamp = require_path_segment(timestamp, "timestamp")
     return await _execute(
         deployer_type,
         lambda deployer: _pick(
@@ -255,29 +256,27 @@ async def get_deployer_update(
 
 async def create_deployer_deployment(
     deployer_type: DeployerType,
-    deployment_id: Identifier,
-    source_id: Identifier,
-    infra_id: Identifier,
+    deployment_id: str,
+    source_id: str,
+    infra_id: str,
     version: Version,
-    deployed_project_key: Identifier | None = None,
-    project_folder_id: Identifier | None = None,
-    endpoint_id: Identifier | None = None,
-) -> str:
+    deployed_project_key: str | None = None,
+    project_folder_id: str | None = None,
+    endpoint_id: str | None = None,
+) -> dict:
     """Create deployment configuration from a published version; start an update to apply it."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
-    source_id = require_non_empty_string(source_id, "source_id")
-    infra_id = require_non_empty_string(infra_id, "infra_id")
-    version = require_non_empty_string(version, "version")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    source_id = require_path_segment(source_id, "source_id")
+    infra_id = require_path_segment(infra_id, "infra_id")
     if deployed_project_key is not None:
-        deployed_project_key = require_non_empty_string(
+        deployed_project_key = require_path_segment(
             deployed_project_key, "deployed_project_key"
         )
     if project_folder_id is not None:
-        project_folder_id = require_non_empty_string(
-            project_folder_id, "project_folder_id"
-        )
+        project_folder_id = require_path_segment(project_folder_id, "project_folder_id")
     if endpoint_id is not None:
-        endpoint_id = require_non_empty_string(endpoint_id, "endpoint_id")
+        endpoint_id = require_path_segment(endpoint_id, "endpoint_id")
+    version = require_non_empty_string(version, "version")
     if deployer_type == "project" and endpoint_id is not None:
         raise ValueError("endpoint_id is only supported for API deployments")
     if deployer_type == "api" and (
@@ -312,12 +311,12 @@ async def create_deployer_deployment(
 
 async def update_deployer_deployment(
     deployer_type: DeployerType,
-    deployment_id: Identifier,
+    deployment_id: str,
     version: Version | None = None,
     enabled: bool | None = None,
-) -> str:
+) -> dict:
     """Save a target version or API enablement; an update is still needed to apply it."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
     if version is None and enabled is None:
         raise ValueError("Provide version or enabled")
     if version is not None:
@@ -345,10 +344,10 @@ async def update_deployer_deployment(
 
 
 async def start_deployer_update(
-    deployer_type: DeployerType, deployment_id: Identifier
-) -> str:
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
     """Apply saved deployment settings asynchronously, potentially replacing running production assets."""
-    deployment_id = require_non_empty_string(deployment_id, "deployment_id")
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
 
     def _run(deployer):
         future = deployer.get_deployment(deployment_id).start_update()
@@ -362,9 +361,9 @@ async def start_deployer_update(
     return await _execute(deployer_type, _run)
 
 
-async def get_deployer_future_status(future_id: Identifier) -> str:
+async def get_deployer_future_status(future_id: str) -> dict:
     """Poll a deployment future without fetching potentially sensitive result payloads."""
-    from dataikuapi.dss.future import DSSFuture
+    future_id = require_path_segment(future_id, "future_id")
 
     def _run():
         try:
@@ -376,4 +375,4 @@ async def get_deployer_future_status(future_id: Identifier) -> str:
         fields = ("jobId", "hasResult", "aborted", "alive", "startTime", "endTime")
         return {"future_id": future_id, "state": _pick(state, fields)}
 
-    return compact_json(await run_blocking(_run))
+    return await run_blocking(_run)

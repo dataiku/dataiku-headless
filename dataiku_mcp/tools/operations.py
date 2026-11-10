@@ -14,17 +14,11 @@
 
 """Stable discovery and effect-separated dispatch for audited operations."""
 
-import json
 from typing import Literal
 
 from ..config import request
 from ..instance_policy import API_OPERATIONS_POLICY
-from ..operations.catalog import (
-    get_operation,
-    get_operations,
-    require_operation,
-)
-from ..operations.models import require_transport
+from ..operations.catalog import OPERATIONS, get_operation
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
 from dataiku_mcp.utils.serialization import compact_json
 
@@ -55,7 +49,7 @@ async def search_operations(
     words = query.casefold().split()
     matches = [
         op
-        for op in get_operations().values()
+        for op in OPERATIONS.values()
         if instance.instance_type in op.allowed_instance_types
         and (domain is None or domain == op.domain)
         and (effect is None or effect == op.effect)
@@ -111,10 +105,22 @@ async def _dispatch(
         raise ValueError(
             "Selected instance changed. Inspect get_current_instance before retrying."
         )
-    operation = require_operation(operation_id, effect, instance.instance_type)
+    operation = get_operation(operation_id)
+    if operation.effect != effect:
+        raise ValueError(
+            f"Operation '{operation_id}' requires the {operation.effect} dispatcher."
+        )
+    if instance.instance_type not in operation.allowed_instance_types:
+        raise ValueError(
+            f"Operation '{operation_id}' is unavailable for instance type '{instance.instance_type}'. Use switch_instance."
+        )
     values = operation.validate(arguments)
-    require_transport(operation, values, request.is_http_request())
-    result = json.loads(await operation.handler(**values))
+    transport = "http" if request.is_http_request() else "stdio"
+    if transport not in operation.transports:
+        raise ValueError(
+            f"Operation '{operation_id}' is unavailable over transport '{transport}'."
+        )
+    result = await operation.handler(**values)
     return compact_json(
         {"operation_id": operation_id, "instance_name": instance.name, "result": result}
     )
