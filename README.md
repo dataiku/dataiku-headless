@@ -131,7 +131,8 @@ for node selection, production effects and coverage limits.
 Direct project reads, execution and administration support Design, Automation.
 Project edits and Cobuild require Design. The four shared operation tools expose
 13 public SDK actions for Deployer, restricted to their matching profiles.
-Search and describe load schemas on demand; separate read/write tools execute them.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
 See the [operation guide](skills/dataiku-headless/references/operations.md).
 
 

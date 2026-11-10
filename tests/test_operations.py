@@ -229,25 +229,31 @@ def test_all_schemas_accept_examples_and_are_closed():
         assert not {"category", "backend", "local_file_fields"} & description.keys()
 
 
-def test_search_filters_paginates_and_preserves_tool_catalog(monkeypatch):
+def test_search_returns_all_matches_and_preserves_tool_catalog(monkeypatch):
     monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
 
     async def run():
         before = {tool.name for tool in await mcp.list_tools()}
-        results = []
-        offset = 0
-        while offset is not None:
-            page = await _call(
-                "search_operations", domain="deployer", limit=5, offset=offset
-            )
-            assert page["total"] == 13
-            results.extend(op["operation_id"] for op in page["operations"])
-            offset = page["next_offset"]
-        assert len(set(results)) == 13
-        writes = await _call("search_operations", query="deployment", effect="write")
-        assert "deployer.update_deployment" in {
-            op["operation_id"] for op in writes["operations"]
-        }
+        result = await _call("search_operations", domain="deployer")
+        assert result["total"] == 13
+        assert [op["operation_id"] for op in result["operations"]] == list(OPERATIONS)
+        assert set(result) == {"instance_name", "server_support", "total", "operations"}
+        assert all("input_schema" not in op for op in result["operations"])
+        writes = await _call("search_operations", query="DEPLOYMENT", effect="write")
+        assert [op["operation_id"] for op in writes["operations"]] == [
+            "deployer.create_deployment",
+            "deployer.update_deployment",
+            "deployer.start_update",
+        ]
+        assert writes["total"] == 3
+        reads = await _call("search_operations", effect="read")
+        assert reads["total"] == 10
+        assert all(op["effect"] == "read" for op in reads["operations"])
+        empty = await _call("search_operations", query="no-such-operation")
+        assert empty["total"] == 0
+        assert empty["operations"] == []
+        search = await mcp.get_tool("search_operations")
+        assert set(search.parameters["properties"]) == {"query", "domain", "effect"}
         detail = await _call("describe_operation", operation_id="deployer.start_update")
         assert detail["allowed_on_selected_instance"] is True
         assert {tool.name for tool in await mcp.list_tools()} == before

@@ -37,14 +37,8 @@ async def search_operations(
     query: str = "",
     domain: Literal["deployer"] | None = None,
     effect: Literal["read", "write"] | None = None,
-    limit: int = 10,
-    offset: int = 0,
 ) -> str:
-    """Find relevant operations for the selected instance before loading argument schemas."""
-    if not 1 <= limit <= 50:
-        raise ValueError("limit must be between 1 and 50")
-    if offset < 0:
-        raise ValueError("offset must be non-negative")
+    """Return all matching operation summaries for the selected instance."""
     instance = request.get_pinned_instance()
     words = query.casefold().split()
     matches = [
@@ -63,9 +57,7 @@ async def search_operations(
             "instance_name": instance.name,
             "server_support": "unknown",
             "total": len(matches),
-            "operations": [op.summary() for op in matches[offset : offset + limit]],
-            "truncated": len(matches) > offset + limit,
-            "next_offset": offset + limit if len(matches) > offset + limit else None,
+            "operations": [op.summary() for op in matches],
         }
     )
 
