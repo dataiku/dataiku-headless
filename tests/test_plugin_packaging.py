@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from string import Template
+from jsonschema import validate
 
 import pytest
 
@@ -31,13 +31,9 @@ def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("host", ["claude", "codex", "cortex", "cursor", "github"])
+@pytest.mark.parametrize("host", ["claude", "cortex"])
 def test_plugin_identity_matches_host(host):
-    path = (
-        ".github/plugin/plugin.json"
-        if host == "github"
-        else f".{host}-plugin/plugin.json"
-    )
+    path = f".{host}-plugin/plugin.json"
     assert _json(path)["name"] == (
         "headless" if host == "claude" else "dataiku-headless"
     )
@@ -45,7 +41,7 @@ def test_plugin_identity_matches_host(host):
 
 def test_marketplace_plugin_uses_stdio():
     claude = _json(".claude-plugin/plugin.json")
-    bundled_mcp = _json(_json(".codex-plugin/plugin.json")["mcpServers"])
+    bundled_mcp = _json("mcp.json")
 
     assert claude["mcpServers"]["dataiku"]["type"] == "stdio"
     assert bundled_mcp["mcpServers"]["dataiku"]["args"][-2:] == [
@@ -58,9 +54,9 @@ def test_marketplace_plugin_uses_stdio():
     "directory, manifest_path",
     [
         (".claude-plugin", ".claude-plugin/plugin.json"),
-        (".github/plugin", ".github/plugin/plugin.json"),
-        (".cursor-plugin", ".cursor-plugin/plugin.json"),
-        (".agents/plugins", ".codex-plugin/plugin.json"),
+        (".github/plugin", "plugin.json"),
+        (".cursor-plugin", "plugin.json"),
+        (".agents/plugins", "plugin.json"),
     ],
 )
 def test_marketplace_entry_matches_plugin_identity(directory, manifest_path):
@@ -98,93 +94,54 @@ def test_public_setup_skill_is_stdio_only():
     assert "customer-managed HTTP" not in setup_skill
 
 
-def test_environment_configuration_is_passed_through():
-    bundled_mcp = _json(_json(".codex-plugin/plugin.json")["mcpServers"])
-    variables = bundled_mcp["mcpServers"]["dataiku"]["env_vars"]
-    assert {
-        "DKU_DSS_URL",
-        "DKU_API_KEY",
-        "DKU_INSTANCE_TYPE",
-        "DKU_IS_CODE_STUDIO",
-        "DKU_NODE_TYPE",
-        "DKU_BACKEND_PROTOCOL",
-        "DKU_BACKEND_HOST",
-        "DKU_BACKEND_PORT",
-        "DKU_API_TICKET",
-        "DKU_SERVER_CERT",
-    }.issubset(variables)
+def test_portable_schemas_and_metadata():
+    for name in ("plugin", "mcp"):
+        validate(_json(f"{name}.json"), _json(f"tests/schemas/{name}.schema.json"))
+    manifest = _json("plugin.json")
+    extension = manifest["extensions"]["com.openai"]
+    assert (ROOT / extension["onboardingSkill"]).is_file()
+    assert extension["review"]["test_cases"]["positive"]
+    for key in ("composerIcon", "composerIconDark", "logo", "logoDark"):
+        assert (ROOT / extension["interface"][key]).is_file()
+    for path in (
+        ".codex-plugin/plugin.json",
+        ".codex-plugin/mcp.json",
+        ".cursor-plugin/plugin.json",
+        ".github/plugin/plugin.json",
+    ):
+        assert not (ROOT / path).exists()
 
 
-def test_copilot_launches_from_an_unrelated_working_directory(tmp_path):
+def test_portable_launch_from_unrelated_directory(tmp_path):
     plugin_root = tmp_path / "installed plugin"
     runtime = plugin_root / "runtime"
     runtime.mkdir(parents=True)
-    shutil.copy2(ROOT / "runtime" / "run_mcp.py", runtime / "run_mcp.py")
-    for relative in (".github/plugin/plugin.json", ".claude-plugin/plugin.json"):
-        target = plugin_root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative, target)
-    claude_path = plugin_root / ".claude-plugin/plugin.json"
-    claude = json.loads(claude_path.read_text())
-    claude["mcpServers"]["dataiku"]["args"] = ["missing-script.py"]
-    claude_path.write_text(json.dumps(claude))
-    # Documented legacy discovery order; this is a launch replay, not a native CLI test.
-    assert not (ROOT / ".mcp.json").exists()
-    assert not (ROOT / ".github/mcp.json").exists()
-    for relative in (
-        ".plugin/plugin.json",
-        "plugin.json",
-        ".github/plugin/plugin.json",
-        ".claude-plugin/plugin.json",
-    ):
-        assert (plugin_root / relative).exists() == (ROOT / relative).exists()
-    manifest_path = next(
-        plugin_root / relative
-        for relative in (
-            ".plugin/plugin.json",
-            "plugin.json",
-            ".github/plugin/plugin.json",
-            ".claude-plugin/plugin.json",
-        )
-        if (plugin_root / relative).exists()
-    )
-    assert manifest_path == plugin_root / ".github/plugin/plugin.json"
-    manifest = json.loads(manifest_path.read_text())
-    assert manifest["name"] == "dataiku-headless"
-    assert (ROOT / manifest["skills"]).is_dir()
-    server = manifest["mcpServers"]["dataiku"]
+    shutil.copy2(ROOT / "runtime/run_mcp.py", runtime / "run_mcp.py")
+    session = tmp_path / "customer project"
+    session.mkdir()
+    server = _json("mcp.json")["mcpServers"]["dataiku"]
     assert server["command"] == "uv"
     assert server["type"] == "stdio"
+    assert server["cwd"] == "./"
     assert server["args"] == [
         "run",
         "--quiet",
         "--locked",
         "--script",
-        "${PLUGIN_ROOT}/runtime/run_mcp.py",
+        "./runtime/run_mcp.py",
         "--transport",
         "stdio",
     ]
-    assert server["cwd"] == "${PLUGIN_ROOT}"
-    session_directory = tmp_path / "customer project"
-    session_directory.mkdir()
-    variables = {
-        "PLUGIN_ROOT": str(plugin_root),
-        "CLAUDE_PLUGIN_ROOT": str(plugin_root),
-        "COPILOT_PLUGIN_ROOT": str(plugin_root),
-    }
-    cwd = Path(Template(server.get("cwd", "${PLUGIN_ROOT}")).substitute(variables))
-    if not cwd.is_absolute():
-        cwd = session_directory / cwd
-    args = [Template(arg).substitute(variables) for arg in server["args"]]
-    script_index = args.index("--script") + 1
+    # Replay standard cwd resolution without invoking a native harness or uv.
+    cwd = plugin_root / server["cwd"]
+    assert cwd.resolve() != session.resolve()
+    args = server["args"][server["args"].index("--script") + 1 :]
     result = subprocess.run(
-        [sys.executable, *args[script_index:], "--help"],
+        [sys.executable, *args, "--help"],
         cwd=cwd,
-        env=variables,
         capture_output=True,
         text=True,
         timeout=10,
     )
-
     assert result.returncode == 0, result.stderr
     assert "Run the Dataiku MCP server." in result.stdout

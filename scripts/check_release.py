@@ -34,17 +34,14 @@ def validate(root: Path) -> str:
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"Expected a stable release version, got {version}")
     required = {
-        f".{name}-plugin/plugin.json"
-        for name in ("claude", "codex", "cortex", "cursor")
+        "plugin.json",
+        ".claude-plugin/plugin.json",
+        ".cortex-plugin/plugin.json",
     }
-    required.add(".github/plugin/plugin.json")
     for relative in required:
         if not (root / relative).is_file():
             raise ValueError(f"Missing release manifest: {relative}")
-    manifests = sorted(root.glob(".*-plugin/plugin.json"))
-    manifests.append(root / ".github/plugin/plugin.json")
-    if (root / "plugin.json").exists():
-        manifests.append(root / "plugin.json")
+    manifests = [root / relative for relative in sorted(required)]
     configured = project["tool"]["commitizen"]["version_files"]
     for path in manifests:
         relative = path.relative_to(root).as_posix()
@@ -55,9 +52,18 @@ def validate(root: Path) -> str:
     for relative in (
         ".claude-plugin/marketplace.json",
         ".github/plugin/marketplace.json",
+        ".cursor-plugin/marketplace.json",
+        ".agents/plugins/marketplace.json",
     ):
         plugin_name = json.loads(
-            (root / relative).with_name("plugin.json").read_text()
+            (
+                root
+                / (
+                    ".claude-plugin/plugin.json"
+                    if relative.startswith(".claude-plugin/")
+                    else "plugin.json"
+                )
+            ).read_text()
         )["name"]
         marketplace = json.loads((root / relative).read_text())
         for entry in marketplace["plugins"]:

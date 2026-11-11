@@ -25,7 +25,7 @@ Use this file when changing this repository. It is not an operating guide for us
 - Tool registration imports: `dataiku_mcp/__init__.py`.
 - Project dependencies, Python support, version, and CLI entry points: `pyproject.toml`.
 - Standalone server dependency pins and Python floor: the PEP 723 block in `runtime/run_mcp.py`.
-- Plugin launch configuration: `.codex-plugin/mcp.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.github/plugin/plugin.json` with its sibling marketplace manifest. Keep client-specific MCP configurations scoped to their manifests to avoid discovery conflicts.
+- Plugin launch configuration: root `plugin.json` and `mcp.json`, retained Claude/Cortex native manifests, and client-specific marketplace catalogs. Portable MCP configuration follows Agent Plugins 1.0.0; native MCP configuration stays scoped to retained manifests.
 - User-facing installation and architecture overview: `README.md`.
 - Release behavior: `RELEASE.md` and `.github/workflows/bump.yml`.
 - CI behavior: `.github/workflows/ci.yml`, `.github/workflows/pr-title.yml`, and `.github/workflows/cla.yml`.

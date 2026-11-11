@@ -33,7 +33,10 @@ COPY_PATHS = (
     "LICENSE",
     "skills",
     "docs/assets",
-    ".codex-plugin",
+    "plugin.json",
+    "mcp.json",
+    ".agents/plugins",
+    ".cursor-plugin",
     ".claude-plugin",
     ".github/plugin",
 )
@@ -62,15 +65,15 @@ def write_json(path: Path, value: dict) -> None:
 
 def update_manifests(destination: Path, *, endpoint: str) -> None:
     """Apply the HTTP-specific differences to copied source manifests."""
-    codex = read_json(destination / ".codex-plugin" / "plugin.json")
-    mcp_path = destination / codex["mcpServers"]
-    mcp = read_json(mcp_path)
-    mcp["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
-    write_json(mcp_path, mcp)
-
-    codex["name"] = PLUGIN_NAME
-    codex["interface"]["displayName"] = "Dataiku Headless (HTTP)"
-    write_json(destination / ".codex-plugin" / "plugin.json", codex)
+    portable = read_json(destination / "plugin.json")
+    portable["name"] = PLUGIN_NAME
+    portable["extensions"]["com.openai"]["interface"]["displayName"] = (
+        "Dataiku Headless (HTTP)"
+    )
+    write_json(destination / "plugin.json", portable)
+    mcp = read_json(destination / "mcp.json")
+    mcp["mcpServers"] = {"dku": {"type": "streamable-http", "url": endpoint}}
+    write_json(destination / "mcp.json", mcp)
 
     claude = read_json(destination / ".claude-plugin" / "plugin.json")
     claude["name"] = PLUGIN_NAME
@@ -84,15 +87,12 @@ def update_manifests(destination: Path, *, endpoint: str) -> None:
     marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
     write_json(destination / ".claude-plugin" / "marketplace.json", marketplace)
 
-    github_path = destination / ".github" / "plugin"
-    github = read_json(github_path / "plugin.json")
-    github["name"] = PLUGIN_NAME
-    github["mcpServers"] = {"dku": {"type": "http", "url": endpoint}}
-    write_json(github_path / "plugin.json", github)
-    marketplace = read_json(github_path / "marketplace.json")
-    marketplace["plugins"][0]["name"] = PLUGIN_NAME
-    marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
-    write_json(github_path / "marketplace.json", marketplace)
+    for relative in (".github/plugin", ".agents/plugins", ".cursor-plugin"):
+        path = destination / relative / "marketplace.json"
+        marketplace = read_json(path)
+        marketplace["plugins"][0]["name"] = PLUGIN_NAME
+        marketplace["renames"] = {"dataiku-headless-http": PLUGIN_NAME}
+        write_json(path, marketplace)
 
 
 def populate_plugin(destination: Path, *, endpoint: str) -> None:

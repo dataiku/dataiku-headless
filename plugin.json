@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "dataiku-headless",
   "version": "0.9.0",
   "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
@@ -9,30 +10,10 @@
   "homepage": "https://github.com/dataiku/dataiku-headless",
   "repository": "https://github.com/dataiku/dataiku-headless",
   "license": "Apache-2.0",
-  "keywords": ["dataiku", "cobuild"],
-  "skills": "./skills/",
-  "mcpServers": "./.codex-plugin/mcp.json",
-  "interface": {
-    "displayName": "Dataiku Headless",
-    "shortDescription": "Build AI and data apps",
-    "longDescription": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
-    "developerName": "Dataiku",
-    "category": "Data & Analytics",
-    "capabilities": ["Interactive", "Write"],
-    "websiteURL": "https://github.com/dataiku/dataiku-headless",
-    "supportURL": "https://support.dataiku.com",
-    "privacyPolicyURL": "https://www.dataiku.com/legal/privacy",
-    "termsOfServiceURL": "https://www.dataiku.com/legal",
-    "defaultPrompt": [
-      "Set up Dataiku Headless",
-      "How many projects are in this Dataiku instance?"
-    ],
-    "brandColor": "#00A6A6",
-    "composerIcon": "./docs/assets/codex_composer_logo_light.png",
-    "composerIconDark": "./docs/assets/codex_composer_logo_dark.png",
-    "logo": "./docs/assets/codex_directory_logo_light.png",
-    "logoDark": "./docs/assets/codex_directory_logo_dark.png"
-  },
+  "keywords": [
+    "dataiku",
+    "cobuild"
+  ],
   "extensions": {
     "com.openai": {
       "review": {
@@ -87,7 +68,32 @@
             }
           ]
         }
-      }
+      },
+      "interface": {
+        "displayName": "Dataiku Headless",
+        "shortDescription": "Build AI and data apps",
+        "longDescription": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+        "developerName": "Dataiku",
+        "category": "Data & Analytics",
+        "capabilities": [
+          "Interactive",
+          "Write"
+        ],
+        "websiteURL": "https://github.com/dataiku/dataiku-headless",
+        "supportURL": "https://support.dataiku.com",
+        "privacyPolicyURL": "https://www.dataiku.com/legal/privacy",
+        "termsOfServiceURL": "https://www.dataiku.com/legal",
+        "defaultPrompt": [
+          "Set up Dataiku Headless",
+          "How many projects are in this Dataiku instance?"
+        ],
+        "brandColor": "#00A6A6",
+        "composerIcon": "./docs/assets/codex_composer_logo_light.png",
+        "composerIconDark": "./docs/assets/codex_composer_logo_dark.png",
+        "logo": "./docs/assets/codex_directory_logo_light.png",
+        "logoDark": "./docs/assets/codex_directory_logo_dark.png"
+      },
+      "onboardingSkill": "./skills/dataiku-headless-setup/SKILL.md"
     }
   }
 }

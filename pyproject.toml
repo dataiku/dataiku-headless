@@ -72,11 +72,9 @@ update_changelog_on_bump = true
 major_version_zero = true
 # Keep the plugin manifests' "version" field in lockstep with [project].version.
 version_files = [
-    ".github/plugin/plugin.json",
+    "plugin.json",
     ".claude-plugin/plugin.json",
-    ".codex-plugin/plugin.json",
     ".cortex-plugin/plugin.json",
-    ".cursor-plugin/plugin.json",
 ]
 
 [dependency-groups]

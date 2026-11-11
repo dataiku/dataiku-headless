@@ -32,7 +32,12 @@ HELPERS = runpy.run_path(str(ROOT / "scripts/check_release.py"))
 def release_tree(tmp_path):
     for name in ("pyproject.toml", "CHANGELOG.md"):
         shutil.copy(ROOT / name, tmp_path / name)
-    for path in [*ROOT.glob(".*-plugin/*.json"), *ROOT.glob(".github/plugin/*.json")]:
+    for path in [
+        ROOT / "plugin.json",
+        *ROOT.glob(".*-plugin/*.json"),
+        *ROOT.glob(".github/plugin/*.json"),
+        *ROOT.glob(".agents/plugins/*.json"),
+    ]:
         target = tmp_path / path.relative_to(ROOT)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(path, target)
@@ -50,10 +55,8 @@ def test_current_release_and_notes(release_tree):
     "directory",
     [
         ".claude-plugin",
-        ".codex-plugin",
         ".cortex-plugin",
-        ".cursor-plugin",
-        ".github/plugin",
+        ".",
     ],
 )
 def test_reject_manifest_version_drift(release_tree, directory):
@@ -65,10 +68,11 @@ def test_reject_manifest_version_drift(release_tree, directory):
         HELPERS["validate"](release_tree)
 
 
-@pytest.mark.parametrize("directory", [".cursor-plugin", ".github/plugin"])
+@pytest.mark.parametrize("directory", [".", ".cortex-plugin"])
 def test_reject_missing_bump_configuration(release_tree, directory):
     path = release_tree / "pyproject.toml"
-    path.write_text(path.read_text().replace(f'    "{directory}/plugin.json",\n', ""))
+    manifest_path = (Path(directory) / "plugin.json").as_posix()
+    path.write_text(path.read_text().replace(f'    "{manifest_path}",\n', ""))
     with pytest.raises(ValueError, match="version_files"):
         HELPERS["validate"](release_tree)
 
@@ -83,8 +87,8 @@ def test_reject_marketplace_pin(release_tree, directory):
         HELPERS["validate"](release_tree)
 
 
-def test_reject_missing_github_manifest(release_tree):
-    (release_tree / ".github/plugin/plugin.json").unlink()
+def test_reject_missing_portable_manifest(release_tree):
+    (release_tree / "plugin.json").unlink()
     with pytest.raises(ValueError, match="Missing release manifest"):
         HELPERS["validate"](release_tree)
 

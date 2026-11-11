@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cursor-native plugin packaging contract."""
+"""Cursor-compatible portable plugin packaging contract."""
 
 from __future__ import annotations
 
@@ -24,24 +24,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_cursor_plugin_launches_the_stdio_server_from_its_install_root():
-    manifest = json.loads(
-        (ROOT / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
-    )
-    server = manifest["mcpServers"]["dataiku"]
-
-    assert manifest["name"] == "dataiku-headless"
+def test_cursor_uses_portable_launch_without_standard_placeholders():
+    manifest = json.loads((ROOT / "plugin.json").read_text())
+    server = json.loads((ROOT / "mcp.json").read_text())["mcpServers"]["dataiku"]
     assert manifest["version"] == importlib.metadata.version("dataiku-headless")
-    assert manifest["skills"] == "./skills/"
-    assert server["type"] == "stdio"
-    assert server["command"] == "uv"
-    assert server["args"] == [
-        "run",
-        "--quiet",
-        "--locked",
-        "--script",
-        "${CURSOR_PLUGIN_ROOT}/runtime/run_mcp.py",
-        "--transport",
-        "stdio",
-    ]
-    assert server["cwd"] == "${CURSOR_PLUGIN_ROOT}"
+    assert server["cwd"] == "./"
+    assert server["args"][4] == "./runtime/run_mcp.py"
+    assert "${PLUGIN_" not in json.dumps(server)

@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or use the portable Agent Plugins package for Cursor and Kiro. Snowflake CoCo uses its native plugin definition.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Supported plugin installations start the same local MCP server; custom MCP clients require their own server configuration.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -99,10 +99,34 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 cortex plugin install dataiku/dataiku-headless
 ```
 
-Each client uses its own plugin manifest. Codex, Claude Code, Copilot, and Cursor
-also have separate marketplace catalogs. Claude Code
-uses the plugin identifier `headless`; Codex, Cursor, Copilot, and CoCo use
-`dataiku-headless`. CoCo installs directly from Git without a repo marketplace catalog.
+Codex/ChatGPT, GitHub Copilot/VS Code, Cursor, and Kiro use the
+[Agent Plugins 1.0.0](https://agent-plugins.org/specification) package at the
+repository root. Relative MCP launch paths avoid Cursor's documented lack of
+[standard plugin-variable expansion](https://cursor.com/docs/plugins). Claude Code and CoCo retain native manifests;
+their [Claude Code](https://code.claude.com/docs/en/plugins/manifest-reference) and
+[Cortex Code](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code-plugins)
+documentation does not establish Agent Plugins support. Client-specific
+marketplace catalogs remain necessary. Claude Code uses the identifier
+`headless`; the portable package and CoCo use `dataiku-headless`.
+
+OpenCode and Grok's current plugin documentation does not establish support for
+the standard's root `mcp.json` discovery. Configure their MCP integration separately
+when portable loading is unavailable; a skills-only installation does not connect
+the server.
+
+Support references (reviewed November 11, 2026):
+[Codex/ChatGPT](https://developers.openai.com/plugins/build/plugins),
+[Copilot](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference),
+[VS Code](https://code.visualstudio.com/docs/agents/reference/agent-plugin-reference),
+[Kiro](https://kiro.dev/docs/powers/create/),
+[OpenCode](https://opencode.ai/docs/build/plugins/), and
+[Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/09-plugins.md).
+
+The portable format has no `env_vars` forwarding mechanism. Use the setup skill
+to save local profiles. Environment-based configuration, including Code Studio
+variables, is available only when the harness supplies those variables to the
+server; ambient environment inheritance is not guaranteed.
+
 
 ### Other AI assistants
 
@@ -335,17 +359,16 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── .claude-plugin/
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
+├── plugin.json                 # Agent Plugins identity and OpenAI metadata
+├── mcp.json                    # Portable stdio MCP configuration
+├── .cortex-plugin/
+│   └── plugin.json             # Cortex Code native manifest
 ├── .cursor-plugin/
-│   ├── plugin.json             # Cursor-native plugin manifest
 │   └── marketplace.json        # Cursor marketplace catalog
 ├── .github/plugin/
-│   ├── plugin.json             # GitHub Copilot CLI plugin manifest
-│   └── marketplace.json        # GitHub Copilot CLI marketplace
+│   └── marketplace.json        # GitHub Copilot marketplace catalog
 ├── .agents/plugins/
 │   └── marketplace.json        # Codex/ChatGPT marketplace catalog
-├── .codex-plugin/
-│   ├── plugin.json             # Codex plugin manifest
-│   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```
