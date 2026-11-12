@@ -143,7 +143,7 @@ def test_failed_or_missing_run_does_not_fetch_result(sdk):
         "progress": {"states": [{"name": "Reading input", "cur": 1, "target": 2}]},
     }
     status = call(macros.get_macro_status("PROJECT", "example", "RUN"))
-    assert status["state"]["failed"] is True
+    assert status["state"]["error_reported"] is True
     assert status["state"]["storedError"] == {"message": "Input dataset is missing"}
     assert status["state"]["resultError"] == {"message": "Macro execution failed"}
     assert status["state"]["progress"] == macro.get_status.return_value["progress"]
@@ -188,3 +188,23 @@ def test_result_preserves_execution_error_when_status_has_no_error(sdk):
     macro.get_result.assert_called_once_with("RUN")
     macro.get_status.assert_called_once_with("RUN")
     macro.run.assert_not_called()
+
+
+def test_result_failure_is_preserved_without_claiming_execution_failure(sdk):
+    _, macro = sdk
+    macro.get_status.return_value = {
+        "exists": True,
+        "running": False,
+        "type": "JSON_OBJECT",
+    }
+    payload = {"ok": False, "error": "Python code environment does not exist"}
+    macro.get_result.return_value = BytesIO(json.dumps(payload).encode())
+
+    status = call(macros.get_macro_status("PROJECT", "example", "RUN"))
+    assert status["state"]["error_reported"] is False
+    assert "failed" not in status["state"]
+    result = call(macros.get_macro_result("PROJECT", "example", "RUN"))
+    assert result["state"] == status["state"]
+    assert result["result"] == payload
+    assert result["encoding"] == "json"
+    assert result["run_consumed"] is True

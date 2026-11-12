@@ -41,7 +41,7 @@ def _status(state):
             )
             if k in state
         },
-        "failed": bool(state.get("resultError") or state.get("storedError")),
+        "error_reported": bool(state.get("resultError") or state.get("storedError")),
     }
 
 
@@ -218,7 +218,7 @@ async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
         if (
             not state.get("exists")
             or state.get("running")
-            or response["state"]["failed"]
+            or response["state"]["error_reported"]
         ):
             return response
         with macro.get_result(run_id) as stream:

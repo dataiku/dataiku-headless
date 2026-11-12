@@ -34,6 +34,9 @@ rights. Keep the project, macro, run ID, and selected instance together for foll
 If starting fails without a run ID, inspect the macro in the UI before retrying to avoid duplicate execution. A missing
 run may have been consumed already. Status includes progress and failure details
 in resultError or storedError; the documented macro API has no separate log endpoint.
+Check the macro's result as well as its status: `state.error_reported` only
+indicates an error reported by Dataiku's status endpoint. A completed macro can
+return a failure such as `ok: false` without reporting an execution error.
 Verify the intended effects after completion.
 
 [Macro API reference](https://developer.dataiku.com/latest/api-reference/python/macros.html)
