@@ -23,8 +23,10 @@ rights. Keep the project, macro, run ID, and selected instance together for foll
 
 - `get_macro_status(project_key, macro_id, run_id)` polls without fetching the result.
 - `get_macro_result(project_key, macro_id, run_id)` returns the result once finished, or the current
-  state while running or after failure. Failed runs retain their error details
-  and are not consumed. **Fetching the result removes the run from Dataiku.** Save
+  state while running or when status reports a failure. Failures reported by status
+  are returned without consuming the run. Some execution errors appear only during
+  result retrieval; these errors include the SDK details, and the run may already
+  have been removed. **Fetching the result removes the run from Dataiku.** Save
   the returned content; do not fetch it again. JSON results are parsed, text is
   UTF-8, and binary output is base64, as indicated by the encoding field.
 - `abort_macro_run(project_key, macro_id, run_id)` requests cancellation. Check status afterward;

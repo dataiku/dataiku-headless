@@ -21,6 +21,7 @@ from ..auth import get_dss_client
 from ..executors import run_blocking
 from ..instance_policy import PROJECT_EXECUTION_POLICY, PROJECT_READ_POLICY
 from ..server import mcp
+from .utils.errors import safe_error_text
 from .utils.serialization import columnar, compact_json
 from .utils.validation import require_non_empty_string
 
@@ -245,9 +246,9 @@ async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
 
     try:
         return compact_json(await run_blocking(_read))
-    except Exception:
+    except Exception as exc:
         raise RuntimeError(
-            "Macro result retrieval failed. Inspect the run and any error in the Dataiku UI. "
+            f"Macro result retrieval failed: {safe_error_text(exc)}. "
             "Fetching a result may already have removed the run; do not restart the macro."
         ) from None
 

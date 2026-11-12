@@ -22,6 +22,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+from dataikuapi.utils import DataikuException
 
 from dataiku_mcp.tools import macros
 
@@ -166,3 +167,24 @@ def test_sdk_errors_are_safe_and_warn_against_duplicate_execution(sdk):
     with pytest.raises(RuntimeError, match="do not restart") as error:
         call(macros.get_macro_status("PROJECT", "example", "RUN"))
     assert "secret" not in str(error.value)
+
+
+def test_result_preserves_execution_error_when_status_has_no_error(sdk):
+    _, macro = sdk
+    macro.get_status.return_value = {"exists": True, "running": False}
+
+    def consume_and_fail(run_id):
+        macro.get_status.return_value = {"exists": False}
+        raise DataikuException("Python macro failed: ValueError: missing input column")
+
+    macro.get_result.side_effect = consume_and_fail
+    with pytest.raises(RuntimeError) as error:
+        call(macros.get_macro_result("PROJECT", "example", "RUN"))
+
+    message = str(error.value)
+    assert "Python macro failed: ValueError: missing input column" in message
+    assert "may already have removed the run" in message
+    assert "do not restart the macro" in message
+    macro.get_result.assert_called_once_with("RUN")
+    macro.get_status.assert_called_once_with("RUN")
+    macro.run.assert_not_called()
