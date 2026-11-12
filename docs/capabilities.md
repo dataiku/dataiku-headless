@@ -7,16 +7,19 @@ its object-specific references as directed.
 
 ## The rule
 
-**Flow and analytic logic is always built by Cobuild.** Headless has no tool to create
+**Flow and analytic logic is built by Cobuild, with one exception.** Headless has no tool to create
 or change recipe logic, code, inputs, or outputs, or to create or modify the definition
 of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki article,
 data quality rule, knowledge bank, semantic model, or evaluation store. The container
 execution override below changes only which container an existing object runs in.
+Python-script scenarios are that exception: Cobuild creates only step-based scenarios
+and cannot edit a scenario's script, so Headless creates them and replaces their script
+directly.
 
 Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
 configuration**, **cross-project**, and **instance-level administration**. It also
-re-runs assets that already exist. Some bootstrap writes do land inside a project —
+authors Python-script scenarios, the exception above, and re-runs assets that already exist. Some bootstrap writes do land inside a project —
 see the table below.
 Local profile actions are listed separately because they only change which Dataiku
 instance the local client targets.
@@ -37,8 +40,9 @@ Dataiku permissions and API availability still apply to permitted calls.
 
 Automation excludes all six Cobuild tools, even conversation listing and polling,
 and `create_project`, `update_project_settings`, `set_project_variables`,
-`set_container_exec_config`, `create_upload_dataset`, `create_managed_folder`,
-`upload_file_to_managed_folder`, `write_project_library_file`.
+`set_container_exec_config`, `create_python_scenario`, `set_python_scenario_script`,
+`create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`,
+`write_project_library_file`.
 It permits `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, metric
 recomputation through `get_dataset_metrics`, and every
 project-folder operation, including creation, deletion, and moving projects.
@@ -56,13 +60,13 @@ test. Design and Automation require a successful DSS connection test in local se
 
 ## Surface
 
-**131 tools** · 93 read · 24 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**133 tools** · 93 read · 26 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
 | Read / inspect | 93 | Never mutates |
-| Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
+| Direct Dataiku write | 26 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 5 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -74,9 +78,10 @@ bucket here.
 
 ## Built by Cobuild — limited direct exceptions
 
-Three partial exceptions: Headless can create a dataset from a local file, create an
-empty managed folder, and select container execution for an existing object (see
-*Handled directly by Headless*). It cannot build or change analytic logic here.
+Four partial exceptions: Headless can create a dataset from a local file, create an
+empty managed folder, select container execution for an existing object, and create a
+Python-script scenario or replace its script (see *Handled directly by Headless*). It
+cannot build or change other analytic logic here.
 
 | Area | Inspect | Direct action |
 |---|---|---|
@@ -87,7 +92,7 @@ empty managed folder, and select container execution for an existing object (see
 | Saved models | `list_saved_models`, `list_saved_model_versions`, `get_saved_model_version_details` | — |
 | Agents | `list_agents`, `get_agent_settings`, `list_agent_versions`, `list_agent_tools`, `get_agent_tool_settings` | `set_container_exec_config` (agent tools) |
 | Agent reviews | `list_agent_reviews`, `get_agent_review`, `list_agent_review_tests`, `list_agent_review_runs`, `get_agent_review_run_results` | — |
-| Scenarios | `list_scenarios`, `get_scenario_settings`, `get_scenario_run_history`, `list_messaging_channels` | `run_scenario` |
+| Scenarios | `list_scenarios`, `get_scenario_settings`, `get_scenario_run_history`, `list_messaging_channels` | `create_python_scenario`, `set_python_scenario_script` (Python-script scenarios), `run_scenario` |
 | Dashboards & insights | `list_dashboards`, `get_dashboard_settings`, `list_insights`, `get_insight_settings` | — |
 | Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config` |
 | Wikis | `list_wiki_articles`, `get_wiki_article` | — |
@@ -115,6 +120,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
+| Python-script scenarios | `list_scenarios`, `get_scenario_settings` (includes the script) | `create_python_scenario`, `set_python_scenario_script` | Project content, **in-project** — creates a Python-script (custom_python) scenario, inactive and without triggers, or replaces an existing one's whole script. Triggers, reporters, and activation stay with Cobuild. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
@@ -128,8 +134,9 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
-The **in-project** writes above configure or supply a project; they do not build its
-analytic logic. None of them build recipe logic, a model, or an agent.
+Except for Python-script scenarios, the **in-project** writes above configure or supply
+a project; they do not build its analytic logic. None of them build recipe logic, a
+model, or an agent.
 
 The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
 explains how to write, test, and package plugins locally with the agent's file and

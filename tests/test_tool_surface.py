@@ -211,11 +211,13 @@ EXPECTED_TOOLS_BY_MODULE = {
     "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
     "scenarios": frozenset(
         {
+            "create_python_scenario",
             "get_scenario_run_history",
             "get_scenario_settings",
             "list_messaging_channels",
             "list_scenarios",
             "run_scenario",
+            "set_python_scenario_script",
         }
     ),
     "semantic_models": frozenset(
