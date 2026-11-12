@@ -134,7 +134,7 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `run_macro`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 ## Capability reference
 

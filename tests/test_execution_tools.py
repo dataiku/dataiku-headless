@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the three direct-execution tools.
+"""Tests for dataset, recipe, and scenario execution.
 
-These are the only sanctioned direct actions on existing assets (everything else
-goes through Cobuild): ``build_datasets`` / ``run_recipe`` (jobs) and
-``run_scenario`` (scenarios). They never touch the network — ``get_dss_client``
-is patched with a ``MagicMock`` chain, and the monotonic clock is patched where a
-bounded wait path must be exercised without real sleeping.
+Macro execution is covered separately in test_macros.py. These tests use fakes
+and patched clocks without network access or real waits.
 """
 
 import asyncio
