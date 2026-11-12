@@ -19,6 +19,7 @@ import json
 
 from ..auth import get_dss_client
 from ..executors import run_blocking
+from ..instance_policy import PROJECT_EXECUTION_POLICY, PROJECT_READ_POLICY
 from ..server import mcp
 from .utils.serialization import columnar, compact_json
 from .utils.validation import require_non_empty_string
@@ -45,6 +46,7 @@ def _status(state):
 
 @mcp.tool(
     title="List Macros",
+    meta=PROJECT_READ_POLICY,
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -77,6 +79,7 @@ async def list_macros(project_key: str) -> str:
 
 @mcp.tool(
     title="Get Macro Definition",
+    meta=PROJECT_READ_POLICY,
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -116,6 +119,7 @@ async def get_macro_definition(project_key: str, macro_id: str) -> str:
 
 @mcp.tool(
     title="Run Macro",
+    meta=PROJECT_EXECUTION_POLICY,
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -162,6 +166,7 @@ async def run_macro(
 
 @mcp.tool(
     title="Get Macro Status",
+    meta=PROJECT_EXECUTION_POLICY,
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -190,6 +195,7 @@ async def get_macro_status(project_key: str, macro_id: str, run_id: str) -> str:
 
 @mcp.tool(
     title="Get Macro Result",
+    meta=PROJECT_EXECUTION_POLICY,
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -248,6 +254,7 @@ async def get_macro_result(project_key: str, macro_id: str, run_id: str) -> str:
 
 @mcp.tool(
     title="Abort Macro Run",
+    meta=PROJECT_EXECUTION_POLICY,
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,

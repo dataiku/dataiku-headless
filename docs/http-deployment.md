@@ -110,9 +110,11 @@ The settings file has four sections:
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
-Instance types are operator-supplied metadata reported by instance tools. They do
-not trigger API discovery or change client selection, connection testing, or tool
-availability.
+Instance types are operator-supplied and enforce the same
+[tool policy](capabilities.md#instance-types) as stdio. Unsupported tool calls are
+rejected before DSS token exchange. Agent Management, Govern and Deployer support instance controls
+only; `get_current_instance` reports `unsupported` without contacting DSS. The
+configured type does not trigger API discovery or select a different SDK client.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted
@@ -125,7 +127,7 @@ select an entry, and Dataiku decides what that user may do. `configure_instance`
 
 ## Distribute the interactive OAuth plugin
 
-The public `dataiku-headless` marketplace plugin starts its own stdio server and
+The public `headless` marketplace plugin starts its own stdio server and
 must not be installed for this mode.
 
 1. Render the customer-specific plugin with the deployed server's public MCP URL:
@@ -139,8 +141,18 @@ uv run python scripts/build_http_plugin.py \
 2. Add the rendered directory to the organization's enterprise/private marketplace
    or normal plugin distribution channel. Add `--zip` to the command to create
    `./dataiku-headless-http.zip` when that channel accepts ZIP artifacts.
-3. Users install `dataiku-headless-http`. Its setup skill completes OAuth, chooses
-   an administrator-managed instance, and verifies access.
+3. Users install the rendered `headless-http` plugin. Its setup skill completes
+   OAuth, chooses an administrator-managed instance, and verifies access.
+
+The ZIP keeps its `dataiku-headless-http/` root. The plugin identifier is
+`headless-http`, distinct from the public stdio plugin's `headless` identifier.
+The HTTP server key is `dku` in every manifest to fit Bedrock's tool-name limit.
+
+The rendered catalog maps `dataiku-headless-http` to `headless-http`. Publish it
+in the same private marketplace, then have Claude Code users refresh that
+marketplace and run `/plugin install headless-http@<marketplace-name>` once.
+Administrators must update managed settings. Other clients should replace the
+old plugin installation. Authenticate the `dku` server when prompted.
 
 The renderer does not modify this stdio-first source checkout or copy Dataiku
 credentials, OAuth secrets, or the HTTP deployment configuration. Keep only one

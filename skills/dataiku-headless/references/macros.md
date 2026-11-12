@@ -5,6 +5,9 @@ description: Discover installed macros, inspect their parameters, and manage mac
 
 # Macros
 
+Macro tools are available on Design and Automation instances, subject to Dataiku
+permissions and installed plugin availability.
+
 Use `list_macros(project_key)` to discover installed macros, then
 `get_macro_definition(project_key, macro_id)` to inspect a macro’s description,
 parameter schemas and defaults, permissions, and result type. Admin parameter

@@ -20,9 +20,56 @@ Bring a new or broken plugin installation to a verified Dataiku connection. A re
    - macOS or Linux: `uv run --quiet --locked --script "<plugin_root>/runtime/run_mcp.py" --transport stdio < /dev/null`
    - Windows PowerShell: `$null | uv run --quiet --locked --script "<plugin_root>\runtime\run_mcp.py" --transport stdio`
 
-   A startup line on stderr followed by exit status 0 is expected. Do not substitute `uv sync --locked --script`: it caches downloads but leaves environment creation for the first server launch.
-7. Retry `list_instances`. If the tools are still unavailable, reload the plugin or restart the agent once, then retry before diagnosing a Dataiku connection problem.
-8. When `list_instances` succeeds, if no instance is configured, run `configure_instance` and have the user complete the local setup page. If multiple instances exist without an active one, ask which to use and run `switch_instance`.
-9. Verify the active profile with `get_current_instance`. If its `connection_status` is `failed`, the discovered profile cannot connect to Dataiku; run `configure_instance` to replace or add a working profile instead of treating it as set up. When it is `connected`, make a lightweight read-only Dataiku call such as `list_projects` to validate the available Dataiku access. Never request or repeat the API key in chat.
+   A startup line on stderr followed by exit status 0 is expected. This checks standalone runtime startup, not the agent's MCP registration or connection. Do not substitute `uv sync --locked --script`: it caches downloads but leaves environment creation for the first server launch.
+7. Retry `list_instances`. If the tools are still unavailable, reload the plugin or restart the agent once, then retry. If they are still missing, inspect the agent's MCP registration and startup error; do not repeat the warm-up/restart loop. Check the executable, script path, working directory, and any organization policy error before diagnosing a Dataiku connection problem.
+8. When `list_instances` succeeds, if no instance is configured, run `configure_instance` and have the user add an instance in the local browser manager, test it when supported, save it, and select **Done**. Design and Automation require a successful connection test. Agent Management, Govern and Deployer testing is unavailable; save their locally validated profiles directly. Select **Switch to this instance after saving** to make it active. The manager stays open across operations; saving alone does not complete URL elicitation. If multiple instances exist without an active one, ask which to use and run `switch_instance`.
+9. Verify the active profile with `get_current_instance`. If its `connection_status` is `failed`, inspect the returned `error` before continuing. For SSL/TLS or certificate failures, follow [HTTPS certificate trust](#https-certificate-trust) before changing the profile. For other failures, diagnose the reported cause and use `configure_instance` when the profile needs correction; do not treat it as set up. If it is `unsupported`, the Agent Management, Govern or Deployer profile is configured but its API tools are not implemented; explain this and offer to switch to a supported instance instead of repeating setup or probing DSS. When it is `connected`, make a lightweight read-only Dataiku call such as `list_projects` to validate the available Dataiku access. Never request or repeat the API key in chat.
 
-Report completion with the active instance name, URL, and configured type, Dataiku version when available, and whether the Dataiku read succeeded. Include the uv version only when runtime recovery was needed. If a restart is required, say that setup is incomplete and give the single next action.
+Report completion with the active instance name, URL, and configured type, Dataiku version when available, and whether the Dataiku read succeeded or the selected node type has no API tools yet. Include the uv version only when runtime recovery was needed. If a restart is required, say that setup is incomplete and give the single next action.
+
+## HTTPS certificate trust
+
+The standard launcher trusts CAs in the operating system certificate store. If
+HTTPS verification fails, diagnose the cause before recommending a configuration
+change. Inspect the certificate and chain presented by the Dataiku endpoint for
+hostname mismatches, expired or not-yet-valid certificates, and missing
+intermediate certificates. Consider whether a corporate proxy is presenting its
+own certificate.
+
+When the failure points to an untrusted issuer, inspect the relevant trust
+configuration on the machine or container running the MCP server. If local tools
+or access are unavailable, explain what remains unknown.
+
+Report the finding and a concrete next step: for example, ask the Dataiku
+administrator to renew the certificate or correct its chain, or ask IT to verify
+that the required CA is installed and trusted. Do not install certificates or
+change trust settings without authorization.
+
+If immediate access is needed, explain that **Skip certificate verification** is
+available as a temporary workaround, but is discouraged because it prevents
+reliable server authentication and could expose credentials and data to
+interception. Do not enable it automatically. After the certificate issue is
+resolved, re-enable verification, test, and save the profile.
+
+## Manage existing instances
+
+Use `configure_instance` to reopen the local instance manager. It groups instances
+by type and supports create, edit, delete, **Use now**, and **Set default**. **Use now**
+changes the target of later tool calls; **Set default** selects the saved startup
+profile and does not switch the active instance. Environment and Code Studio
+instances remain read-only and take precedence at startup. HTTP instances remain
+platform-managed and cannot use this local manager.
+
+When editing, a saved API key is indicated by a `**********` placeholder; the
+input itself remains blank. Leave it blank to preserve the saved key or ticket. A new
+API key replaces the credential. For Design and Automation, a successful connection test is required before
+saving; changing URL, credential, certificate policy, or type requires a new test.
+Connection-test failures appear in the editor's connection-status area. Expand **Error details**
+to inspect the underlying exception before retrying; for SSL/TLS failures, follow
+[HTTPS certificate trust](#https-certificate-trust).
+Deleting an active/default profile requires choosing another saved profile when
+one is available. It removes only the saved instance configuration. The Dataiku
+instance and its data stay in place.
+After **Done**, verify the active instance with `get_current_instance`; never
+infer activation from saving or choosing a default. Changes are applied immediately
+and survive page expiry. The manager expires after ten minutes; reopen it if needed.

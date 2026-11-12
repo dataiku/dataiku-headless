@@ -92,6 +92,8 @@ export DKU_API_KEY="your-api-key"
 
 ## Tool Metadata
 
+- Every registered tool declares `meta.allowed_instance_types` using the shared presets in `dataiku_mcp/instance_policy.py`. Middleware enforces this declaration against the request-pinned instance before DSS token exchange or dispatch; missing or malformed declarations fail closed. Keep the complete catalog visible and extend the exact policy contract in `tests/test_instance_policy.py` when adding or changing a tool.
+
 - Give each tool a short human title and a one-line description of what it is for and when to reach for it.
 - The tool catalog is re-sent to the model on every turn of every session, used or not. Keep workflow detail and safety rules in the relevant `skills/**/references/` guide, which loads on demand, and describe only parameters whose correct use a name and type cannot convey.
 - Set `readOnlyHint`, `destructiveHint`, and `openWorldHint` explicitly, classified from the handler's actual code paths rather than its name. Omit `idempotentHint` where it cannot apply. A tool whose effect depends on a runtime argument is catalogued at its maximum possible effect.
@@ -103,12 +105,14 @@ export DKU_API_KEY="your-api-key"
 ## Cobuild Write-Routing Convention
 - This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead. `set_container_exec_config` is the narrow, placement-only exception; all other changes stay with Cobuild.
 - Do not add a new direct write tool for an in-project asset type beyond the fixed exceptions below. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
-- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, and `abort_job`, which stops an existing job) and deterministic container execution placement for an existing object (`set_container_exec_config`).
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, which stops an existing job, and `get_dataset_metrics`, which recomputes a dataset's existing metric probes so a read does not return stale stored values) and deterministic container execution placement for an existing object (`set_container_exec_config`).
 
 ## Fixed Tool Surface
 
 - `runtime/run_mcp.py` is the single launcher. It requires `--transport stdio` for the local plugin or `--transport http` for the authenticated Streamable HTTP deployment. Keep the transports explicitly selected and preserve the same registered tool catalog.
 - Register one directly visible tool catalog. Do not add an MCP search mode.
+- Classify explicit tools with `PROJECT_READ_POLICY`, `PROJECT_EXECUTION_POLICY`, `ADMIN_POLICY` or `PROJECT_EDIT_POLICY`; use `INSTANCE_MANAGEMENT_POLICY` for connection controls. Execution includes status/polling, administration includes instance inspection and project folders, and project edits include project Cobuild. Only connection management is exempt from requiring a selected profile.
+- `SUPPORTED_DSS_INSTANCE_TYPES` defines the currently supported backend types independently of all valid `InstanceType` values. Agent Management, Govern and Deployer remain configurable profiles with instance controls only until their product support lands.
 - The registered set is the contract; `tests/test_tool_surface.py` pins the exact catalog. Any tool add/remove/rename updates that pinned set in the same change.
 
 ## Guardrails

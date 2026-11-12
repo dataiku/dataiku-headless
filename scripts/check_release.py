@@ -37,10 +37,12 @@ def validate(root: Path) -> str:
         f".{name}-plugin/plugin.json"
         for name in ("claude", "codex", "cortex", "cursor")
     }
+    required.add(".github/plugin/plugin.json")
     for relative in required:
         if not (root / relative).is_file():
             raise ValueError(f"Missing release manifest: {relative}")
     manifests = sorted(root.glob(".*-plugin/plugin.json"))
+    manifests.append(root / ".github/plugin/plugin.json")
     if (root / "plugin.json").exists():
         manifests.append(root / "plugin.json")
     configured = project["tool"]["commitizen"]["version_files"]
@@ -50,11 +52,18 @@ def validate(root: Path) -> str:
             raise ValueError(f"{relative} is missing from Commitizen version_files")
         if json.loads(path.read_text())["version"] != version:
             raise ValueError(f"{relative} must carry version {version}")
-    marketplace = json.loads((root / ".claude-plugin/marketplace.json").read_text())
-    for entry in marketplace["plugins"]:
-        if entry["name"] == project["project"]["name"]:
-            if entry.get("version", version) != version:
-                raise ValueError("Marketplace version differs from project version")
+    for relative in (
+        ".claude-plugin/marketplace.json",
+        ".github/plugin/marketplace.json",
+    ):
+        plugin_name = json.loads(
+            (root / relative).with_name("plugin.json").read_text()
+        )["name"]
+        marketplace = json.loads((root / relative).read_text())
+        for entry in marketplace["plugins"]:
+            if entry["name"] == plugin_name:
+                if entry.get("version", version) != version:
+                    raise ValueError("Marketplace version differs from project version")
     return version
 
 
