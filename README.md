@@ -128,6 +128,27 @@ variables, is available only when the harness supplies those variables to the
 server; ambient environment inheritance is not guaranteed.
 
 
+### Kiro
+
+In the Kiro IDE, open **Powers** → **Add Custom Power** → **Import power
+from GitHub** and enter this repository's URL. Kiro registers the MCP server
+from the root `mcp.json` and loads the skills. These instructions cover the IDE.
+
+**Branch imports:** Kiro splits GitHub `/tree/<branch>/<subdirectory>` URLs
+at the first slash after `tree`. Branch names containing `/`, such as
+`one-off/agent-plugin`, are therefore interpreted incorrectly. Use a branch
+without a slash, or clone the desired branch and choose **Import power from a
+folder** instead.
+
+**Credentials:** ask **Set up Dataiku Headless** to save a local profile in
+`~/.dataiku/stdio-config.json`. See [Where configuration lives](#where-configuration-lives)
+for path overrides. Do not rely on shell exports reaching Kiro's MCP subprocess;
+ambient environment inheritance is not guaranteed.
+
+**Verify:** check the Dataiku server in Kiro's **MCP Servers** panel, then use
+`get_current_instance` and a read-only call such as `list_projects` to confirm
+the selected instance and Dataiku access.
+
 ### Other AI assistants
 
 #### MCP
