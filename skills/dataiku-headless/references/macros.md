@@ -49,5 +49,4 @@ indicates an error reported by Dataiku's status endpoint. A completed macro can
 return a failure such as `ok: false` without reporting an execution error.
 Verify the intended effects after completion.
 
-[Macros overview](https://doc.dataiku.com/dss/latest/operations/macros.html) ·
-[Macro API reference](https://developer.dataiku.com/latest/api-reference/python/macros.html)
+[Macros overview](https://doc.dataiku.com/dss/latest/operations/macros.html)
