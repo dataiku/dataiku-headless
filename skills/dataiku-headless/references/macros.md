@@ -7,7 +7,7 @@ description: Discover installed macros, inspect their parameters, and manage mac
 
 Macros are predefined actions for maintenance and diagnostic tasks, specific
 connectivity tasks for import of data, and generation of reports about your data
-or Dataiku DSS. They can be built into Dataiku or supplied by plugins, including
+or Dataiku. They can be built into Dataiku or supplied by plugins, including
 custom plugins. Use this guide to discover and run existing macros and inspect
 their results.
 
