@@ -24,6 +24,7 @@ import dataikuapi
 import pytest
 from dataikuapi.utils import DataikuException
 from fastmcp import Client
+from requests.exceptions import InvalidHeader
 
 from dataiku_mcp import mcp, auth
 from dataiku_mcp.config import request, stdio
@@ -421,6 +422,23 @@ def test_govern_write_failure_asks_to_reread(monkeypatch):
         "run_write_operation",
     )
     assert "Govern request failed: Artifact is locked" in text
+    assert "Re-read the affected object before retrying" in text
+
+
+def test_govern_transport_failure_hides_the_requests_message(monkeypatch):
+    class Artifact:
+        def delete(self):
+            raise InvalidHeader(f"Invalid header value: '{SECRET}\\n'")
+
+    text = _govern_failure(
+        monkeypatch,
+        SimpleNamespace(get_artifact=lambda artifact_id: Artifact()),
+        "govern.delete_artifact",
+        {"artifact_id": "ar.1"},
+        "run_write_operation",
+    )
+    assert SECRET not in text
+    assert "Govern request failed: InvalidHeader" in text
     assert "Re-read the affected object before retrying" in text
 
 

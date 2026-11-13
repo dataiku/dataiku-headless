@@ -1867,14 +1867,20 @@ def operation_handler(spec: GovernOperation):
             client = get_govern_client()
             try:
                 return redact_sensitive_data(spec.run(client, params))
-            except (DataikuException, RequestException) as err:
+            except DataikuException as err:
                 message = dataiku_message(err)
                 if len(message) > ERROR_MESSAGE_MAX_CHARS:
                     message = message[:ERROR_MESSAGE_MAX_CHARS] + " [truncated]"
-                text = f"Govern request failed: {message}"
-                if spec.kind != "read":
-                    text += "\nRe-read the affected object before retrying; the write may have reached Govern."
-                raise RuntimeError(text) from None
+            except RequestException as err:
+                # A requests message can hold header values and the request URL, so only the type is shown.
+                message = (
+                    f"{type(err).__name__}, no usable response from Govern. "
+                    "Check the instance URL, the credential format and the network."
+                )
+            text = f"Govern request failed: {message}"
+            if spec.kind != "read":
+                text += "\nRe-read the affected object before retrying; the write may have reached Govern."
+            raise RuntimeError(text) from None
 
         return compact_json(await run_blocking(_run))
 
