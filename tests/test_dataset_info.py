@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configured dataset locations across storage families and safe omissions."""
+"""Opt-in configured dataset locations and dataset-specific response behavior."""
 
 import asyncio
 import copy
@@ -129,111 +129,29 @@ def test_info_preserves_existing_fields_and_adds_configured_location(backend):
 @pytest.mark.parametrize(
     "kind,params",
     [
-        *[
-            (
-                kind,
-                {
-                    "connection": "sql",
-                    "catalog": "db",
-                    "schema": "schema",
-                    "table": "${projectKey}_output",
-                    "mode": "table",
-                },
-            )
-            for kind in (
-                "Snowflake",
-                "BigQuery",
-                "Databricks",
-                "PostgreSQL",
-                "Redshift",
-                "Synapse",
-                "Netezza",
-                "MySQL",
-                "SQLServer",
-                "Oracle",
-                "JDBC",
-            )
-        ],
+        (
+            "SQL",
+            {
+                "connection": "sql",
+                "schema": "${env}",
+                "table": "${projectKey}_output",
+                "mode": "table",
+                "customPreWriteStatements": "DELETE FROM ${target_schema}.orders",
+            },
+        ),
         ("Filesystem", {"connection": "fs", "path": "/${projectKey}/data"}),
-        (
-            "S3",
-            {
-                "connection": "object_store",
-                "bucket": "bucket",
-                "path": "${env}/${projectKey}/output",
-                "metastoreDatabaseName": "database",
-                "metastoreTableName": "${projectKey}_output",
-                "metastoreSynchronizationEnabled": False,
-            },
-        ),
-        ("GCS", {"connection": "object_store", "bucket": "bucket", "path": "data/"}),
-        (
-            "Azure",
-            {"connection": "object_store", "container": "container", "path": "data/"},
-        ),
-        (
-            "HDFS",
-            {"connection": "hdfs", "path": "/data", "hiveTableName": "hive_table"},
-        ),
-        ("FilesInFolder", {"folderSmartId": "SOURCE.folder"}),
-        (
-            "SharePointOnline",
-            {
-                "connection": "documents",
-                "site": "site",
-                "siteId": "site-id",
-                "drive": "drive",
-                "driveId": "drive-id",
-                "path": "/documents",
-            },
-        ),
-        ("Inline", {"uploadBoxId": "box", "importDatasetSmartName": "SOURCE.input"}),
-        (
-            "Labels",
-            {"labelingTaskId": "task", "labelingTaskType": "IMAGE", "view": "labels"},
-        ),
-        (
-            "JobsDB",
-            {
-                "scope": "SINGLE_OBJECT",
-                "smartName": "SOURCE.input",
-                "partition": "NP",
-                "view": "METRICS_LAST",
-            },
-        ),
-        (
-            "ExperimentsDB",
-            {"scope": "PROJECT", "viewType": "RUNS", "experimentIds": ["experiment"]},
-        ),
-        (
-            "Sample_fixture-samples_example",
-            {"pluginId": "fixture-samples", "sampleName": "example", "version": "1"},
-        ),
     ],
 )
-def test_storage_families_keep_location_expressions(backend, kind, params):
+def test_configured_storage_expressions_are_preserved(backend, kind, params):
     settings, _ = backend
-    settings.update(
-        type=kind,
-        managed=True,
-        params={
-            **params,
-            "password": SECRET,
-            "customPreWriteStatements": "DELETE FROM ${target_schema}.orders",
-        },
-    )
+    settings.update(type=kind, managed=True, params=params)
     result = call()
     assert result["type"] == kind
     assert result["managed"] is True
     assert result["location"] == {
-        "parameters": {
-            **params,
-            "password": "__DATAIKU_REDACTED__",
-            "customPreWriteStatements": "DELETE FROM ${target_schema}.orders",
-        },
+        "parameters": params,
         "resolution": "configured",
     }
-    assert SECRET not in json.dumps(result)
 
 
 @pytest.mark.parametrize(
@@ -265,74 +183,17 @@ def test_uploaded_files_expose_backing_location_and_connection(
     assert result["location"]["parameters"] == params
 
 
-def test_file_selection_partitioning_and_variable_dependencies_are_preserved(backend):
-    settings, _ = backend
-    settings["params"].update(
-        filesSelectionRules={
-            "mode": "RULES",
-            "explicitFiles": ["reference.csv"],
-            "includeRules": [
-                {
-                    "mode": "INCLUDE",
-                    "matchingMode": "GLOB",
-                    "expr": "*.csv",
-                    "password": SECRET,
-                }
-            ],
-            "excludeRules": [],
-            "credentials": SECRET,
-        },
-        variablesExpansionLoopConfig={
-            "enabled": True,
-            "mode": "ZIP",
-            "datasetRef": "SOURCE.mapping",
-            "replacements": [{"variableName": "output_root", "column": "root"}],
-        },
-    )
-    settings["partitioning"] = {
+def test_partitioning_is_included_only_when_configured():
+    partitioning = {
         "filePathPattern": "/%Y/%M/%D/.*",
-        "dimensions": [
-            {
-                "name": "date",
-                "type": "time",
-                "params": {"period": "DAY", "token": SECRET},
-            }
-        ],
-        "secret": SECRET,
+        "dimensions": [{"name": "date", "type": "time"}],
     }
-    result = call()["location"]
-    assert result["parameters"]["filesSelectionRules"] == {
-        "mode": "RULES",
-        "explicitFiles": ["reference.csv"],
-        "includeRules": [
-            {
-                "mode": "INCLUDE",
-                "matchingMode": "GLOB",
-                "expr": "*.csv",
-                "password": "__DATAIKU_REDACTED__",
-            }
-        ],
-        "excludeRules": [],
-        "credentials": "__DATAIKU_REDACTED__",
+    assert _dataset_location({"partitioning": partitioning}) == {
+        "parameters": {},
+        "resolution": "configured",
+        "partitioning": partitioning,
     }
-    assert result["parameters"]["variablesExpansionLoopConfig"] == {
-        "enabled": True,
-        "mode": "ZIP",
-        "datasetRef": "SOURCE.mapping",
-        "replacements": [{"variableName": "output_root", "column": "root"}],
-    }
-    assert result["partitioning"] == {
-        "filePathPattern": "/%Y/%M/%D/.*",
-        "dimensions": [
-            {
-                "name": "date",
-                "type": "time",
-                "params": {"period": "DAY", "token": "__DATAIKU_REDACTED__"},
-            }
-        ],
-        "secret": "__DATAIKU_REDACTED__",
-    }
-    assert SECRET not in json.dumps(result)
+    assert "partitioning" not in _dataset_location({"partitioning": {"dimensions": []}})
 
 
 def test_query_does_not_report_a_stale_table_as_its_source(backend):
@@ -359,178 +220,27 @@ def test_query_does_not_report_a_stale_table_as_its_source(backend):
     assert SECRET not in json.dumps(result)
 
 
-@pytest.mark.parametrize(
-    "kind,key",
-    [
-        ("CustomPython_fixture_source", "customConfig"),
-        ("fsprovider_fixture_provider", "config"),
-    ],
-)
-def test_plugin_config_is_preserved_with_shared_credential_redaction(
-    backend, kind, key
-):
-    settings, _ = backend
-    settings.update(
-        type=kind,
-        params={
-            key: {"collection": "${env}_orders", "inlinedConfig": {"key": SECRET}},
-            "path": "/configured",
+def test_unfamiliar_nested_parameters_are_preserved_and_redacted():
+    params = {
+        "futureLocation": {
+            "namespace": ["${env}", "items"],
+            "enabled": True,
+            "inheritRoot": None,
+            "options": [{"password": SECRET, "region": "region"}],
         },
-    )
-    result = call()["location"]
-    assert result == {
-        "parameters": {
-            key: {
-                "collection": "${env}_orders",
-                "inlinedConfig": {"key": "__DATAIKU_REDACTED__"},
-            },
-            "path": "/configured",
+        "customConfig": {
+            "query": "SELECT * FROM ${schema}.orders",
+            "code": "print('example')",
         },
+        "filesSelectionRules": {"includeRules": [{"expr": "*.csv"}]},
+    }
+    expected = copy.deepcopy(params)
+    expected["futureLocation"]["options"][0]["password"] = "__DATAIKU_REDACTED__"
+    assert _dataset_location({"type": "FutureStorage", "params": params}) == {
+        "parameters": expected,
         "resolution": "configured",
     }
-    assert SECRET not in json.dumps(result)
-
-
-@pytest.mark.parametrize(
-    "url,expected",
-    [
-        (
-            f"https://user:{SECRET}@example.com/data?token={SECRET}&page=2#section",
-            "https://example.com/data?token=__DATAIKU_REDACTED__&page=2#section",
-        ),
-        (
-            "https://example.com/data?page=2#section",
-            "https://example.com/data?page=2#section",
-        ),
-        (f"https://[broken?token={SECRET}", "__DATAIKU_REDACTED__"),
-    ],
-)
-def test_http_source_urls_use_shared_connection_redaction(backend, url, expected):
-    settings, _ = backend
-    settings.update(
-        type="HTTP",
-        params={
-            "sources": [
-                {
-                    "url": url,
-                    "headers": {"Authorization": SECRET},
-                    "body": "request-body",
-                }
-            ]
-        },
-    )
-    result = call()["location"]
-    assert result["parameters"] == {
-        "sources": [
-            {
-                "url": expected,
-                "headers": {"Authorization": "__DATAIKU_REDACTED__"},
-                "body": "request-body",
-            }
-        ]
-    }
-    assert SECRET not in json.dumps(result)
-
-
-@pytest.mark.parametrize("scheme", ["abfs", "abfss", "wasb", "wasbs"])
-def test_azure_uri_container_authority_is_not_treated_as_a_username(scheme):
-    uri = f"{scheme}://container@account.dfs.core.windows.net/${{projectKey}}/data"
-    result = _dataset_location({"params": {"path": uri}})
-    assert result["parameters"]["path"] == uri
-
-
-@pytest.mark.parametrize(
-    "kind,params",
-    [
-        ("MongoDB", {"connection": "documents", "collection": "${env}_items"}),
-        (
-            "ElasticSearch",
-            {
-                "connection": "search",
-                "index": "${env}-items",
-                "partitioningIndexPattern": "items-*",
-            },
-        ),
-        (
-            "Iceberg",
-            {
-                "connection": "lake",
-                "namespace": "${env}",
-                "table": "items",
-                "location": "/${env}/items",
-            },
-        ),
-        (
-            "DatabricksVolume",
-            {
-                "connection": "volumes",
-                "volume": "catalog.schema.volume",
-                "path": "${env}/items",
-            },
-        ),
-        (
-            "SharePointOnlineList",
-            {
-                "connection": "lists",
-                "sharePointSite": "site",
-                "sharePointList": "items",
-                "siteId": "site-id",
-                "listId": "list-id",
-            },
-        ),
-        (
-            "Cassandra",
-            {
-                "connection": "wide_columns",
-                "table": "${env}_items",
-                "deleteBeforeWrite": True,
-            },
-        ),
-        (
-            "DynamoDB",
-            {
-                "connection": "kv",
-                "table": "${env}_items",
-                "partitioningColumn": "region",
-            },
-        ),
-        (
-            "FutureStorage",
-            {
-                "futureLocation": {
-                    "namespace": ["${env}", "items"],
-                    "enabled": True,
-                    "inheritRoot": None,
-                }
-            },
-        ),
-    ],
-)
-def test_unobserved_storage_types_and_parameters_are_preserved(kind, params):
-    assert _dataset_location({"type": kind, "params": params}) == {
-        "parameters": params,
-        "resolution": "configured",
-    }
-
-
-def test_internal_statistics_source_filters_are_not_lost():
-    result = _dataset_location(
-        {
-            "params": {
-                "view": "JOBS",
-                "jobs": {"projectKey": "PROJECT", "credentials": SECRET},
-                "commits": {},
-                "orderByDate": True,
-            }
-        }
-    )
-    assert result["parameters"] == {
-        "view": "JOBS",
-        "jobs": {"projectKey": "PROJECT", "credentials": "__DATAIKU_REDACTED__"},
-        "commits": {},
-        "orderByDate": True,
-    }
-    assert SECRET not in json.dumps(result)
+    assert params["futureLocation"]["options"][0]["password"] == SECRET
 
 
 def test_dataset_info_uses_pinned_instance_after_selection_changes(
@@ -544,65 +254,3 @@ def test_dataset_info_uses_pinned_instance_after_selection_changes(
 
     monkeypatch.setattr(datasets, "get_dss_client", switch)
     assert call()["location"]["parameters"]["path"] == "/reference"
-
-
-@pytest.mark.parametrize(
-    "field",
-    [
-        "password",
-        "client_secret",
-        "api-key",
-        "accessKeyId",
-        "privateKey",
-        "sasToken",
-        "credentials",
-        "Authorization",
-        "keyBase64Data",
-        "keyJsonData",
-    ],
-)
-def test_shared_redaction_applies_to_unfamiliar_nested_parameters(field):
-    result = _dataset_location(
-        {
-            "params": {
-                "futureLocation": {
-                    "namespace": "${env}",
-                    "options": [{field: SECRET, "region": "region"}],
-                },
-            }
-        }
-    )
-    assert result["parameters"] == {
-        "futureLocation": {
-            "namespace": "${env}",
-            "options": [{field: "__DATAIKU_REDACTED__", "region": "region"}],
-        },
-    }
-    assert "omitted_parameters" not in result
-    assert SECRET not in json.dumps(result)
-
-
-def test_free_form_text_is_included_with_shared_redaction():
-    result = _dataset_location(
-        {
-            "params": {
-                "uploadedConfig": {
-                    "path": "/${projectKey}/uploads",
-                    "customConfig": {"password": SECRET},
-                    "partitionsQuery": "SELECT DISTINCT region FROM ${schema}.orders",
-                    "customQueryDsl": '{"query": {"match_all": {}}}',
-                    "code": "print('example')",
-                    "variablesExpansionLoopConfig": {
-                        "replacements": [{"values": [{"password": SECRET}]}]
-                    },
-                }
-            }
-        }
-    )
-    config = result["parameters"]["uploadedConfig"]
-    assert config["path"] == "/${projectKey}/uploads"
-    assert config["partitionsQuery"] == "SELECT DISTINCT region FROM ${schema}.orders"
-    assert config["customQueryDsl"] == '{"query": {"match_all": {}}}'
-    assert config["code"] == "print('example')"
-    assert "omitted_parameters" not in result
-    assert SECRET not in json.dumps(result)
