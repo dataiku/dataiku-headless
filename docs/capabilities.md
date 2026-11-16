@@ -64,12 +64,6 @@ empty managed folder, and select container execution for an existing object (see
 | Semantic models | `list_semantic_models`, `get_semantic_model_version_config` | — |
 | Evaluation stores | `list_evaluation_stores`, `get_evaluation_store_details` | — |
 
-Dataset inspection returns type, connection, managed flag (when available), and
-column metadata. Pass `include_location=true` for saved dataset parameters and
-partitioning settings with shared credential redaction, including SQL text and
-plugin configuration. Variable expressions are preserved; physical dataset
-destinations are not resolved. See the [dataset location guide](../skills/dataiku-headless/references/datasets.md#configured-storage-locations).
-
 ## Driving Cobuild
 
 | Tool | Use |
