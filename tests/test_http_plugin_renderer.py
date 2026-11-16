@@ -41,29 +41,49 @@ def _json(path: Path) -> dict:
 def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     output = tmp_path / "dataiku-headless-http"
     endpoint = "https://mcp.customer.example/mcp"
-    source_mcp = (ROOT / ".mcp.json").read_text(encoding="utf-8")
     source_codex = _json(ROOT / ".codex-plugin" / "plugin.json")
+    source_mcp_path = ROOT / source_codex["mcpServers"]
+    source_mcp = source_mcp_path.read_text(encoding="utf-8")
     source_claude = _json(ROOT / ".claude-plugin" / "plugin.json")
 
+    github_paths = [
+        ROOT / ".github/plugin" / name for name in ("plugin.json", "marketplace.json")
+    ]
+    source_github = {path: path.read_text() for path in github_paths}
     result = _run("--url", endpoint, "--output", str(output))
+    github = _json(output / ".github/plugin/plugin.json")
+    assert github["mcpServers"] == {"dku": {"type": "http", "url": endpoint}}
+    assert github["name"] == "headless-http"
+    original = _json(github_paths[0])
+    assert {k: v for k, v in github.items() if k not in ("name", "mcpServers")} == {
+        k: v for k, v in original.items() if k not in ("name", "mcpServers")
+    }
+    marketplace = _json(output / ".github/plugin/marketplace.json")
+    assert marketplace["plugins"][0]["name"] == github["name"]
+    assert marketplace["plugins"][0]["source"] == "./"
+    assert marketplace["renames"] == {"dataiku-headless-http": "headless-http"}
+    assert not (output / ".github/workflows").exists()
+    assert all(path.read_text() == source for path, source in source_github.items())
 
     assert result.returncode == 0, result.stderr
-    assert _json(output / ".mcp.json")["mcpServers"]["dataiku"] == {
-        "type": "http",
-        "url": endpoint,
+    rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
+    assert _json(output / rendered_codex["mcpServers"])["mcpServers"] == {
+        "dku": {"type": "http", "url": endpoint}
     }
-    assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"][
-        "dataiku"
-    ] == {"type": "http", "url": endpoint}
-    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == (
-        "dataiku-headless-http"
-    )
+    assert not (output / ".mcp.json").exists()
+    assert _json(output / ".claude-plugin" / "plugin.json")["mcpServers"] == {
+        "dku": {"type": "http", "url": endpoint}
+    }
+    assert _json(output / ".codex-plugin" / "plugin.json")["name"] == "headless-http"
     assert (
         _json(output / ".claude-plugin" / "marketplace.json")["plugins"][0]["name"]
-        == "dataiku-headless-http"
+        == "headless-http"
     )
-    rendered_codex = _json(output / ".codex-plugin" / "plugin.json")
     rendered_claude = _json(output / ".claude-plugin" / "plugin.json")
+    assert rendered_claude["name"] == "headless-http"
+    marketplace = _json(output / ".claude-plugin" / "marketplace.json")
+    assert marketplace["renames"] == {"dataiku-headless-http": "headless-http"}
+    assert rendered_claude["name"] != source_claude["name"]
     assert rendered_codex["version"] == source_codex["version"]
     assert rendered_codex["description"] == source_codex["description"]
     assert rendered_claude["version"] == source_claude["version"]
@@ -82,14 +102,14 @@ def test_renders_http_plugin_with_http_only_setup_skill(tmp_path):
     ).read_text(encoding="utf-8")
     assert setup == expected_setup
     assert "ask whether the user wants to authenticate now" in setup
-    assert "codex mcp login dataiku" in setup
-    assert "claude mcp login dataiku" in setup
+    assert "codex mcp login dku" in setup
+    assert "claude mcp login plugin:headless-http:dku" in setup
     assert "retry `list_instances`" in setup
     assert "uv" not in setup
     assert "API key" not in setup
     assert "Never call `configure_instance` or `delete_instance`" in setup
     assert not (output / "skills" / "dataiku-headless-setup" / "references").exists()
-    assert (ROOT / ".mcp.json").read_text(encoding="utf-8") == source_mcp
+    assert source_mcp_path.read_text(encoding="utf-8") == source_mcp
 
 
 def test_renders_zip_with_one_plugin_root(tmp_path):
@@ -108,7 +128,9 @@ def test_renders_zip_with_one_plugin_root(tmp_path):
     assert archive.is_file()
     assert not output.exists()
     with zipfile.ZipFile(archive) as bundle:
-        assert "dataiku-headless-http/.mcp.json" in bundle.namelist()
+        assert "dataiku-headless-http/.codex-plugin/mcp.json" in bundle.namelist()
+        for name in ("plugin.json", "marketplace.json"):
+            assert f"dataiku-headless-http/.github/plugin/{name}" in bundle.namelist()
         assert "dataiku-headless-http/skills/dataiku-headless-setup/SKILL.md" in (
             bundle.namelist()
         )

@@ -34,6 +34,8 @@ STDIO_SETUP_REFERENCE = (
 def _install_fake_launcher_modules(monkeypatch) -> list[tuple]:
     events = []
     dotenv_module = ModuleType("dotenv")
+    truststore_module = ModuleType("truststore")
+    truststore_module.inject_into_ssl = lambda: events.append(("system_trust",))
     dataiku_mcp_module = ModuleType("dataiku_mcp")
 
     def load_dotenv(path: Path, *, override: bool) -> None:
@@ -47,6 +49,7 @@ def _install_fake_launcher_modules(monkeypatch) -> list[tuple]:
         ("run", "http", path)
     )
     monkeypatch.setitem(sys.modules, "dotenv", dotenv_module)
+    monkeypatch.setitem(sys.modules, "truststore", truststore_module)
     monkeypatch.setitem(sys.modules, "dataiku_mcp", dataiku_mcp_module)
     return events
 
@@ -63,6 +66,7 @@ def test_launcher_loads_dotenv_before_importing_and_running_server(monkeypatch):
 
     assert events == [
         ("load_dotenv", SCRIPT.parent.parent / ".env", False),
+        ("system_trust",),
         ("run", "http", Path("/tmp/http.json")),
     ]
 
@@ -101,6 +105,7 @@ def test_launcher_passes_settings_path_to_stdio(monkeypatch):
 
     assert events == [
         ("load_dotenv", SCRIPT.parent.parent / ".env", False),
+        ("system_trust",),
         ("run", "stdio", Path("/tmp/stdio.json")),
     ]
 

@@ -64,3 +64,47 @@ def select_metrics(
     if missing_metric_ids:
         result["missing_metric_ids"] = missing_metric_ids
     return result
+
+
+def compute_report_errors(report: dict | None) -> list[str]:
+    """List the engine failures carried by a metric computation report.
+
+    DSS reports a failed probe engine inside the report instead of raising, so a
+    caller that ignores it reads the previous stored value as if it were fresh.
+    """
+    runs = ((report or {}).get("result") or {}).get("runs") or []
+    return [
+        f"{run.get('engine', 'unknown engine')}: "
+        f"{(run.get('error') or {}).get('message', 'computation failed')}"
+        for run in runs
+        if run.get("error")
+    ]
+
+
+def unrefreshed_metric_ids(report: dict | None, metric_ids: list[str]) -> list[str]:
+    """Ids not actually computed, including stored values from disabled probes."""
+    computed = ((report or {}).get("result") or {}).get("computed") or []
+    computed_ids = {metric.get("metricId") for metric in computed}
+    return [metric_id for metric_id in metric_ids if metric_id not in computed_ids]
+
+
+def stale_metric_ids(
+    raw_metrics: list[dict[str, Any]], last_build_start: int | None
+) -> list[str]:
+    """Ids of metrics whose newest value was computed before the last build started.
+
+    Compute-on-build metrics are recorded during the build, so the build start (not
+    its end) separates values that describe the current data from older ones.
+    """
+    if not last_build_start:
+        return []
+    stale = []
+    for metric in raw_metrics:
+        computed = [
+            value["computed"]
+            for value in metric.get("lastValues", [])
+            if isinstance(value.get("computed"), int)
+        ]
+        if computed and max(computed) < last_build_start:
+            stale.append(metric.get("metric", {}).get("id"))
+    return stale
