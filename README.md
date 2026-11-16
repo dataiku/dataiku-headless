@@ -138,7 +138,7 @@ Cobuild runs as a retained conversation through MCP tools. This repository inten
 
 Project and API Deployer operations discover infrastructures, published versions and deployments,
 create deployment configurations, change target versions, apply updates asynchronously,
-and inspect health, governance codes and update history. They operate on already published
+and inspect saved settings, health, governance codes and update history. They operate on already published
 bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
 for node selection, production effects and coverage limits.
 

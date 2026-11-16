@@ -13,11 +13,12 @@ a Design-node project that Cobuild can edit. A deployment associates a published
 project and bundle with an Automation infrastructure and target project key.
 Stages are infrastructure metadata, not configured instance types.
 
-1. Discover infrastructures and stages. Inspect the intended infrastructure,
-   associated deployments, governance policy and reported permissions.
+1. Discover infrastructures and stages. Use `deployer.get_infrastructure` to inspect
+   saved settings, associated deployments, governance policy and reported permissions.
 2. Discover published projects and inspect the selected source_id to identify its
    package IDs. Do not infer a bundle ID from a Design project name or version.
-3. For an existing deployment, inspect its saved settings, health and update history.
+3. For an existing deployment, use `deployer.get_deployment` to inspect its saved
+   settings and health, then `deployer.list_updates` for update history.
 4. Create configuration with deployment_id, source_id (published project key),
    infra_id and version (bundle ID). Optional deployed_project_key and
    project_folder_id select the Automation target key and folder. Without these,

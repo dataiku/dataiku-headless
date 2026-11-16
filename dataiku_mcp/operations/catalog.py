@@ -39,7 +39,7 @@ def _deployer(
         arguments=arguments_for(handler),
         handler=handler,
         requirements="Selected node must expose Project/API Deployer. The configured type does not verify feature availability or permissions.",
-        response_contract="Selected operational fields; credentials, raw settings, free-text diagnostics and update logs are omitted. Configuration saves do not apply deployments; start_update returns a future_id for deployer.get_future_status on the same instance.",
+        response_contract="Responses contain operation results; settings are backend-defined and credential fields are redacted.",
         example=example,
         destructive=destructive,
         idempotent=idempotent,

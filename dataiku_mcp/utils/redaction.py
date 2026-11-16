@@ -32,9 +32,12 @@ _SENSITIVE_SUFFIXES = (
 )
 _SENSITIVE_EXACT_KEYS = (
     "key",
+    "keypath",
     "authorization",
     "cookie",
     "setcookie",
+)
+_DIAGNOSTIC_KEYS = (
     "logs",
     "stacktrace",
     "traceback",
@@ -55,27 +58,33 @@ _SENSITIVE_KEY_FRAGMENTS = (
 )
 
 
-def _is_sensitive_key(key: str) -> bool:
+def _is_sensitive_key(key: str, *, redact_diagnostics: bool = True) -> bool:
     normalized = key.replace("_", "").replace("-", "").lower()
     return (
         normalized in _SENSITIVE_EXACT_KEYS
+        or (redact_diagnostics and normalized in _DIAGNOSTIC_KEYS)
         or normalized.endswith(_SENSITIVE_SUFFIXES)
         or any(fragment in normalized for fragment in _SENSITIVE_KEY_FRAGMENTS)
     )
 
 
-def redact_sensitive_data(value: Any) -> Any:
+def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any:
     if isinstance(value, dict):
         redacted = {}
         for key, item in value.items():
-            if _is_sensitive_key(str(key)):
+            if _is_sensitive_key(str(key), redact_diagnostics=redact_diagnostics):
                 redacted[key] = _CONNECTION_SECRET_REDACTION
             else:
-                redacted[key] = redact_sensitive_data(item)
+                redacted[key] = redact_sensitive_data(
+                    item, redact_diagnostics=redact_diagnostics
+                )
         return redacted
 
     if isinstance(value, list):
-        return [redact_sensitive_data(item) for item in value]
+        return [
+            redact_sensitive_data(item, redact_diagnostics=redact_diagnostics)
+            for item in value
+        ]
 
     if isinstance(value, str) and value.startswith(("https://", "http://")):
         try:

@@ -30,15 +30,15 @@ Building the underlying Flow, models or API endpoint logic remains project work.
 ## Shared inspection and execution
 
 - `deployer.list_stages` discovers configured stage IDs and descriptions.
-- `deployer.list_infrastructures` and `deployer.get_infrastructure` show safe target
-  summaries, governance policy and associated deployments. Permissions are reported
-  when the SDK response includes them; absence is not permission to deploy.
+- `deployer.list_infrastructures` returns target summaries. `deployer.get_infrastructure`
+  adds saved settings with credential values redacted. Permissions are reported
+  when supplied by Dataiku.
 - `deployer.list_published_items` discovers projects/services.
   `deployer.get_published_item(source_id=...)` returns available packages as a
   columnar table with id, publishedOn and publishedBy. Use those IDs as versions.
 - `deployer.list_deployments` reports configuration, not live health.
-  `deployer.get_deployment` adds health, saved version settings, and structured
-  health/governance codes. Review these before mutation.
+  `deployer.get_deployment` adds full saved settings with credential redaction,
+  health and structured governance messages.
 - `deployer.create_deployment` creates configuration only. Existing IDs fail through
   Dataiku; this tool has no overwrite mode.
 - `deployer.update_deployment` saves only a target version and/or API enablement.
@@ -48,6 +48,13 @@ Building the underlying Flow, models or API endpoint logic remains project work.
   production assets, alter API traffic, or disable an API deployment. Inspect the
   target and saved version first, and execute only within the user's request.
 
+Keep `ignore_warnings=false` on the initial `deployer.create_deployment` or
+`deployer.update_deployment` call. If governance rejects it, inspect the
+infrastructure policy. For a warning, explain the warning, version and target to
+the user and obtain explicit approval before retrying with `ignore_warnings=true`.
+Approval applies only to that version and target; blocking governance policies
+cannot be overridden with this parameter.
+
 ## Track the same update
 
 Keep the selected instance, deployer_type, deployment_id and returned future_id.
@@ -55,6 +62,8 @@ Poll `deployer.get_future_status(future_id=...)` on that same instance. Do not u
 IDs or assume a configuration save means an update completed. Then inspect
 `deployer.list_updates`, pin the matching startTimestamp with
 `deployer.get_update(timestamp=...)`, and re-read `deployer.get_deployment`.
+Use the update's `report` to investigate failures. Add `include_logs=true` when
+you need the full available log lines for that update.
 Omitting timestamp reads the latest update, which may belong to another caller.
 Completion of a future alone does not establish a healthy deployed service/project.
 
@@ -64,17 +73,18 @@ uncertain update. Reconnect to the same configured instance when resuming.
 
 ## Coverage limits
 
-Tools intentionally expose selected operational fields. Raw infrastructure/settings,
-API keys, OAuth settings, endpoint code, free-text diagnostics and update logs are
-omitted because SDK payloads may contain credentials. Use the Dataiku UI for detailed
-diagnostics. Unknown response fields are omitted rather than passed through.
+Lists and status summaries expose selected operational fields. Infrastructure and
+deployment detail reads also return backend-defined `settings` with credential
+values redacted.
+Deployment detail includes health and governance explanations. Update detail
+includes diagnostic reports and supports optional logs.
 
-There are no tools here for infrastructure provisioning, remapping, authentication,
-permissions, advanced traffic mappings, deletion, bundle export/upload, API package
-publication, or deployment test execution. Work with already published packages.
-Report missing coverage; do not bypass it with raw SDK or REST calls. Governance
-warnings are not bypassed by create/save operations. Use Cobuild for supported
-in-project asset construction; if it cannot publish an artifact, report that gap.
+There are no writes here for infrastructure provisioning, connection remapping,
+authentication, permissions, advanced traffic mappings, deletion, bundle
+creation/publication or transfer, API package publication, or deployment tests.
+Work with already published packages.
+Report missing coverage; do not bypass it with raw SDK or REST calls. Use Cobuild
+for supported in-project asset construction; report publication gaps.
 
 ## Official documentation
 

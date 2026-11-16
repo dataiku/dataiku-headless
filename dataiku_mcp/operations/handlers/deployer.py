@@ -24,6 +24,7 @@ from requests import RequestException
 from ...auth import get_dss_client
 from ...executors import run_blocking
 from dataiku_mcp.utils.serialization import columnar
+from dataiku_mcp.utils.redaction import redact_sensitive_data
 from dataiku_mcp.utils.validation import require_non_empty_string
 from dataiku_mcp.utils.validation import require_path_segment
 
@@ -32,9 +33,15 @@ DeployerType = Literal["project", "api"]
 Version = Annotated[
     str, Field(description="Published bundle ID (project) or service version ID (api).")
 ]
+IgnoreWarnings = Annotated[
+    bool,
+    Field(
+        description="Ignore governance warnings only after explicit user approval for this version and target. Blocking policies still apply."
+    ),
+]
 
-# Raw Deployer status includes API keys, OAuth settings, scripts and endpoint code.
-# Keep these allowlists explicit, including for nested objects.
+# Status/list responses include credentials, scripts and endpoint code. Keep their
+# summaries allowlisted; detail reads return saved settings with shared redaction.
 _INFRA_FIELDS = ("id", "stage", "infraType", "governCheckPolicy", "canListHeavyStatus")
 _ITEM_FIELDS = ("id", "name")
 _DEPLOYMENT_FIELDS = (
@@ -57,6 +64,15 @@ _PERMISSION_FIELDS = (
     "neverEverDeployed",
 )
 _UPDATE_FIELDS = ("startTimestamp", "endTimestamp", "type", "status", "requester")
+_MESSAGE_FIELDS = (
+    "severity",
+    "isFatal",
+    "code",
+    "title",
+    "message",
+    "details",
+    "governLink",
+)
 
 
 def _pick(raw: dict, fields: tuple) -> dict:
@@ -107,8 +123,17 @@ async def _execute(deployer_type: DeployerType, operation) -> dict:
         )
         try:
             return operation(deployer)
-        except (DataikuException, RequestException):
-            # SDK exception bodies may include node credentials or raw settings.
+        except (DataikuException, RequestException) as error:
+            if isinstance(error, DataikuException) and any(
+                marker in str(error)
+                for marker in (
+                    "ERR_DEPLOYER_INVALID_GOVERNANCE_STATUS",
+                    "WARNING : Invalid governance status:",
+                    "ERROR : Invalid governance status:",
+                )
+            ):
+                raise RuntimeError(str(error)) from None
+            # Other SDK exception bodies may include credentials or raw settings.
             raise RuntimeError(
                 "Deployer request failed. Check node capabilities, permissions and object IDs. "
                 "For a write, inspect current state and update history before retrying; "
@@ -141,12 +166,17 @@ async def list_deployer_infrastructures(deployer_type: DeployerType) -> dict:
 async def get_deployer_infrastructure(
     deployer_type: DeployerType, infra_id: str
 ) -> dict:
-    """Inspect an infrastructure’s summary and associated deployments without credentials."""
+    """Inspect an infrastructure's redacted settings, summary and associated deployments."""
     infra_id = require_path_segment(infra_id, "infra_id")
-    return await _execute(
-        deployer_type,
-        lambda deployer: _summary(deployer.get_infra(infra_id).get_status().get_raw()),
-    )
+
+    def _run(deployer):
+        infra = deployer.get_infra(infra_id)
+        return {
+            **_summary(infra.get_status().get_raw()),
+            "settings": redact_sensitive_data(infra.get_settings().get_raw()),
+        }
+
+    return await _execute(deployer_type, _run)
 
 
 async def list_deployer_published_items(deployer_type: DeployerType) -> dict:
@@ -195,24 +225,23 @@ async def list_deployer_deployments(deployer_type: DeployerType) -> dict:
 async def get_deployer_deployment(
     deployer_type: DeployerType, deployment_id: str
 ) -> dict:
-    """Inspect configured deployment version, current health and governance status."""
+    """Inspect redacted deployment settings, current health and governance status."""
     deployment_id = require_path_segment(deployment_id, "deployment_id")
 
     def _run(deployer):
         deployment = deployer.get_deployment(deployment_id)
         status = deployment.get_status()
         governance = deployment.get_governance_status()
-        # Only structured codes and severity: diagnostic free text can contain secrets.
         return {
             **_summary(status.get_light()),
-            "settings": _deployment_info(deployment.get_settings().get_raw()),
+            "settings": redact_sensitive_data(deployment.get_settings().get_raw()),
             "health": status.get_health(),
             "health_messages": [
-                _pick(message, ("severity", "isFatal", "code"))
+                redact_sensitive_data(_pick(message, _MESSAGE_FIELDS))
                 for message in status.get_health_messages().get("messages", [])
             ],
             "governance_messages": [
-                _pick(message, ("severity", "isFatal", "code"))
+                redact_sensitive_data(_pick(message, _MESSAGE_FIELDS))
                 for message in governance.get("messages", [])
             ],
         }
@@ -240,18 +269,30 @@ async def get_deployer_update(
     deployer_type: DeployerType,
     deployment_id: str,
     timestamp: str | None = None,
+    include_logs: Annotated[
+        bool, Field(description="Include all available log lines for this update.")
+    ] = False,
 ) -> dict:
-    """Inspect one deployment update outcome, using a timestamp or the latest update."""
+    """Inspect a deployment update's outcome and diagnostic report, optionally including logs."""
     deployment_id = require_path_segment(deployment_id, "deployment_id")
     if timestamp is not None:
         timestamp = require_path_segment(timestamp, "timestamp")
-    return await _execute(
-        deployer_type,
-        lambda deployer: _pick(
-            deployer.get_deployment(deployment_id).get_update(timestamp).get_raw(),
-            _UPDATE_FIELDS,
-        ),
-    )
+
+    def _run(deployer):
+        update = deployer.get_deployment(deployment_id).get_update(timestamp)
+        raw = update.get_raw()
+        result = _pick(raw, _UPDATE_FIELDS)
+        if raw.get("report") is not None:
+            result["report"] = redact_sensitive_data(
+                raw["report"], redact_diagnostics=False
+            )
+        if include_logs:
+            result["logs"] = redact_sensitive_data(
+                update.logs, redact_diagnostics=False
+            )
+        return result
+
+    return await _execute(deployer_type, _run)
 
 
 async def create_deployer_deployment(
@@ -263,6 +304,7 @@ async def create_deployer_deployment(
     deployed_project_key: str | None = None,
     project_folder_id: str | None = None,
     endpoint_id: str | None = None,
+    ignore_warnings: IgnoreWarnings = False,
 ) -> dict:
     """Create deployment configuration from a published version; start an update to apply it."""
     deployment_id = require_path_segment(deployment_id, "deployment_id")
@@ -295,10 +337,16 @@ async def create_deployer_deployment(
                 version,
                 deployed_project_key=deployed_project_key,
                 project_folder_id=project_folder_id,
+                ignore_warnings=ignore_warnings,
             )
         else:
             deployment = deployer.create_deployment(
-                deployment_id, source_id, infra_id, version, endpoint_id=endpoint_id
+                deployment_id,
+                source_id,
+                infra_id,
+                version,
+                endpoint_id=endpoint_id,
+                ignore_warnings=ignore_warnings,
             )
         return {
             "deployment_id": deployment.id,
@@ -314,6 +362,7 @@ async def update_deployer_deployment(
     deployment_id: str,
     version: Version | None = None,
     enabled: bool | None = None,
+    ignore_warnings: IgnoreWarnings = False,
 ) -> dict:
     """Save a target version or API enablement; an update is still needed to apply it."""
     deployment_id = require_path_segment(deployment_id, "deployment_id")
@@ -333,7 +382,7 @@ async def update_deployer_deployment(
                 settings.set_single_version(version)
         if enabled is not None:
             settings.set_enabled(enabled)
-        settings.save()
+        settings.save(ignore_warnings=ignore_warnings)
         return {
             "deployment_id": deployment_id,
             "status": "configuration_saved",
