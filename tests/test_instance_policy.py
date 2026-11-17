@@ -19,6 +19,7 @@ import json
 from contextvars import ContextVar
 from types import SimpleNamespace
 from typing import get_args
+from unittest.mock import MagicMock
 
 import pytest
 from fastmcp import Client
@@ -27,7 +28,7 @@ from dataiku_mcp import mcp, server
 from dataiku_mcp.config import http, request, stdio
 from dataiku_mcp.config.models import DSSInstance, InstanceType
 from dataiku_mcp.instance_policy import require_instance_type
-from dataiku_mcp.tools import projects
+from dataiku_mcp.tools import macros, projects
 from tests.test_tool_surface import EXPECTED_TOOLS_BY_MODULE
 from tests.utils.fakes import FakeContext
 
@@ -78,6 +79,35 @@ def test_every_registered_tool_declares_its_exact_instance_policy():
             else:
                 with pytest.raises(ValueError, match=f"{tool.name}.*{instance_type}"):
                     require_instance_type(tool.name, instance_type, tool.meta)
+
+
+@pytest.mark.parametrize("instance_type", ["design", "automation"])
+@pytest.mark.parametrize("tool_name", sorted(EXPECTED_TOOLS_BY_MODULE["macros"]))
+def test_macro_tools_dispatch_on_supported_instances(
+    monkeypatch, instance_type, tool_name
+):
+    monkeypatch.setattr(stdio, "_current_instance", _instance(instance_type))
+    sdk = MagicMock()
+    project = sdk.get_project.return_value
+    macro = project.get_macro.return_value
+    project.list_macros.return_value = []
+    macro.get_definition.return_value = {}
+    macro.run.return_value = "RUN"
+    macro.get_status.return_value = {"exists": True, "running": True}
+    monkeypatch.setattr(macros, "get_dss_client", lambda: sdk)
+    arguments = {"project_key": "PROJECT"}
+    if tool_name != "list_macros":
+        arguments["macro_id"] = "example"
+    if tool_name in {"get_macro_status", "get_macro_result", "abort_macro_run"}:
+        arguments["run_id"] = "RUN"
+
+    async def dispatch():
+        async with Client(mcp) as client:
+            result = await client.call_tool(tool_name, arguments)
+            assert not result.is_error
+
+    asyncio.run(dispatch())
+    sdk.get_project.assert_called_once_with("PROJECT")
 
 
 @pytest.mark.parametrize(

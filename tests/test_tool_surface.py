@@ -209,6 +209,16 @@ EXPECTED_TOOLS_BY_MODULE = {
         }
     ),
     "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
+    "macros": frozenset(
+        {
+            "list_macros",
+            "get_macro_definition",
+            "run_macro",
+            "get_macro_status",
+            "get_macro_result",
+            "abort_macro_run",
+        }
+    ),
     "scenarios": frozenset(
         {
             "get_scenario_run_history",

@@ -76,6 +76,7 @@ unsupported calls fail before execution.
 | Inspect Agent Reviews | `./references/agent-reviews.md` |
 | Inspect dashboards | `./references/dashboards.md` |
 | Inspect insights | `./references/insights.md` |
+| Find or run installed macros, inspect parameters, or retrieve macro results | `./references/macros.md` |
 | Inspect scenarios and automation history, or run an existing scenario | `./references/scenarios.md` |
 | Inspect semantic models | `./references/semantic-models.md` |
 | Inspect WebApps and backend state | `./references/webapps.md` |
