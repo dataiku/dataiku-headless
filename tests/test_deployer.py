@@ -15,6 +15,7 @@
 """Deployer SDK contract, async boundary and secret-exposure regressions."""
 
 import asyncio
+import base64
 import copy
 import json
 import threading
@@ -297,6 +298,94 @@ def test_update_logs_are_opt_in_and_preserve_all_lines(backend):
     assert len(backend.calls) == 1
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "[2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test]  - ",
+        "1234 [FT-1] INFO  dku.test  - [ct: 12] ",
+    ],
+)
+@pytest.mark.parametrize("manifest", ["deployment", "opaque secret"])
+def test_update_logs_omit_generated_kubernetes_manifests(backend, prefix, manifest):
+    # SingleK8SDeploymentManager logs whole manifests; Secret data is base64,
+    # while legacy Deployment env values are plaintext. Neither is safe text.
+    encoded = base64.b64encode(SECRET.encode()).decode()
+    before = prefix + "Preparing deployment"
+    after = prefix + "Applying configuration"
+    lines = [
+        before,
+        prefix + f"final {manifest}:",
+        "apiVersion: v1",
+        "kind: Secret" if manifest == "opaque secret" else "kind: Deployment",
+        "data:" if manifest == "opaque secret" else "spec:",
+        "  SERVICE_PASSWORD: " + encoded,
+        "  env:",
+        "  - name: DATABASE_URL",
+        "    value: |",
+        "      " + SECRET,
+        "      " + SECRET + " final deployment:",
+        "      [2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test]  - " + SECRET,
+        "",
+        after,
+        "Diagnostic continuation",
+    ]
+    backend.update["logs"] = {"lines": lines}
+    result = call(
+        deployer.get_deployer_update,
+        backend,
+        deployment_id="deployment",
+        timestamp="123",
+        include_logs=True,
+    )
+    assert result["logs"] == [
+        before,
+        prefix + f"final {manifest}: [Kubernetes manifest redacted]",
+        after,
+        "Diagnostic continuation",
+    ]
+    assert encoded not in json.dumps(result)
+    assert backend.update["logs"]["lines"] == lines
+
+
+@pytest.mark.parametrize("ending", [[], ["CUSTOM INFO - Finished"]])
+def test_update_logs_suppress_truncated_or_unrecognized_manifest_continuations(ending):
+    lines = ["final opaque secret: " + SECRET, "data:", "  value: " + SECRET]
+    assert deployer._redact_deployer_logs(lines + ending) == [
+        "final opaque secret: [Kubernetes manifest redacted]"
+    ]
+
+
+def test_update_logs_filter_consecutive_manifests_within_multiline_entries():
+    prefix = "[2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test] context - "
+    entry = (
+        prefix + "final deployment:\r\n"
+        "spec:\r\n"
+        "  env: " + SECRET + "\r\n" + prefix + "final opaque secret:\r\n"
+        "data:\r\n"
+        "  value: " + SECRET + "\r\n" + prefix + "Applying configuration\r\n"
+    )
+    assert deployer._redact_deployer_logs([entry]) == [
+        prefix
+        + "final deployment: [Kubernetes manifest redacted]\r\n"
+        + prefix
+        + "final opaque secret: [Kubernetes manifest redacted]\r\n"
+        + prefix
+        + "Applying configuration\r\n"
+    ]
+
+
+def test_update_logs_preserve_ordinary_entries_and_apply_shared_redaction():
+    lines = [
+        "",
+        "Ordinary entry\nwith continuation\n",
+        "https://user:" + SECRET + "@example.com/path",
+    ]
+    result = deployer._redact_deployer_logs(lines)
+    assert result[:2] == lines[:2]
+    assert result[2] == "https://example.com/path"
+    assert deployer._redact_deployer_logs(["Ordinary entry"]) == ["Ordinary entry"]
+
+
 @pytest.mark.parametrize("lines", [None, []])
 def test_update_handles_pending_report_and_unavailable_or_empty_logs(backend, lines):
     backend.update.pop("report")
@@ -330,6 +419,12 @@ def test_mcp_update_detail_accepts_include_logs(backend, monkeypatch):
     from tests.test_instance_policy import _instance
     from tests.test_operations import _call
 
+    backend.update["logs"]["lines"] = [
+        "final opaque secret:",
+        "data:",
+        "  SERVICE_PASSWORD: " + SECRET,
+        "1234 [FT-1] INFO  dku.test  - Applying configuration",
+    ]
     monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
     result = asyncio.run(
         _call(
@@ -343,7 +438,10 @@ def test_mcp_update_detail_accepts_include_logs(backend, monkeypatch):
             },
         )
     )["result"]
-    assert result["logs"] == backend.update["logs"]["lines"]
+    assert result["logs"] == [
+        "final opaque secret: [Kubernetes manifest redacted]",
+        "1234 [FT-1] INFO  dku.test  - Applying configuration",
+    ]
     assert result["report"]["messages"][0]["details"] == "target table is not writable"
     assert SECRET not in json.dumps(result)
 
