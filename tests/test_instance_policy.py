@@ -32,16 +32,20 @@ from dataiku_mcp.tools import macros, projects
 from tests.test_tool_surface import EXPECTED_TOOLS_BY_MODULE
 from tests.utils.fakes import FakeContext
 
-PROJECT_EDIT_TOOLS = EXPECTED_TOOLS_BY_MODULE["cobuild"] | {
-    "create_project",
-    "update_project_settings",
-    "set_project_variables",
-    "set_container_exec_config",
-    "create_upload_dataset",
-    "create_managed_folder",
-    "upload_file_to_managed_folder",
-    "write_project_library_file",
-}
+PROJECT_EDIT_TOOLS = (
+    EXPECTED_TOOLS_BY_MODULE["cobuild"]
+    | EXPECTED_TOOLS_BY_MODULE["project_bundles"]
+    | {
+        "create_project",
+        "update_project_settings",
+        "set_project_variables",
+        "set_container_exec_config",
+        "create_upload_dataset",
+        "create_managed_folder",
+        "upload_file_to_managed_folder",
+        "write_project_library_file",
+    }
+)
 INSTANCE_TOOLS = EXPECTED_TOOLS_BY_MODULE["instances"]
 
 

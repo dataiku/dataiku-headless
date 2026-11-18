@@ -150,6 +150,20 @@ on demand, and separate read/write tools execute them.
 See the [operation guide](skills/dataiku-headless/references/operations.md).
 
 
+Project and API Deployer operations discover infrastructures, published versions and deployments,
+create deployment configurations, change target versions, apply updates asynchronously,
+and inspect saved settings, health, governance codes and update history. They operate on already published
+bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
+for node selection, production effects and coverage limits.
+
+Direct project reads, execution and administration support Design, Automation.
+Project edits and Cobuild require Design. The four shared operation tools expose
+13 public SDK actions for Deployer, restricted to their matching profiles.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
+See the [operation guide](skills/dataiku-headless/references/operations.md).
+
+
 ## Capability reference
 
 For a quick reference to what Headless can inspect, what Cobuild builds, and the
@@ -311,6 +325,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
 │   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
+│   │   ├── project_bundles.py  # Design bundle listing, creation, and publication
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools

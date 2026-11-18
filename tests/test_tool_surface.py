@@ -186,6 +186,9 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_plugin",
         }
     ),
+    "project_bundles": frozenset(
+        {"list_project_bundles", "create_project_bundle", "publish_project_bundle"}
+    ),
     "project_folders": frozenset(
         {
             "create_project_folder",

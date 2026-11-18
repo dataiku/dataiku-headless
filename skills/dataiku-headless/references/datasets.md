@@ -38,7 +38,7 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 ## Inspection Workflow
 
 1. Use `list_datasets` to discover exact dataset names, types, connections, and shared datasets. Shared datasets are returned in the target project with `shared: true` and a source-project-qualified name.
-2. Use `get_dataset_info` to inspect a selected dataset's type, connection, schema, meanings, and descriptions.
+2. Use `get_dataset_info` to inspect a selected dataset's type, managed flag, connection, schema, meanings, and descriptions. Set `include_location=true` when inspecting storage location or preparing deployment; read the location response as described below.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
 5. In stdio, use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling. It is unavailable in Streamable HTTP because it writes a local CSV. On large datasets this can take a while to run, so prefer the lighter inspection tools unless a full local CSV is truly needed. Use `limit` to bound the export; the tool will not export more than 1,000,000 rows in one call.
@@ -54,6 +54,20 @@ Stored metric values are not live. Dataiku's built-in `records:COUNT_RECORDS` me
 - A successful computation can leave stored values untouched, for example when their probes are disabled. `refreshed` is true only when the computation report includes every requested metric (or every returned metric when no ids are specified). `unrefreshed_metric_ids` identifies metrics absent from that report; treat them as possibly stale even if no build has occurred.
 - `refresh=false` reads stored values only. Use it for metric history or when recomputing is too expensive, and say the values may be stale.
 - An empty `stale_metric_ids` after `refresh=false` does not prove freshness. External data can change without a build.
+
+## Configured storage locations
+
+Set `include_location=true` on `get_dataset_info` when checking data availability
+or storage isolation. Inspect `location.parameters` for storage settings and
+`location.partitioning` for partition rules.
+
+- `${...}` variables remain unexpanded. `projectKey` is the project key. Use `get_project_variables` to discover other variables.
+- Blank or absent fields may inherit connection defaults; they do not
+  establish that no storage dependency exists. Discover default connection settings with `get_connection_info(contextual_project_key=...)`.
+- Review included queries and custom SQL/code for additional data dependencies
+  and write targets. Inspect referenced datasets and managed folders separately.
+- These settings do not establish the complete resolved destination. Obtain
+  missing evidence from the above tools and the Dataiku UI as necessary.
 
 ## Modification Routing
 

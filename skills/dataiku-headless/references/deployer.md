@@ -84,12 +84,16 @@ values redacted.
 Deployment detail includes health and governance explanations. Update detail
 includes diagnostic reports and supports optional logs.
 
+Create and publish project bundles on Design using the
+[Project bundles guide](./project-bundles.md), then return here to deploy them.
+
 There are no writes here for infrastructure provisioning, connection remapping,
-authentication, permissions, advanced traffic mappings, deletion, bundle
-creation/publication or transfer, API package publication, or deployment tests.
-Work with already published packages.
-Report missing coverage; do not bypass it with raw SDK or REST calls. Use Cobuild
-for supported in-project asset construction; report publication gaps.
+authentication, permissions, advanced traffic mappings, deletion, local bundle
+download/upload, API package publication, or deployment test execution. Deployer operations work with
+already published packages.
+Report missing coverage; do not bypass it with raw SDK or REST calls. Use Cobuild for supported
+in-project asset construction; report publication gaps outside the documented
+Design bundle tools.
 
 ## Official documentation
 
