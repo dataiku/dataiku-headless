@@ -19,14 +19,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
-
-## Dataiku Links
-
-All links use the conversation's pinned instance.
-
-- Every response includes `project_url`, which opens the project Flow. Open the Cobuild panel there to view the conversation; there is no conversation-specific URL.
-- Terminal responses preserve the original `message` and may include `object_links`: entries with `reference` and an absolute UI `url` for supported object references in the message.
-- Links are navigation aids. Verify the saved assets and execution results before reporting completion.
+- Responses include `project_url` for the project Flow and may include `object_links` with URLs for specific assets.
 
 ## When To Use This Skill
 
@@ -86,7 +79,7 @@ Do not use this guide when:
 - Use `allow_edit_project=true` only when the user has explicitly requested a creation or modification.
 - `send_cobuild_message` defaults `allow_edit_project` to `false`.
 - A terminal turn may return `is_confirmation_request=true`, with deletion details in `objects_to_delete` and `deletion_impacts`, or `is_question_request=true`, with answer constraints in `question`.
-- After verifying a substantial unit of work, include relevant asset URLs from `object_links` or normal URLs in Cobuild's response in the user-facing progress update. Do not present unresolved `TYPE:ID` references as browser URLs. Use `project_url` when no granular link is provided. Surface the link at each meaningful milestone rather than waiting until the entire request is finished.
+- After verifying each substantial milestone, share the relevant asset URLs from the response, falling back to `project_url` when none are available.
 - Before answering a confirmation or question, always retrieve and inspect its exact current `turn_id` with `get_cobuild_turn_status`.
 - Answer confirmations only with the exact current `turn_id`. Old, duplicate, and mismatched turn IDs are rejected.
 - Answer questions only with their exact current `turn_id` and an explicit `answers` list. Use `answers=[]` with `rejected=true` to decline.
