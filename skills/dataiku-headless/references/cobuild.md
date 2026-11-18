@@ -19,8 +19,14 @@ Use this guide as the default path for project-level asset creation. This includ
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
-- Every Cobuild payload carries `project_url`, the Dataiku UI URL of the conversation's project on the instance that conversation is pinned to. Dataiku exposes no per-conversation URL: Cobuild opens as a panel inside the project, so `project_url` points at the project and the user opens Cobuild from there.
-- Terminal responses preserve Cobuild's original `message` and include `object_links` when it contains supported inline Markdown object references such as `[name](WEB_APP:PROJECT.id)`. Code spans, fenced code blocks, images, and escaped or malformed links are excluded. Each entry has `reference` and an absolute Dataiku UI `url`, resolved on the conversation's pinned instance. Unqualified IDs use the conversation's project; qualified IDs can point to another project on that instance. Unknown object types remain in the message without a resolved link. Links identify UI locations; they do not establish that an asset exists or that execution succeeded.
+
+## Dataiku Links
+
+All links use the conversation's pinned instance.
+
+- Every response includes `project_url`, which opens the project Flow. Open the Cobuild panel there to view the conversation; there is no conversation-specific URL.
+- Terminal responses preserve the original `message` and may include `object_links`: entries with `reference` and an absolute UI `url` for supported object references in the message.
+- Links are navigation aids. Verify the saved assets and execution results before reporting completion.
 
 ## When To Use This Skill
 
