@@ -24,7 +24,7 @@ from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..auth import get_dss_client, require_admin
 from ..executors import run_blocking
-from .utils.serialization import compact_json
+from dataiku_mcp.utils.serialization import compact_json
 
 
 def _profile_rows(status: dict, include_capabilities: bool) -> list[dict]:

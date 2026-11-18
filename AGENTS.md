@@ -12,7 +12,8 @@ Use this file when changing this repository. It is not an operating guide for us
 ## Architecture and boundaries
 
 - `dataiku_mcp/server.py` constructs the FastMCP server, request middleware, and stdio/HTTP runners. `dataiku_mcp/__init__.py` re-exports that public server API and imports each tool module so decorators register their tools.
-- `dataiku_mcp/tools/` contains thin adapters over the synchronous `dataikuapi` client. Shared client authentication and executors live at the package root; validation, serialization, and error helpers live under `dataiku_mcp/tools/utils/`.
+- `dataiku_mcp/tools/` contains thin adapters over the synchronous `dataikuapi` client. Shared client authentication and executors live at the package root; shared validation, serialization, and redaction live under `dataiku_mcp/utils/`; tool-specific helpers remain under `dataiku_mcp/tools/utils/`.
+- `dataiku_mcp/operations/` owns operation models and the explicit catalog; `operations/handlers/` contains undecorated SDK adapters. The four MCP entry points remain in `dataiku_mcp/tools/operations.py`.
 - `dataiku_mcp/tools/cobuild.py` owns retained Cobuild conversations. Cobuild is the default path for constructing or modifying project-level flow and analytic assets.
 - Cobuild owns construction and modification of project-level flow and analytic assets. Direct writes are allowed only for the fixed exception categories defined by the **Cobuild Write-Routing Convention** in `CODING_STANDARDS_AND_STRUCTURE.md`; do not infer permission for a new direct write from existing implementation.
 - `skills/dataiku-headless/SKILL.md` is the operator-facing router. Its `references/` directory owns object-specific inspection, mutation, and verification workflows.
@@ -37,7 +38,7 @@ Do not copy volatile inventories, versions, or command details into this file wh
 - Keep tool handlers `async def`. Put every blocking SDK or filesystem operation inside `run_blocking(...)`; use `run_cobuild_blocking(...)` only for retained Cobuild turns.
 - Capture any client or instance identity needed for consistency before the first `await` when a concurrent instance switch could otherwise change the target.
 - Keep handlers thin: validate boundary invariants, call the SDK, shape a compact response, and let Dataiku validate deeper domain rules.
-- Reuse helpers from `tools/utils/` instead of adding local variants. Use `compact_json`, `columnar`, and `omit_empty` for consistent responses where appropriate.
+- Reuse shared helpers from `utils/` and tool-specific helpers from `tools/utils/` instead of adding local variants. Use `compact_json`, `columnar`, and `omit_empty` for consistent responses where appropriate.
 - Raise clear exceptions for whole-operation failures. Return structured per-item or uncertain-outcome payloads only when callers need partial results or durable job/run identities for recovery.
 - Never return API keys, credentials, unredacted connection secrets, or sensitive exception text.
 - Represent destructive intent with semantic parameters such as `overwrite`, `drop_data`, or a replace/run mode. Do not add `confirm*` parameters; confirmation is a harness concern.

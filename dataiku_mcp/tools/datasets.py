@@ -37,9 +37,11 @@ from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
 from .utils.metrics import stale_metric_ids as _stale_metric_ids
 from .utils.metrics import unrefreshed_metric_ids as _unrefreshed_metric_ids
-from .utils.serialization import columnar, compact_json, is_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
-from .utils.validation import require_positive_int as _require_positive_int
+from dataiku_mcp.utils.serialization import columnar, compact_json, is_empty
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
+from dataiku_mcp.utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
 _MAX_UPLOAD_ROWS = 10_000

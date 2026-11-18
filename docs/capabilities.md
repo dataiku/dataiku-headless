@@ -22,47 +22,15 @@ Local profile actions are listed separately because they only change which Datai
 instance the local client targets.
 
 
-## Instance types
-
-The configured instance type controls which tools can run in both stdio and HTTP.
-The catalog stays the same; each tool advertises its allowed types in metadata,
-and dispatch rejects unsupported calls before authentication delegation or execution.
-Dataiku permissions and API availability still apply to permitted calls.
-
-| Instance type | Available tools |
-|---|---|
-| design | All existing explicit tools |
-| automation | Reads, existing asset execution, instance administration, and project-folder operations; no Cobuild or project definition/content writes |
-| agent-management, govern, deployer | Instance controls only; API tools for these node types are not implemented yet |
-
-Automation excludes all six Cobuild tools, even conversation listing and polling,
-and `create_project`, `update_project_settings`, `set_project_variables`,
-`set_container_exec_config`, `create_upload_dataset`, `create_managed_folder`,
-`upload_file_to_managed_folder`, `write_project_library_file`.
-It permits `build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, metric
-recomputation through `get_dataset_metrics`, and every
-project-folder operation, including creation, deletion, and moving projects.
-Existing execution can modify outputs; this policy does not make Automation read-only.
-
-Instance controls are `list_instances`, `switch_instance`, `configure_instance`,
-`delete_instance`, and `get_current_instance`. The first four also work without an
-active selection, subject to the existing HTTP restrictions on local configuration.
-For Design and Automation, a failed `get_current_instance` connection check returns
-`connection_status=failed` and the exception text in the error field.
-For Agent Management, Govern and Deployer, `get_current_instance` returns sanitized profile metadata
-with connection_status set to unsupported, without contacting DSS or reporting a version.
-Agent Management, Govern and Deployer profiles can be saved without a connection
-test. Design and Automation require a successful DSS connection test in local setup.
-
 ## Surface
 
-**137 tools** · 95 read · 24 direct Dataiku write · 6 Cobuild · 8 execute · 3 local
+**141 tools** · 98 read · 25 direct Dataiku write · 6 Cobuild · 8 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 95 | Never mutates |
-| Direct Dataiku write | 24 | Bootstrap, project configuration, cross-project, admin |
+| Read / inspect | 98 | Never mutates |
+| Direct Dataiku write | 25 | Bootstrap, project configuration, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 8 | `build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -119,6 +87,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
+| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 13 operations: 13 Deployer. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
 | Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — local-path install/update are stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
@@ -147,4 +116,25 @@ Local client configuration, not Dataiku objects.
 | `configure_instance` | Connect a local stdio instance; opens a local page for URL, instance type, and API key (disabled in HTTP mode) |
 | `switch_instance` | Change the active instance; in HTTP mode saves only the authenticated user’s selected catalog instance |
 | `list_instances`, `get_current_instance` | Show configured instances, their declared types, and the active one; `get_current_instance` includes the Dataiku version when available |
-| `delete_instance` | Removes a **saved instance profile from the local config file**. Does not touch the Dataiku instance. |
+| `delete_instance` | Removes a **saved connection profile from the local config file**. Does not touch the Dataiku instance. |
+
+## Instance policies and operation discovery
+
+| Policy group | Allowed configured instance types |
+| --- | --- |
+| V1 explicit project reads, execution and administration | Design, Automation |
+| V1 explicit project edits and project Cobuild | Design |
+| V2 general API operation discovery and execution | Deployer |
+| Instance management | All five types |
+
+All four v2 tools require a selected profile. Each catalogued operation requires its
+matching instance type. Design and Automation cannot use v2. A local Deployer on
+a Design or Automation node requires a separate Deployer profile for that URL.
+The catalog remains stable across instance switches; new product actions are
+operation IDs rather than individually registered MCP tools.
+
+Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
+
+Discovery exposes schemas, effects, backend requirements and transport restrictions.
+All adapters use public SDK methods; catalog presence does not verify live server
+support. See [the operation guide](../skills/dataiku-headless/references/operations.md).

@@ -18,17 +18,16 @@ from typing import get_args
 
 from .config.models import InstanceType
 
-# Product-node support is added separately from this Design/Automation foundation.
-SUPPORTED_DSS_INSTANCE_TYPES = frozenset({"design", "automation"})
+# Instance types currently supported through DSSClient.
+SUPPORTED_DSS_INSTANCE_TYPES = frozenset({"design", "automation", "deployer"})
 
 # These are @mcp.tool metadata policies. V1 tools expose individual actions;
 # project authoring still routes through Cobuild and its fixed direct exceptions.
-PROJECT_READ_POLICY = {"allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)}
-PROJECT_EXECUTION_POLICY = {
-    "allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)
-}
-ADMIN_POLICY = {"allowed_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES)}
+PROJECT_READ_POLICY = {"allowed_instance_types": ["design", "automation"]}
+PROJECT_EXECUTION_POLICY = {"allowed_instance_types": ["design", "automation"]}
+ADMIN_POLICY = {"allowed_instance_types": ["design", "automation"]}
 PROJECT_EDIT_POLICY = {"allowed_instance_types": ["design"]}
+API_OPERATIONS_POLICY = {"allowed_instance_types": ["deployer"]}
 INSTANCE_MANAGEMENT_POLICY = {"allowed_instance_types": list(get_args(InstanceType))}
 
 

@@ -147,3 +147,19 @@ def require_relative_posix_path(value: str, field_name: str) -> str:
     if path.is_absolute() or ".." in path.parts or "\\" in value:
         raise ValueError(f"'{field_name}' must be a relative path without '..'")
     return value
+
+
+def require_path_segment(value: str, field_name: str) -> str:
+    """Validate an identifier before the SDK interpolates it into a URL path."""
+    cleaned = value.strip()
+    if (
+        not cleaned
+        or cleaned in {".", ".."}
+        or any(char in value for char in "/\\%?#")
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise ValueError(
+            f"'{field_name}' must be a non-empty path segment without URL delimiters, "
+            "escapes, dot segments or control characters"
+        )
+    return cleaned

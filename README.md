@@ -136,6 +136,20 @@ Dataiku Headless is an MCP server and agent skill library for operating Dataiku 
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `run_macro`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
+Project and API Deployer operations discover infrastructures, published versions and deployments,
+create deployment configurations, change target versions, apply updates asynchronously,
+and inspect saved settings, health, governance codes and update history. They operate on already published
+bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
+for node selection, production effects and coverage limits.
+
+Direct project reads, execution and administration support Design, Automation.
+Project edits and Cobuild require Design. The four shared operation tools expose
+13 public SDK actions for Deployer, restricted to their matching profiles.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
+See the [operation guide](skills/dataiku-headless/references/operations.md).
+
+
 ## Capability reference
 
 For a quick reference to what Headless can inspect, what Cobuild builds, and the
@@ -147,7 +161,7 @@ To build or update a Dataiku plugin, follow the
 
 ## MCP Server
 
-`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, job management, administrative tasks, and Cobuild conversations.
+`dataiku_mcp` is a FastMCP server that exposes Dataiku operations as typed, async MCP tools. Tools are organized by domain: projects, project folders, flow, connections, datasets, data quality, managed folders, recipes, machine learning, insights, dashboards, scenarios, WebApps, wikis, agents, LLMs and knowledge banks, instance plugins, Project and API Deployer, job management, administrative tasks, and Cobuild conversations.
 
 - Async execution for all Dataiku API calls
 - Progress notifications for long-running operations
@@ -209,11 +223,8 @@ Each profile requires `instance_type`: `design`, `automation`, `deployer`, `gove
 `agent-management`. Existing stdio profiles missing this field are automatically
 assigned `design` and rewritten on disk before loading. This temporary migration
 is scheduled for deprecation by 0.9.0; existing values are preserved and validated.
-The configured type determines which tools can run; see the
-[instance-type policy](docs/capabilities.md#instance-types). Agent Management, Govern and Deployer
-currently support instance controls only. Their status is `unsupported`, without
-a DSS connection check. The setup page allows these profiles to be saved without testing.
-Design and Automation require a successful connection test.
+The declared type selects tool policy; backend features and permissions are validated by Dataiku. A local Deployer on a Design or Automation node requires a separate `deployer` profile for that URL.
+Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
 
 **Environment override.** To select an explicit target, including inside a Code
 Studio, set these three variables in your environment or copy
@@ -275,6 +286,11 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── dataiku_mcp/
 │   ├── auth.py                # Dataiku client creation and HTTP token exchange
 │   ├── executors.py           # Shared blocking and Cobuild executors
+│   ├── operations/            # Operation models, catalog, and undecorated handlers
+│   │   ├── models.py          # Typed operation definitions and argument schemas
+│   │   ├── catalog.py         # Explicit registration and lookup
+│   │   └── handlers/deployer.py  # Internal Deployer SDK adapters
+│   ├── utils/                 # Shared validation, serialization, and redaction
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
@@ -287,6 +303,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
 │   │   ├── dashboards.py      # Dashboard inspection tools
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
+│   │   ├── operations.py      # Shared discovery/read/write MCP tools
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
 │   │   ├── instances.py       # Multi-instance switching tools
@@ -306,7 +323,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Tool validation and response-shaping utilities
+│   │   └── utils/             # Tool-specific helpers
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
 │   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
