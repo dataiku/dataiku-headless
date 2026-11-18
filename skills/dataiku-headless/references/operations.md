@@ -45,8 +45,8 @@ missing feature from a single 404 or probe with writes.
 
 ## Coverage and transport
 
-- [Deployer](./deployer.md): 13 public SDK operations for Project/API Deployer,
-  including deployment future polling. Select a Deployer profile even when it
+- [Deployer](./deployer.md): 14 public SDK operations for Project/API Deployer,
+  including deployment future polling and API endpoint test execution. Select a Deployer profile even when it
   shares a URL with a Design or Automation node. Supports stdio and HTTP.
 
 Adapters use public Python SDK methods only. Do not fall back to direct endpoint

@@ -15,7 +15,7 @@ execution override below changes only which container an existing object runs in
 
 Headless writes Dataiku objects directly in five cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
-configuration**, **deployment packaging**, **cross-project**, and **instance-level administration**. It also
+configuration**, **deployment packaging and API Service authoring**, **cross-project**, and **instance-level administration**. It also
 re-runs assets that already exist. Some bootstrap writes do land inside a project —
 see the table below.
 Local profile actions are listed separately because they only change which Dataiku
@@ -24,13 +24,13 @@ instance the local client targets.
 
 ## Surface
 
-**144 tools** · 99 read · 27 direct Dataiku write · 6 Cobuild · 8 execute · 3 local
+**150 tools** · 101 read · 31 direct Dataiku write · 6 Cobuild · 8 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 99 | Never mutates |
-| Direct Dataiku write | 27 | Bootstrap, project configuration, deployment packaging, cross-project, admin |
+| Read / inspect | 101 | Never mutates |
+| Direct Dataiku write | 31 | Bootstrap, project configuration, deployment packaging, API Services, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
 | Execute | 8 | `build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
@@ -82,13 +82,14 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
+| API Services | `list_api_services`, `get_api_service` | `create_api_service`, `update_api_service`, `create_api_service_package`, `publish_api_service_package` | Design only — create services, add/replace or explicitly remove endpoint definitions, package and publish to the configured API Deployer; preserves service authentication. Design development-server execution remains a UI task. |
 | Project bundles | `list_project_bundles` | `create_project_bundle`, `publish_project_bundle` | Design only — inspects saved content options, optionally updates them before packaging existing assets with standards checks, and publishes to the Design node's configured Project Deployer without deploying to Automation |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
-| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 13 operations: 13 Deployer. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
+| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 14 operations: 14 Deployer, including deployed API endpoint tests. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
 | Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — local-path install/update are stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
@@ -99,8 +100,9 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
-The **in-project** writes above configure or supply a project; they do not build its
-analytic logic. None of them build recipe logic, a model, or an agent.
+The **in-project** writes above configure or supply a project. API Service authoring
+is a narrow exception for endpoint definitions, including function code and SQL.
+None of these tools build Flow recipe logic, a model, or an agent.
 
 The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
 explains how to write, test, and package plugins locally with the agent's file and
@@ -124,7 +126,7 @@ Local client configuration, not Dataiku objects.
 | Policy group | Allowed configured instance types |
 | --- | --- |
 | V1 explicit project reads, execution and administration | Design, Automation |
-| V1 explicit project edits, project bundle tools (including listing), and project Cobuild | Design |
+| V1 explicit project edits, project bundle and API Service tools (including listing), and project Cobuild | Design |
 | V2 general API operation discovery and execution | Deployer |
 | Instance management | All five types |
 

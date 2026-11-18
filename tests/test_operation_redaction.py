@@ -54,6 +54,10 @@ def test_deployer_future_status_does_not_fetch_results(monkeypatch):
     [
         {"apiKeys": [SECRET]},
         {"passwords": [SECRET]},
+        {"headers": [{"key": "Authorization", "value": SECRET}]},
+        {"headers": [{"key": "Cookie", "value": SECRET}]},
+        {"headers": [{"key": "X-API-Key", "value": SECRET}]},
+        {"properties": [{"key": "clientSecret", "value": SECRET}]},
         {"url": "https://user:" + SECRET + "@example.com/path?api_key=" + SECRET},
     ],
 )

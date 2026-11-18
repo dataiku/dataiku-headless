@@ -186,6 +186,16 @@ EXPECTED_TOOLS_BY_MODULE = {
             "update_plugin",
         }
     ),
+    "api_services": frozenset(
+        {
+            "list_api_services",
+            "get_api_service",
+            "create_api_service",
+            "update_api_service",
+            "create_api_service_package",
+            "publish_api_service_package",
+        }
+    ),
     "project_bundles": frozenset(
         {"list_project_bundles", "create_project_bundle", "publish_project_bundle"}
     ),
