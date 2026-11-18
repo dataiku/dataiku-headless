@@ -1038,38 +1038,23 @@ def test_api_test_queries_are_write_only_and_schema_validates_inputs():
     assert operation.effect == "write"
     assert operation.destructive is True
     assert operation.idempotent is False
-    for arguments in [
-        {
-            "deployer_type": "project",
-            "deployment_id": "deployment",
-            "endpoint_id": "endpoint",
-        },
+    base = {
+        "deployer_type": "api",
+        "deployment_id": "deployment",
+        "endpoint_id": "endpoint",
+    }
+    invalid = [
+        {**base, "deployer_type": "project"},
         {"deployer_type": "api", "deployment_id": "deployment"},
+        {**base, "test_queries": []},
+        {**base, "test_queries": [{"features": {}}]},
+        {**base, "test_queries": [{"q": {}}] * 21},
         {
-            "deployer_type": "api",
-            "deployment_id": "deployment",
-            "endpoint_id": "endpoint",
-            "test_queries": [],
-        },
-        {
-            "deployer_type": "api",
-            "deployment_id": "deployment",
-            "endpoint_id": "endpoint",
-            "test_queries": [{"features": {}}],
-        },
-        {
-            "deployer_type": "api",
-            "deployment_id": "deployment",
-            "endpoint_id": "endpoint",
-            "test_queries": [{"q": {}}] * 21,
-        },
-        {
-            "deployer_type": "api",
-            "deployment_id": "deployment",
-            "endpoint_id": "endpoint",
+            **base,
             "test_queries": [{"q": {}, "headers": [{"name": "bad", "value": "test"}]}],
         },
-    ]:
+    ]
+    for arguments in invalid:
         with pytest.raises(ValueError):
             operation.validate(arguments)
 
