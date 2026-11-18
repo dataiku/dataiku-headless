@@ -140,9 +140,8 @@ at the first slash after `tree`. Branch names containing `/`, such as
 without a slash, or clone the desired branch and choose **Import power from a
 folder** instead.
 
-**Credentials:** ask **Set up Dataiku Headless** to save a local profile in
-`~/.dataiku/stdio-config.json`. See [Where configuration lives](#where-configuration-lives)
-for path overrides. Do not rely on shell exports reaching Kiro's MCP subprocess;
+**Credentials:** ask **Set up Dataiku Headless** to configure your Dataiku
+connection. Do not rely on shell exports reaching Kiro's MCP subprocess;
 ambient environment inheritance is not guaranteed.
 
 **Verify:** check the Dataiku server in Kiro's **MCP Servers** panel, then use
