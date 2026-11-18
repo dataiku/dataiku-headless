@@ -63,7 +63,12 @@ IDs or assume a configuration save means an update completed. Then inspect
 `deployer.list_updates`, pin the matching startTimestamp with
 `deployer.get_update(timestamp=...)`, and re-read `deployer.get_deployment`.
 Use the update's `report` to investigate failures. Add `include_logs=true` when
-you need the full available log lines for that update.
+you need the available log lines for that update. Generated Kubernetes Deployment
+and Secret manifests are replaced with redaction markers because they can contain
+plaintext or base64-encoded environment secrets. Filtering resumes at the next
+recognized Dataiku log-entry header; truncated entries or custom log formats may
+cause the remaining lines to be omitted. This is not a general sanitizer for
+arbitrary secrets printed by custom deployment hooks.
 Omitting timestamp reads the latest update, which may belong to another caller.
 Completion of a future alone does not establish a healthy deployed service/project.
 

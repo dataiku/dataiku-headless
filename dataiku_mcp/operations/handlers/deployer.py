@@ -14,6 +14,7 @@
 
 """Project and API Deployer handlers with body validation of identifiers."""
 
+import re
 from typing import Annotated, Literal
 
 from dataikuapi.dss.future import DSSFuture
@@ -73,6 +74,43 @@ _MESSAGE_FIELDS = (
     "details",
     "governLink",
 )
+
+# DKUtils.startLogAppender reuses the root PatternLayout, or falls back to a
+# relative timestamp. YAML continuation lines have no log-entry header.
+_DEPLOYER_LOG_HEADER = re.compile(
+    r"^(?:"
+    r"\[\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+\] "
+    r"\[[^\]\r\n]*\] \[(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\] \[[^\]\r\n]+\]"
+    r"|\d+\s+\[[^\]\r\n]*\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\S+"
+    r")\s+.*? - "
+)
+_KUBERNETES_MANIFEST_LOG = re.compile(r"\bfinal (?:opaque secret|deployment):")
+
+
+def _redact_deployer_logs(lines: list[str] | None) -> list[str] | None:
+    """Omit generated Kubernetes manifests, which can carry environment secrets."""
+    if lines is None:
+        return None
+    result = []
+    in_manifest = False
+    for entry in lines:
+        retained = []
+        for line in entry.splitlines(keepends=True) or [""]:
+            if in_manifest and not _DEPLOYER_LOG_HEADER.match(line):
+                continue
+            marker = _KUBERNETES_MANIFEST_LOG.search(line)
+            if marker:
+                ending = line[len(line.rstrip("\r\n")) :]
+                retained.append(
+                    line[: marker.end()] + " [Kubernetes manifest redacted]" + ending
+                )
+                in_manifest = True
+            else:
+                in_manifest = False
+                retained.append(line)
+        if retained:
+            result.append("".join(retained))
+    return redact_sensitive_data(result, redact_diagnostics=False)
 
 
 def _pick(raw: dict, fields: tuple) -> dict:
@@ -270,7 +308,10 @@ async def get_deployer_update(
     deployment_id: str,
     timestamp: str | None = None,
     include_logs: Annotated[
-        bool, Field(description="Include all available log lines for this update.")
+        bool,
+        Field(
+            description="Include available update logs with generated Kubernetes manifests redacted."
+        ),
     ] = False,
 ) -> dict:
     """Inspect a deployment update's outcome and diagnostic report, optionally including logs."""
@@ -287,9 +328,7 @@ async def get_deployer_update(
                 raw["report"], redact_diagnostics=False
             )
         if include_logs:
-            result["logs"] = redact_sensitive_data(
-                update.logs, redact_diagnostics=False
-            )
+            result["logs"] = _redact_deployer_logs(update.logs)
         return result
 
     return await _execute(deployer_type, _run)

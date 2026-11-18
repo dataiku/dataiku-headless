@@ -134,7 +134,21 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `run_macro`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+
+Project and API Deployer operations discover infrastructures, published versions and deployments,
+create deployment configurations, change target versions, apply updates asynchronously,
+and inspect saved settings, health, governance codes and update history. They operate on already published
+bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
+for node selection, production effects and coverage limits.
+
+Direct project reads, execution and administration support Design, Automation.
+Project edits and Cobuild require Design. The four shared operation tools expose
+13 public SDK actions for Deployer, restricted to their matching profiles.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
+See the [operation guide](skills/dataiku-headless/references/operations.md).
+
 
 Project and API Deployer operations discover infrastructures, published versions and deployments,
 create deployment configurations, change target versions, apply updates asynchronously,

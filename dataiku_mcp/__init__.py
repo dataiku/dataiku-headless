@@ -41,6 +41,7 @@ from .tools import (  # noqa: F401
     jobs,
     licensing,
     llms_and_knowledge_banks,
+    macros,
     managed_folders,
     operations,
     plugins,
