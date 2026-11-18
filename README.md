@@ -25,6 +25,8 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
+Headless resolves supported Cobuild object references into Dataiku UI links for the agent to share after verified milestones.
+
 Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
