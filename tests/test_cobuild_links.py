@@ -31,7 +31,7 @@ from dataiku_mcp.tools.utils.cobuild_links import extract_object_links
         ("AI_AGENT", "savedmodels/item/versions/"),
         ("FINE_TUNED_MODEL", "savedmodels/item/versions/"),
         ("GEN_AI_MODEL", "savedmodels/item/versions/"),
-        ("GENAI_EVALUATION_STORE", "modelevaluationstores/item/evaluations/"),
+        ("GENAI_EVALUATION_STORE", "genaievaluationstores/item/evaluations/"),
         ("RETRIEVABLE_KNOWLEDGE", "knowledge-bank/item/usage/"),
         ("FLOW_ZONE", "flow/?zoneId=item"),
     ],
