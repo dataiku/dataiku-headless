@@ -136,11 +136,6 @@ Dataiku Headless is an MCP server and agent skill library for operating Dataiku 
 
 Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `run_macro`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
-API Service tools create services on Design, manage endpoint definitions, create versioned
-packages with release notes, and publish them to the configured API Deployer. Deployed
-endpoints can be tested through the Deployer operations. See the
-[API Services guide](skills/dataiku-headless/references/api-services.md).
-
 Project and API Deployer operations discover infrastructures, published versions and deployments,
 create deployment configurations, change target versions, apply updates asynchronously,
 and inspect saved settings, health, governance codes and update history. They operate on already published

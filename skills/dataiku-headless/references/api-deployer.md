@@ -11,7 +11,7 @@ coverage and recovery. Pass arguments through the shared read/write dispatcher. 
 API services are authored in a Design/Automation project's API Designer and
 published as versioned packages. API Deployer manages those packages and sends them
 to an infrastructure. An API node serves requests; it is not the Deployer profile.
-Endpoint definitions are authored on Design; deployed endpoints can be tested through the public SDK operation below.
+Test deployed endpoints with `deployer.run_test_queries`.
 
 1. Discover infrastructures and stages, then inspect the chosen target and its
    reported deployment permissions and governance policy. Infrastructure type
@@ -93,12 +93,6 @@ raw error messages and stack traces. Inspect detailed failures in the Deployer t
 UI. After a timeout or uncertain failure, queries may already have executed; do not
 blindly retry functions or SQL with side effects. Test requests can create audit
 records and incur normal serving costs.
-
-The public SDK does not expose Design development-server test execution. Inspect
-undeployed definitions and references to assess completeness, or use the Dataiku UI
-to execute them. Report “inspected, not executed” separately from “passed deployed
-tests.” Do not publish or activate an otherwise undeployed service just to test it
-without a deployment request.
 
 For Design service authoring and package publication, use [API Services](./api-services.md).
 

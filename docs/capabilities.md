@@ -82,14 +82,14 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
-| API Services | `list_api_services`, `get_api_service` | `create_api_service`, `update_api_service`, `create_api_service_package`, `publish_api_service_package` | Design only — create services, add/replace or explicitly remove endpoint definitions, package and publish to the configured API Deployer; preserves service authentication. Design development-server execution remains a UI task. |
+| API Services | `list_api_services`, `get_api_service` | `create_api_service`, `update_api_service`, `create_api_service_package`, `publish_api_service_package` | Design only — create services, add/replace or explicitly remove endpoint definitions, package and publish to the configured API Deployer. |
 | Project bundles | `list_project_bundles` | `create_project_bundle`, `publish_project_bundle` | Design only — inspects saved content options, optionally updates them before packaging existing assets with standards checks, and publishes to the Design node's configured Project Deployer without deploying to Automation |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
 | Project libraries | `list_project_library`, `read_project_library_file`, `search_project_library`, `validate_project_library_file` | `write_project_library_file` | Bootstrap, **in-project** — local-file write is stdio only |
 | Project folders | `list_project_folders`, `get_project_folder` | `create_project_folder`, `move_project_to_folder`, `delete_project_folder` | Cross-project |
-| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 14 operations: 14 Deployer, including deployed API endpoint tests. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
+| Operation registry pilot | `search_operations`, `describe_operation`, `run_read_operation` | `run_write_operation` | Fixed MCP interface over 14 operations: 14 Deployer. Backend-defined definition payloads are labelled explicitly. Tool instance policy is enforced before token exchange; read/write handlers validate operations before SDK execution. |
 | Code environments | `list_code_envs` | `create_code_env`, `update_code_env`, `delete_code_env` | Instance-level |
 | Plugins | `list_plugins`, `list_plugin_usages` | `install_plugin`, `ensure_plugin_code_env`, `update_plugin`, `delete_plugin` | Instance-level — local-path install/update are stdio only |
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
@@ -100,8 +100,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
 
-The **in-project** writes above configure or supply a project. API Service authoring
-is a narrow exception for endpoint definitions, including function code and SQL.
+The **in-project** writes above configure or supply a project.
 None of these tools build Flow recipe logic, a model, or an agent.
 
 The [plugin development guide](../skills/dataiku-headless/references/plugin-development.md)
