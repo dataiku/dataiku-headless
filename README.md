@@ -130,23 +130,26 @@ server; ambient environment inheritance is not guaranteed.
 
 ### Kiro
 
-In the Kiro IDE, open **Powers** → **Add Custom Power** → **Import power
-from GitHub** and enter this repository's URL. Kiro registers the MCP server
-from the root `mcp.json` and loads the skills. These instructions cover the IDE.
+Kiro support is currently available on the `one-off/agent-plugin` branch. To
+install it:
 
-**Branch imports:** Kiro splits GitHub `/tree/<branch>/<subdirectory>` URLs
-at the first slash after `tree`. Branch names containing `/`, such as
-`one-off/agent-plugin`, are therefore interpreted incorrectly. Use a branch
-without a slash, or clone the desired branch and choose **Import power from a
-folder** instead.
+```bash
+git clone --branch one-off/agent-plugin --single-branch \
+  https://github.com/dataiku/dataiku-headless.git \
+  dataiku-headless-kiro
+```
+
+In the Kiro IDE, open **Powers → Add Custom Power → Import power from a folder**
+and select the `dataiku-headless-kiro` folder.
+
+Use folder import because Kiro's GitHub importer has been observed to
+misinterpret the `/` in this branch's name.
 
 **Credentials:** ask **Set up Dataiku Headless** to configure your Dataiku
-connection. Do not rely on shell exports reaching Kiro's MCP subprocess;
-ambient environment inheritance is not guaranteed.
+connection.
 
-**Verify:** check the Dataiku server in Kiro's **MCP Servers** panel, then use
-`get_current_instance` and a read-only call such as `list_projects` to confirm
-the selected instance and Dataiku access.
+**Verify:** use `get_current_instance`, then a read-only call such as
+`list_projects`, to confirm the connection.
 
 ### Other AI assistants
 
