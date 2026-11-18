@@ -128,6 +128,29 @@ variables, is available only when the harness supplies those variables to the
 server; ambient environment inheritance is not guaranteed.
 
 
+### Kiro
+
+Kiro support is currently available on the `one-off/agent-plugin` branch. To
+install it:
+
+```bash
+git clone --branch one-off/agent-plugin --single-branch \
+  https://github.com/dataiku/dataiku-headless.git \
+  dataiku-headless-kiro
+```
+
+In the Kiro IDE, open **Powers → Add Custom Power → Import power from a folder**
+and select the `dataiku-headless-kiro` folder.
+
+Use folder import because Kiro's GitHub importer has been observed to
+misinterpret the `/` in this branch's name.
+
+**Credentials:** ask **Set up Dataiku Headless** to configure your Dataiku
+connection.
+
+**Verify:** use `get_current_instance`, then a read-only call such as
+`list_projects`, to confirm the connection.
+
 ### Other AI assistants
 
 #### MCP
