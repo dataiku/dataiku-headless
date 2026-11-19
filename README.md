@@ -24,8 +24,8 @@
 ## About Dataiku Headless
 
 Work in Dataiku from your AI assistant. Describe what you want to accomplish,
-and Dataiku Headless helps you explore data, build pipelines and models with
-Dataiku Cobuild, run workflows, and manage deployments.
+and Dataiku Headless helps you explore data, build pipelines, train models,
+create custom AI agents, and manage production deployments.
 
 Use it with the [ChatGPT desktop app (Codex or Work)](docs/installation.md#chatgpt-desktop-app),
 [Codex CLI](docs/installation.md#codex-cli),
