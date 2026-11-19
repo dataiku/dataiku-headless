@@ -52,6 +52,11 @@ _USER_FIELDS = {
     "source_type": "sourceType",
     "profile": "userProfile",
 }
+_ACTIVITY_FIELDS = {
+    "last_successful_login": "lastSuccessfulLogin",
+    "last_failed_login": "lastFailedLogin",
+    "last_session_activity": "lastSessionActivity",
+}
 
 
 def _sanitize_user(raw_user: dict, fields: dict[str, str]) -> dict:
@@ -127,8 +132,11 @@ async def list_users(
     ] = None,
     offset: Offset = 0,
     limit: Annotated[int, Field(description="Capped at 100.")] = 20,
+    include_activity: Annotated[
+        bool, Field(description="Include login and session timestamps; requires admin.")
+    ] = False,
 ) -> str:
-    """Find users and their exact logins; admins also see email, profile, and source."""
+    """Find users and exact logins, with optional activity timestamps for admins."""
     search = search.strip()
     groups = _validate_group_names(groups)
     offset = _require_non_negative_int(offset, "offset")
@@ -139,13 +147,18 @@ async def list_users(
     try:
         await require_admin()
     except PermissionError:
+        if include_activity:
+            raise PermissionError(
+                "Dataiku administrator access is required to include user activity."
+            ) from None
         fields = _BASIC_USER_FIELDS
         raw_users = await run_blocking(
             lambda: [user.get_raw() for user in get_dss_client().list_users_info()]
         )
     else:
         fields = _USER_FIELDS
-        raw_users = await run_blocking(lambda: get_dss_client().list_users())
+        client = await run_blocking(get_dss_client)
+        raw_users = await run_blocking(client.list_users)
 
     await ctx.info("Listing Dataiku users...")
     users = [_sanitize_user(raw_user, fields) for raw_user in raw_users]
@@ -178,6 +191,23 @@ async def list_users(
     )
     matched_users = len(users)
     page = users[offset : offset + limit]
+    if include_activity:
+        fields = {**fields, **_ACTIVITY_FIELDS}
+        if page:
+            raw_activity = await run_blocking(
+                lambda: [
+                    activity.get_raw() for activity in client.list_users_activity()
+                ]
+            )
+            activity_by_login = {
+                activity["login"]: activity for activity in raw_activity
+            }
+            for user in page:
+                user.update(
+                    _sanitize_user(
+                        activity_by_login.get(user["login"], {}), _ACTIVITY_FIELDS
+                    )
+                )
     returned_users = len(page)
     next_offset = (
         offset + returned_users if offset + returned_users < matched_users else None
