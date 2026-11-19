@@ -22,7 +22,7 @@ Use this file when changing this repository. It is not an operating guide for us
 ## Sources of truth
 
 - Registered MCP surface: `tests/test_tool_surface.py`.
-- Customer-facing capability overview: `README.md`.
+- Capability overview: `README.md`.
 - Tool registration imports: `dataiku_mcp/__init__.py`.
 - Project dependencies, Python support, version, and CLI entry points: `pyproject.toml`.
 - Standalone server dependency pins and Python floor: the PEP 723 block in `runtime/run_mcp.py`.
