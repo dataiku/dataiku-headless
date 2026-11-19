@@ -22,8 +22,7 @@ Test the connection when supported, save your changes, and select **Done**.
 Ask the agent to verify the active instance before continuing your work.
 
 Saved credentials stay hidden in the manager. Environment and Code Studio
-instances are read-only. For an organization-managed HTTP connection, your
-administrator manages the instance catalog.
+instances are read-only.
 
 ## HTTPS certificate trust
 
@@ -79,18 +78,5 @@ credentials or environment types, unsupported types, and duplicate environment n
 
 Settings load at startup. Changes through the setup page or instance tools refresh
 the saved profiles immediately; manual file edits and environment changes require a restart.
-
-## Organization-managed connections
-
-If your organization provides a remote Dataiku Headless plugin, install that
-plugin and sign in using your organization's login flow. Your administrator
-manages the available Dataiku instances; you do not enter a personal API key.
-
-Enable only one Dataiku Headless connection in an agent: either the local plugin
-or the organization-managed remote plugin. Enabling both can cause the agent to
-target the wrong server.
-
-Administrators can follow the [HTTP deployment guide](self-hosting/http-deployment.md) for
-service setup, OAuth configuration, and plugin distribution.
 
 [Back to the README](../README.md)

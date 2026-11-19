@@ -18,10 +18,6 @@ The setup flow checks the runtime and helps you connect to Dataiku.
 - [Snowflake CoCo CLI](#snowflake-coco-cli)
 - [Other AI assistants](#other-ai-assistants)
 
-If your organization provides a remote plugin, use that plugin and your
-organization's login instructions instead. See
-[organization-managed connections](connecting-to-dataiku.md#organization-managed-connections).
-
 ## Requirements
 
 Dataiku Headless needs network access to your Dataiku instance and
