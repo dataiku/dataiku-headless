@@ -164,8 +164,6 @@ on demand, and separate read/write tools execute them.
 See the [operation guide](skills/dataiku-headless/references/operations.md).
 
 
-Administrators can also inspect user login and session activity.
-
 ## Capability reference
 
 For a quick reference to what Headless can inspect, what Cobuild builds, and the
