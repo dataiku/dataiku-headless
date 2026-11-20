@@ -27,18 +27,20 @@ Work in Dataiku from your AI assistant. Describe what you want to accomplish,
 and Dataiku Headless helps you explore data, build pipelines, train models,
 create custom AI agents, and manage production deployments.
 
-Use it with the [ChatGPT desktop app (Codex or Work)](docs/getting-started/chatgpt-desktop.md),
-[Claude desktop app](docs/getting-started/claude-desktop.md),
-[Cursor desktop app](docs/getting-started/cursor-desktop.md),
-[GitHub Copilot desktop app](docs/getting-started/github-copilot-desktop.md),
-[Snowflake CoCo desktop app](docs/getting-started/snowflake-coco-desktop.md),
-[Codex CLI](docs/getting-started/codex-cli.md),
-[Claude Code CLI](docs/getting-started/claude-code-cli.md),
-[GitHub Copilot CLI](docs/getting-started/github-copilot-cli.md),
-[Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md),
-[Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md),
-[Grok CLI](docs/getting-started/grok-cli.md), or
-[another MCP-compatible agent](docs/getting-started/other-mcp-agents.md).
+Use it with:
+
+- [ChatGPT desktop app (Codex or Work)](docs/getting-started/chatgpt-desktop.md) /
+  [Codex CLI](docs/getting-started/codex-cli.md)
+- [Claude desktop app](docs/getting-started/claude-desktop.md) /
+  [Claude Code CLI](docs/getting-started/claude-code-cli.md)
+- [Cursor desktop app](docs/getting-started/cursor-desktop.md) /
+  [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md)
+- [GitHub Copilot desktop app](docs/getting-started/github-copilot-desktop.md) /
+  [GitHub Copilot CLI](docs/getting-started/github-copilot-cli.md)
+- [Snowflake CoCo desktop app](docs/getting-started/snowflake-coco-desktop.md) /
+  [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
+- [Grok CLI](docs/getting-started/grok-cli.md)
+- [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
 Your work lives in Dataiku, where you can review and continue it.
 
 ## What you can do
@@ -69,18 +71,19 @@ Once connected, use your own project and dataset names in requests such as:
 ## Get started
 
 1. **Install and connect Dataiku Headless.** Choose your harness guide:
-   [ChatGPT desktop (Codex or Work)](docs/getting-started/chatgpt-desktop.md),
-   [Claude desktop](docs/getting-started/claude-desktop.md),
-   [Cursor desktop](docs/getting-started/cursor-desktop.md),
-   [GitHub Copilot desktop](docs/getting-started/github-copilot-desktop.md),
-   [Snowflake CoCo desktop](docs/getting-started/snowflake-coco-desktop.md),
-   [Codex CLI](docs/getting-started/codex-cli.md),
-   [Claude Code CLI](docs/getting-started/claude-code-cli.md),
-   [GitHub Copilot CLI](docs/getting-started/github-copilot-cli.md),
-   [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md),
-   [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md),
-   [Grok CLI](docs/getting-started/grok-cli.md), or
-   [another MCP-compatible agent](docs/getting-started/other-mcp-agents.md).
+
+   - [ChatGPT desktop (Codex or Work)](docs/getting-started/chatgpt-desktop.md) /
+     [Codex CLI](docs/getting-started/codex-cli.md)
+   - [Claude desktop](docs/getting-started/claude-desktop.md) /
+     [Claude Code CLI](docs/getting-started/claude-code-cli.md)
+   - [Cursor desktop](docs/getting-started/cursor-desktop.md) /
+     [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md)
+   - [GitHub Copilot desktop](docs/getting-started/github-copilot-desktop.md) /
+     [GitHub Copilot CLI](docs/getting-started/github-copilot-cli.md)
+   - [Snowflake CoCo desktop](docs/getting-started/snowflake-coco-desktop.md) /
+     [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
+   - [Grok CLI](docs/getting-started/grok-cli.md)
+   - [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
 2. **Start with a project.** Ask your agent to show the projects you can access,
    then describe what you want to explore or build.
 
