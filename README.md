@@ -26,7 +26,7 @@ Use it with:
 
 - [ChatGPT desktop app (Codex or Work)](docs/getting-started/chatgpt-desktop.md) /
   [Codex CLI](docs/getting-started/codex-cli.md)
-- [Claude desktop app](docs/getting-started/claude-desktop.md) /
+- [Claude desktop app (Cowork or Claude Code)](docs/getting-started/claude-desktop.md) /
   [Claude Code CLI](docs/getting-started/claude-code-cli.md)
 - [Cursor desktop app](docs/getting-started/cursor-desktop.md) /
   [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md)
@@ -72,7 +72,7 @@ Once connected, use your own project and dataset names in requests such as:
 
    - [ChatGPT desktop (Codex or Work)](docs/getting-started/chatgpt-desktop.md) /
      [Codex CLI](docs/getting-started/codex-cli.md)
-   - [Claude desktop](docs/getting-started/claude-desktop.md) /
+   - [Claude desktop (Cowork or Claude Code)](docs/getting-started/claude-desktop.md) /
      [Claude Code CLI](docs/getting-started/claude-code-cli.md)
    - [Cursor desktop](docs/getting-started/cursor-desktop.md) /
      [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md)

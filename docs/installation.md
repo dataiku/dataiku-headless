@@ -6,7 +6,7 @@ the steps to connect to a Dataiku instance.
 ## Desktop apps
 
 - [ChatGPT desktop app (Codex or Work)](getting-started/chatgpt-desktop.md)
-- [Claude desktop app](getting-started/claude-desktop.md)
+- [Claude desktop app (Cowork or Claude Code)](getting-started/claude-desktop.md)
 - [Cursor desktop app](getting-started/cursor-desktop.md)
 - [GitHub Copilot desktop app](getting-started/github-copilot-desktop.md)
 - [Snowflake CoCo desktop app](getting-started/snowflake-coco-desktop.md)

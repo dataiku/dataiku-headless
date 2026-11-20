@@ -1,4 +1,4 @@
-# Claude desktop app
+# Claude desktop app (Cowork or Claude Code)
 
 This guide covers installing and connecting Dataiku Headless in Claude Cowork or
 Claude Code in the Claude desktop app.
