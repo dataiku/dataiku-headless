@@ -34,6 +34,9 @@ docs/self-hosting/*
 !docs/self-hosting/http-deployment.md
 !docs/installation.md
 !docs/connecting-to-dataiku.md
+!docs/getting-started/
+docs/getting-started/*
+!docs/getting-started/*.md
 
 # Local test fixtures, migration-run scratch, benchmark research, setup notes (not shipped)
 test-data/

@@ -1,13 +1,8 @@
 # Connecting to Dataiku
 
-For a local connection, [install the plugin](installation.md), then configure
-an instance using a personal API key:
-
-1. Ask the agent to **Set up Dataiku Headless** (or run `/headless:dataiku-headless-setup` in Claude Code).
-2. Approve the MCP URL prompt.
-3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key in the setup page.
-4. Test the connection when supported, save it, and select **Done**.
-5. Ask your agent to verify the connection. Repeat to add more instances, or ask your agent to switch between them.
+For harness-specific installation and first-connection steps, choose a guide in
+the [installation index](installation.md). This page covers additional instance,
+credential, and certificate configuration.
 
 Inside a Code Studio, the hosting DSS instance is discovered automatically using
 its injected API ticket. No personal API key or setup popup is needed.
