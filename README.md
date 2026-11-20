@@ -5,16 +5,13 @@
   <img alt="Dataiku" src="docs/assets/dataiku-lockup-black.svg" width="280">
 </picture>
 
-<h1><code>$&nbsp;dataiku-headless</code></h1>
+<h1>Dataiku Headless</h1>
 
-<p><strong>Dataiku Headless: Agentic Analytics, Data Science, and AI Development powered by Dataiku Cobuild</strong></p>
-
-<p><code>SUPERVISE&nbsp;·&nbsp;DELEGATE&nbsp;·&nbsp;VERIFY</code></p>
+<p><strong>Agentic Analytics, Data Science, and AI Development powered by Dataiku Cobuild</strong></p>
 
 <p>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
-  <a href="https://gofastmcp.com"><img alt="Built with FastMCP" src="https://img.shields.io/badge/MCP-FastMCP-8A2BE2"></a>
 </p>
 
 </div>
