@@ -7,14 +7,14 @@
 
 <h1>Dataiku Headless</h1>
 
+<p><strong>Agentic Analytics, Data Science, and AI Development powered by Dataiku Cobuild</strong></p>
+
 <p>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
 </p>
 
 </div>
-
----
 
 ## About Dataiku Headless
 
