@@ -44,9 +44,9 @@ Dataiku Headless. Then, in your chosen mode, ask **Set up Dataiku Headless**.
 Follow the setup page to add your Dataiku instance, test the connection, save it,
 and select **Done**.
 
-This walkthrough shows installation and setup in Codex mode:
+Install Dataiku Headless from the Plugins page:
 
-![Installing and setting up the Dataiku Headless plugin with Codex](https://github.com/dataiku/dataiku-headless/releases/download/readme-media-v2/headless_install_setup_codex.gif)
+![In Codex, open Plugins, search for Dataiku, and add Dataiku Headless](assets/installation/codex-desktop.png)
 
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
@@ -64,6 +64,8 @@ Dataiku Headless, and click **Add**. Then, in your chosen mode, ask
 **Set up Dataiku Headless**. Follow the setup page to add your Dataiku instance,
 test the connection, save it, and select **Done**.
 
+![In Claude, open Customize, find Dataiku Headless in Discover, and add it](assets/installation/claude-desktop.png)
+
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
 ## Cursor desktop app
@@ -73,6 +75,12 @@ Open **Customize → Plugins → + Add → From GitHub Repository**, enter
 
 In a new chat, ask **Set up Dataiku Headless**. Follow the setup page to add your
 Dataiku instance, test the connection, save it, and select **Done**.
+
+![In Cursor, open the plugin menu and choose From GitHub Repository](assets/installation/cursor-desktop-1.png)
+
+![Enter the Dataiku Headless GitHub repository and import it](assets/installation/cursor-desktop-2.png)
+
+![Find Dataiku Headless in the Cursor marketplace and add it](assets/installation/cursor-desktop-3.png)
 
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
@@ -86,6 +94,12 @@ When installation completes, start a new chat and ask **Set up Dataiku Headless*
 Follow the setup page to add your Dataiku instance, test the connection, save it,
 and select **Done**.
 
+![In Snowflake CoCo, open Customize and choose Add from GitHub](assets/installation/snowflake-coco-desktop-1.png)
+
+![Enter the Dataiku Headless GitHub repository](assets/installation/snowflake-coco-desktop-2.png)
+
+![Allow the setup actions in Snowflake CoCo](assets/installation/snowflake-coco-desktop-3.png)
+
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
 ## GitHub Copilot desktop app
@@ -96,6 +110,12 @@ search for **Dataiku**, select Dataiku Headless, and click **+ Install**.
 
 In a new chat, ask **Set up Dataiku Headless**. Follow the setup page to add your
 Dataiku instance, test the connection, save it, and select **Done**.
+
+![In GitHub Copilot, open Add and choose Manage marketplaces](assets/installation/github-copilot-desktop-1.png)
+
+![Add the Dataiku Headless marketplace](assets/installation/github-copilot-desktop-2.png)
+
+![Search for Dataiku Headless and install it](assets/installation/github-copilot-desktop-3.png)
 
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
