@@ -124,6 +124,18 @@ _DEPLOYER_OPERATIONS = [
         destructive=True,
     ),
     _deployer(
+        "deployer.run_test_queries",
+        deployer.run_deployer_test_queries,
+        {
+            "deployer_type": "api",
+            "deployment_id": "discovered-deployment",
+            "endpoint_id": "discovered-endpoint",
+            "test_queries": [{"q": {"features": {"feature": 1}}}],
+        },
+        effect="write",
+        destructive=True,
+    ),
+    _deployer(
         "deployer.get_future_status",
         deployer.get_deployer_future_status,
         {"future_id": "returned-future"},

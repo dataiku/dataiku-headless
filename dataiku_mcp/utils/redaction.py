@@ -70,9 +70,15 @@ def _is_sensitive_key(key: str, *, redact_diagnostics: bool = True) -> bool:
 
 def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any:
     if isinstance(value, dict):
+        # Header/property lists encode the sensitive name in a key/value pair.
+        sensitive_pair = isinstance(value.get("key"), str) and _is_sensitive_key(
+            value["key"], redact_diagnostics=False
+        )
         redacted = {}
         for key, item in value.items():
-            if _is_sensitive_key(str(key), redact_diagnostics=redact_diagnostics):
+            if _is_sensitive_key(str(key), redact_diagnostics=redact_diagnostics) or (
+                key == "value" and sensitive_pair
+            ):
                 redacted[key] = _CONNECTION_SECRET_REDACTION
             else:
                 redacted[key] = redact_sensitive_data(
