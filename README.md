@@ -44,7 +44,10 @@ Your work lives in Dataiku, where you can review and continue it.
   understand how your models, agents, and applications work.
 - **Build with Cobuild:** create and improve data pipelines, analytics, machine
   learning models, agents, and applications.
-- **Deploy:** publish automated data pipelines, ML models, agents, and custom API Services to production environments (production databases, k8s clusters, and more).
+- **Deploy:** publish project bundles to Automation nodes and deploy published
+  API Service versions to API infrastructures such as Kubernetes clusters.
+  Pipelines running on Automation nodes can write outputs to production
+  databases.
 - **Monitor:** review pipeline runs, agent evaluation results, and API service
   health.
 - **Manage and customize your Dataiku environment:** inspect connections, organize projects, manage

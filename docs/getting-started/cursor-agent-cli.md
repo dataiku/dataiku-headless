@@ -18,8 +18,9 @@ Add the marketplace:
 cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 ```
 
-In an interactive Cursor Agent session, run `/plugins` and install
-`dataiku-headless` from the Dataiku marketplace.
+This command only registers the marketplace. In an interactive Cursor Agent
+session, open `/plugins` and install `dataiku-headless` from the Dataiku
+marketplace before continuing to connection setup.
 
 ## Connect to Dataiku
 
