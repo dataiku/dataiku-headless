@@ -74,14 +74,14 @@ Open **Customize → Plugins → + Add → From GitHub Repository**, enter
 `https://github.com/dataiku/dataiku-headless`, and click **Import**. Then, in the
 plugin homepage, find Dataiku Headless and click **Add**.
 
-In a new chat, ask **Set up Dataiku Headless**. Follow the setup page to add your
-Dataiku instance, test the connection, save it, and select **Done**.
-
 ![In Cursor, open the plugin menu and choose From GitHub Repository](assets/installation/cursor-desktop-1.png)
 
 ![Enter the Dataiku Headless GitHub repository and import it](assets/installation/cursor-desktop-2.png)
 
 ![Find Dataiku Headless in the Cursor marketplace and add it](assets/installation/cursor-desktop-3.png)
+
+In a new chat, ask **Set up Dataiku Headless**. Follow the setup page to add your
+Dataiku instance, test the connection, save it, and select **Done**.
 
 Next: [Connect to Dataiku](connecting-to-dataiku.md).
 
