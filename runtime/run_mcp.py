@@ -4,7 +4,7 @@
 # dependencies = [
 #     "fastmcp==3.4.5",
 #     "dataiku-api-client==14.7.2",
-#     "pydantic==2.13.4",
+#     "pydantic==2.14.4",
 #     "python-dotenv==1.2.2",
 #     "requests==2.34.2",
 #     "six==1.17.0",
