@@ -36,6 +36,7 @@ Use it with:
   [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
 - [Grok CLI](docs/getting-started/grok-cli.md)
 - [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
+
 Your work lives in Dataiku, where you can review and continue it.
 
 ## What you can do
@@ -82,6 +83,7 @@ Once connected, use your own project and dataset names in requests such as:
      [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
    - [Grok CLI](docs/getting-started/grok-cli.md)
    - [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
+
 2. **Start with a project.** Ask your agent to show the projects you can access,
    then describe what you want to explore or build.
 
@@ -108,8 +110,6 @@ Cobuild handles changes to project logic. You can return to an ongoing Cobuild
 conversation, answer its questions, and review the resulting project.
 
 For detailed workflows, see the [agent skill guide](skills/dataiku-headless/SKILL.md).
-Administrators can use the [HTTP deployment guide](docs/self-hosting/http-deployment.md) to
-provide a centrally managed connection with enterprise login.
 
 ## Contributing
 
