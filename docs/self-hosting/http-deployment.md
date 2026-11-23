@@ -110,7 +110,7 @@ The settings file has four sections:
 - `user_selections` records each authenticated user's current instance. Start with
   an empty object; the server manages it.
 
-Instance types are operator-supplied and enforce the same [tool policy](capabilities.md#instance-policies-and-operation-discovery) as stdio. Unsupported tool calls fail before backend token exchange. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
+Instance types are operator-supplied and enforce the same instance-type restrictions as stdio. Unsupported tool calls fail before backend token exchange. Design, Automation and Deployer use the DSS client. Agent Management and Govern remain configurable profiles with instance controls only and report unsupported without a backend call.
 
 Authentication, transport, and instance settings are loaded at startup, so restart
 the server after changing them. User selections are updated in memory and persisted
