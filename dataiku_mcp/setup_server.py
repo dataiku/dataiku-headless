@@ -34,6 +34,8 @@ from .config.models import InstanceType, StdioConfig, StdioDSSInstanceConfig
 from .instance_policy import SUPPORTED_DSS_INSTANCE_TYPES
 
 SESSION_LIFETIME_SECONDS = 10 * 60
+# Govern uses its own SDK client; its profiles are tested like the DSS types.
+_TESTABLE_INSTANCE_TYPES = SUPPORTED_DSS_INSTANCE_TYPES | {"govern"}
 MAX_REQUEST_BYTES = 16 * 1024
 _active_session: "SetupSession | None" = None
 _session_lock = threading.Lock()
@@ -139,7 +141,7 @@ def _snapshot(config: StdioConfig | None = None) -> dict:
     )
     current = stdio.get_current_instance()
     return {
-        "supported_instance_types": sorted(SUPPORTED_DSS_INSTANCE_TYPES),
+        "supported_instance_types": sorted(_TESTABLE_INSTANCE_TYPES),
         "connections": [
             {
                 "name": instance.name,
@@ -183,13 +185,18 @@ def _page(state: dict | None = None, *, nonce: str = "") -> str:
 
 
 def _test_connection(values: dict) -> None:
-    if values["instance_type"] not in SUPPORTED_DSS_INSTANCE_TYPES:
+    if values["instance_type"] not in _TESTABLE_INSTANCE_TYPES:
         raise ValueError(
             f"Connection testing is unavailable for {values['instance_type']}. Save the profile without testing."
         )
     client = None
     try:
-        client = dataikuapi.DSSClient(
+        factory = (
+            dataikuapi.GovernClient
+            if values["instance_type"] == "govern"
+            else dataikuapi.DSSClient
+        )
+        client = factory(
             values["url"],
             api_key=values["api_key"],
             internal_ticket=values["api_ticket"],
@@ -263,7 +270,7 @@ def _perform_action(session: SetupSession, form: dict[str, list[str]]) -> dict:
         return {"validation_id": session.validation_id}
     if action == "save":
         candidate = _candidate(form)
-        if candidate[2].instance_type in SUPPORTED_DSS_INSTANCE_TYPES and (
+        if candidate[2].instance_type in _TESTABLE_INSTANCE_TYPES and (
             not session.validation_id
             or form.get("validation_id", [""])[0] != session.validation_id
             or session.validated_connection != _connection_identity(candidate)

@@ -159,7 +159,9 @@ def record(session, name):
     return next(c for c in state["connections"] if c["name"] == name)
 
 
-@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern"]
+)
 def test_manager_requires_successful_test_and_rejects_changed_credentials(
     manager, instance_type
 ):
@@ -505,7 +507,9 @@ def test_expiry_during_authentication_cannot_authorize_a_save(manager, monkeypat
 
 
 @pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
-@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
+@pytest.mark.parametrize(
+    "instance_type", ["design", "automation", "deployer", "govern"]
+)
 def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     monkeypatch, credential, instance_type
 ):
@@ -526,7 +530,11 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
         def get_auth_info(self):
             self._session.request("GET", "/auth/info")
 
-    monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", Client)
+    monkeypatch.setattr(
+        setup_server.dataikuapi,
+        "GovernClient" if instance_type == "govern" else "DSSClient",
+        Client,
+    )
     setup_server._test_connection(
         {
             "url": "https://example.com",
@@ -545,7 +553,7 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     assert closed == [True]
 
 
-@pytest.mark.parametrize("instance_type", ["agent-management", "govern"])
+@pytest.mark.parametrize("instance_type", ["agent-management"])
 @pytest.mark.parametrize("attempt_test", [False, True])
 def test_unsupported_profile_can_be_saved_without_test(
     manager, monkeypatch, instance_type, attempt_test
@@ -555,6 +563,7 @@ def test_unsupported_profile_can_be_saved_without_test(
 
     monkeypatch.setattr(setup_server, "_test_connection", _test_connection)
     monkeypatch.setattr(setup_server.dataikuapi, "DSSClient", unexpected_probe)
+    monkeypatch.setattr(setup_server.dataikuapi, "GovernClient", unexpected_probe)
     form = candidate(instance_type=instance_type)
     if attempt_test:
         status, result = post(manager, action="test", **form)
@@ -568,6 +577,7 @@ def test_unsupported_profile_can_be_saved_without_test(
         "automation",
         "deployer",
         "design",
+        "govern",
     ]
 
 

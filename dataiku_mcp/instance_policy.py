@@ -27,7 +27,7 @@ PROJECT_READ_POLICY = {"allowed_instance_types": ["design", "automation"]}
 PROJECT_EXECUTION_POLICY = {"allowed_instance_types": ["design", "automation"]}
 ADMIN_POLICY = {"allowed_instance_types": ["design", "automation"]}
 PROJECT_EDIT_POLICY = {"allowed_instance_types": ["design"]}
-API_OPERATIONS_POLICY = {"allowed_instance_types": ["deployer"]}
+API_OPERATIONS_POLICY = {"allowed_instance_types": ["deployer", "govern"]}
 INSTANCE_MANAGEMENT_POLICY = {"allowed_instance_types": list(get_args(InstanceType))}
 
 

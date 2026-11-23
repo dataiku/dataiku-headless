@@ -1,6 +1,6 @@
 ---
 name: dataiku-headless
-description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, deployments, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
+description: Use for Dataiku tasks including projects, flows, datasets, recipes, jobs, machine learning, agents, deployments, Govern, and Cobuild conversations. Choose the right reference guide, inspect state first, route project changes through Cobuild by default, and validate results after execution.
 ---
 
 # Dataiku Headless
@@ -14,7 +14,7 @@ Start by identifying the configured instance type. The default project workflow 
 | `design` | Development environment for building projects, pipelines, models, applications and agents. | Use the Design workflow below; project construction goes through Cobuild. |
 | `automation` | Production environment for running deployed project bundles, schedules and monitoring. | Inspect and execute existing assets; return to Design for project edits. |
 | `deployer` | Control plane for deploying published project bundles and API service versions. | Use [Deployer operations](./references/deployer.md). |
-| `govern` | Governance and sign-off workflows for analytics, models and agents. | Instance controls only; product support is deferred. |
+| `govern` | Governance and sign-off workflows for analytics, models and agents. | Use [Govern operations](./references/govern.md); stdio only. |
 | `agent-management` | Agent inventory, monitoring and risk management. | Instance controls only; product support is deferred. |
 
 The configured instance type controls which tools are allowed; it does not establish available features or permissions. Use `list_instances` and `get_current_instance` first.

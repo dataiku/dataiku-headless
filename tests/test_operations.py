@@ -236,7 +236,9 @@ def test_search_returns_all_matches_and_preserves_tool_catalog(monkeypatch):
         before = {tool.name for tool in await mcp.list_tools()}
         result = await _call("search_operations", domain="deployer")
         assert result["total"] == 13
-        assert [op["operation_id"] for op in result["operations"]] == list(OPERATIONS)
+        assert [op["operation_id"] for op in result["operations"]] == [
+            op.operation_id for op in _DEPLOYER_OPERATIONS
+        ]
         assert set(result) == {"instance_name", "server_support", "total", "operations"}
         assert all("input_schema" not in op for op in result["operations"])
         writes = await _call("search_operations", query="DEPLOYMENT", effect="write")
