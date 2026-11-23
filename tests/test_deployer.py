@@ -979,6 +979,13 @@ def test_api_test_queries_use_public_sdk_and_strip_echoed_credentials(api_test_b
                     "payload": {"secret": SECRET},
                 },
             },
+            {
+                "error": {
+                    "errorType": "TimeoutException",
+                    "code": "QUERY_TIMEOUT",
+                    "message": SECRET,
+                }
+            },
         ]
     }
     query = deployer.APITestQuery(
@@ -993,9 +1000,10 @@ def test_api_test_queries_use_public_sdk_and_strip_echoed_credentials(api_test_b
         endpoint_id="endpoint",
         test_queries=[query],
     )
-    assert result["query_count"] == 2
+    assert result["query_count"] == 3
     assert result["succeeded_count"] == 1
-    assert result["failed_count"] == 1
+    assert result["failed_count"] == 2
+    assert result["uncertain_count"] == 1
     assert result["all_requests_succeeded"] is False
     assert result["query_source"] == "supplied"
     assert result["responses"][0]["response"]["results"] == [{"prediction": 0.7}]
@@ -1003,6 +1011,8 @@ def test_api_test_queries_use_public_sdk_and_strip_echoed_credentials(api_test_b
         "errorType": "InvalidQuery",
         "code": "INVALID_QUERY",
     }
+    assert result["responses"][1]["outcome_uncertain"] is False
+    assert result["responses"][2]["outcome_uncertain"] is True
     assert "query" not in result["responses"][0]
     assert "headers" not in result["responses"][0]
     method, path, options = api_test_backend.calls[-1]
@@ -1106,7 +1116,10 @@ def test_api_deployment_read_discovers_endpoint_queries_without_code(
                     "testQueries": [
                         {
                             "q": {"value": 1, "password": SECRET},
-                            "headers": [{"key": "Authorization", "value": SECRET}],
+                            "headers": [
+                                {"key": "Authorization", "value": SECRET},
+                                {"key": "X-Custom-Auth", "value": SECRET},
+                            ],
                         }
                     ],
                     "code": SECRET,
@@ -1126,12 +1139,29 @@ def test_api_deployment_read_discovers_endpoint_queries_without_code(
                 {
                     "q": {"value": 1, "password": "__DATAIKU_REDACTED__"},
                     "headers": [
-                        {"key": "__DATAIKU_REDACTED__", "value": "__DATAIKU_REDACTED__"}
+                        {"key": "Authorization", "value": "__DATAIKU_REDACTED__"},
+                        {"key": "X-Custom-Auth", "value": "__DATAIKU_REDACTED__"},
                     ],
                 }
             ],
         }
     ]
+
+
+def test_api_test_responses_are_bounded_and_marked_truncated(api_test_backend):
+    api_test_backend.test_response = {
+        "responses": [{"response": {"result": "x" * 20_000}}]
+    }
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+    )
+    response = result["responses"][0]
+    assert response["response_truncated"] is True
+    assert response["response"]["truncated"] is True
+    assert len(response["response"]["preview"]) < 16_000
 
 
 @pytest.mark.parametrize("exception", [Timeout, DataikuException])

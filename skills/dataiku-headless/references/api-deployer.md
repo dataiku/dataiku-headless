@@ -57,8 +57,12 @@ is performed by the test operation.
    that endpoint. Inspect them first. An empty saved list executes no tests and is
    not a pass. To bound a test or supply missing queries, provide 1–20 objects with
    required `q` (the request body), optional `name`, and optional
-   `headers: [{"key": "X-Example", "value": "example"}]`. Custom header support
-   depends on the server version. Bodies follow the endpoint family's contract in
+   `headers: [{"key": "X-Example", "value": "example"}]`. Use only non-sensitive
+   explicit bodies and header values: the pinned SDK places supplied bodies and
+   headers in the request URL, which DSS or proxy access logs may retain. Custom
+   headers depend on the server version; older servers may silently ignore them.
+   When credentials are needed, prefer a saved query on a server that supports its
+   headers. Bodies follow the endpoint family's contract in
    [API Endpoint Definitions](./api-services/api-endpoint-definitions.md#test-queries).
    Explicit queries execute without being saved into the service or package.
 4. Describe the operation, then execute this shape:
@@ -76,20 +80,28 @@ is performed by the test operation.
    }
    ```
 
-   This example is for prediction; use the selected endpoint's actual feature
-   names, data types and representative values. Do not send redacted placeholders.
+   This example is for an API Node prediction endpoint; use the selected endpoint's
+   actual feature names, data types and non-sensitive representative values. Managed
+   deployments can require a different body shape (for example, Vertex AI uses
+   `instances`). A saved query from the target deployment is a good starting point.
+   Do not send redacted placeholders.
 5. Repeat for each endpoint to validate the whole API Service. A passing test on
    one endpoint does not validate its siblings. Inspect `query_count`, `succeeded_count`, `failed_count`,
-   `all_requests_succeeded`, and each `responses` entry (`query_index`,
-   `request_succeeded`, and `response` or error type/code). Zero queries never count
+   `all_requests_succeeded`, `uncertain_count`, and each `responses` entry
+   (`query_index`, `request_succeeded`, `outcome_uncertain`, and `response` or error
+   type/code). A timeout or transport error can leave endpoint effects uncertain;
+   inspect effects before retrying. Zero queries never count
    as a pass. These flags report request execution, not prediction quality or
    application correctness: inspect response records for errors and compare outputs
    with expected behavior. For multi-version routing, one successful request does
    not establish that every version works; retain the configured mapping and any
    version reported in the response.
 
-Responses have credential fields redacted and omit query echoes, response headers,
-raw error messages and stack traces. Inspect detailed failures in the Deployer test
+Responses have credential fields redacted by best effort field-name matching and
+omit query echoes, response headers, raw error messages and stack traces. Large
+individual response bodies are bounded and marked with `response_truncated`; SQL
+rows may carry values positionally, so field-name redaction cannot detect every
+sensitive value. Inspect detailed failures in the Deployer test
 UI. After a timeout or uncertain failure, queries may already have executed; do not
 blindly retry functions or SQL with side effects. Test requests can create audit
 records and incur normal serving costs.

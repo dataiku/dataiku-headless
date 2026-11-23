@@ -65,3 +65,36 @@ def test_operation_redaction_covers_secret_containers_and_url_credentials(value)
     from dataiku_mcp.utils.redaction import redact_sensitive_data
 
     assert SECRET not in json.dumps(redact_sensitive_data(value))
+
+
+def test_api_test_query_redaction_preserves_only_saved_header_names():
+    from dataiku_mcp.utils.redaction import (
+        redact_api_test_queries,
+        redact_sensitive_data,
+    )
+
+    test_queries = [
+        {
+            "headers": [
+                {"key": "X-Custom-Auth", "value": SECRET},
+                {"key": None, "value": SECRET},
+            ],
+            "properties": [{"key": "displayName", "value": "ordinary"}],
+        }
+    ]
+
+    default = redact_sensitive_data(test_queries)
+    assert default[0]["headers"] == [
+        {"key": "__DATAIKU_REDACTED__", "value": SECRET},
+        {"key": "__DATAIKU_REDACTED__", "value": SECRET},
+    ]
+    assert default[0]["properties"] == [
+        {"key": "__DATAIKU_REDACTED__", "value": "ordinary"}
+    ]
+
+    header_safe = redact_api_test_queries(test_queries)
+    assert header_safe[0]["headers"] == [
+        {"key": "X-Custom-Auth", "value": "__DATAIKU_REDACTED__"},
+        {"key": "__DATAIKU_REDACTED__", "value": "__DATAIKU_REDACTED__"},
+    ]
+    assert header_safe[0]["properties"] == default[0]["properties"]

@@ -25,13 +25,39 @@ from requests import RequestException
 from ...auth import get_dss_client
 from ...executors import run_blocking
 from ..models import OperationArguments
-from dataiku_mcp.utils.serialization import columnar
-from dataiku_mcp.utils.redaction import redact_sensitive_data
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.redaction import redact_api_test_queries, redact_sensitive_data
 from dataiku_mcp.utils.validation import require_non_empty_string
 from dataiku_mcp.utils.validation import require_path_segment
 
 
 DeployerType = Literal["project", "api"]
+_TEST_RESPONSE_CHAR_LIMIT = 16_000
+
+
+def _test_outcome_uncertain(error: dict) -> bool:
+    error_identity = (
+        " ".join(str(error.get(field, "")) for field in ("errorType", "code"))
+        .lower()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+    return any(
+        marker in error_identity
+        for marker in (
+            "timeout",
+            "timedout",
+            "connection",
+            "transport",
+            "network",
+            "ioerror",
+            "oserror",
+            "i/o",
+        )
+    )
+
+
 Version = Annotated[
     str, Field(description="Published bundle ID (project) or service version ID (api).")
 ]
@@ -301,7 +327,7 @@ async def get_deployer_deployment(
                 {
                     "id": endpoint.get("id"),
                     "type": endpoint.get("type"),
-                    "test_queries": redact_sensitive_data(
+                    "test_queries": redact_api_test_queries(
                         endpoint.get("testQueries", [])
                     ),
                 }
@@ -504,7 +530,7 @@ async def run_deployer_test_queries(
         ),
     ] = None,
 ) -> dict:
-    """Execute test queries against one deployed API endpoint, including functions and SQL with possible side effects."""
+    """Execute test queries against one deployed API endpoint, including functions and SQL with possible side effects. Result redaction is best effort by field name."""
     deployment_id = require_path_segment(deployment_id, "deployment_id")
     endpoint_id = require_path_segment(endpoint_id, "endpoint_id")
     queries = (
@@ -529,11 +555,24 @@ async def run_deployer_test_queries(
             response = {
                 "query_index": index,
                 "request_succeeded": error is None,
+                "outcome_uncertain": error is not None
+                and _test_outcome_uncertain(error),
             }
             if error is not None:
                 response["error"] = _pick(error, ("errorType", "code"))
             else:
-                response["response"] = redact_sensitive_data(item.get("response"))
+                safe_response = redact_sensitive_data(item.get("response"))
+                serialized_response = compact_json(safe_response)
+                if len(serialized_response) > _TEST_RESPONSE_CHAR_LIMIT:
+                    response["response"] = {
+                        "truncated": True,
+                        "preview": serialized_response[
+                            : _TEST_RESPONSE_CHAR_LIMIT - 100
+                        ],
+                    }
+                    response["response_truncated"] = True
+                else:
+                    response["response"] = safe_response
             responses.append(response)
         succeeded = sum(item["request_succeeded"] for item in responses)
         return {
@@ -543,6 +582,7 @@ async def run_deployer_test_queries(
             "query_count": len(responses),
             "succeeded_count": succeeded,
             "failed_count": len(responses) - succeeded,
+            "uncertain_count": sum(item["outcome_uncertain"] for item in responses),
             "all_requests_succeeded": bool(responses) and succeeded == len(responses),
             "responses": responses,
         }

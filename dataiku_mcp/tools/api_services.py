@@ -14,7 +14,7 @@
 
 """Design API Service authoring and versioned publication via the public SDK."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from dataikuapi.utils import DataikuException
 from pydantic import Field
@@ -25,7 +25,11 @@ from ..config import request
 from ..executors import run_blocking
 from ..instance_policy import PROJECT_EDIT_POLICY
 from ..server import mcp
-from ..utils.redaction import contains_redacted_values, redact_sensitive_data
+from ..utils.redaction import (
+    contains_redacted_values,
+    redact_api_test_queries,
+    redact_sensitive_data,
+)
 from ..utils.serialization import columnar, compact_json
 from ..utils.validation import require_non_empty_string, require_path_segment
 
@@ -60,6 +64,19 @@ def _validate_endpoints(endpoints: list[dict] | None) -> list[dict]:
         seen.add(endpoint["id"])
         result.append(endpoint)
     return result
+
+
+def _redact_endpoint_definitions(endpoints: Any) -> Any:
+    redacted = redact_sensitive_data(endpoints)
+    if not isinstance(endpoints, list) or not isinstance(redacted, list):
+        return redacted
+    for endpoint, redacted_endpoint in zip(endpoints, redacted):
+        if not isinstance(endpoint, dict) or not isinstance(redacted_endpoint, dict):
+            continue
+        test_queries = endpoint.get("testQueries")
+        if isinstance(test_queries, list):
+            redacted_endpoint["testQueries"] = redact_api_test_queries(test_queries)
+    return redacted
 
 
 @mcp.tool(
@@ -133,7 +150,7 @@ async def get_api_service(project_key: str, service_id: str) -> str:
             return {
                 "name": raw.get("name"),
                 "auth_method": raw.get("authMethod"),
-                "endpoints": redact_sensitive_data(raw.get("endpoints", [])),
+                "endpoints": _redact_endpoint_definitions(raw.get("endpoints", [])),
                 "packages": columnar(
                     [
                         {"package_id": p.get("id"), "created_on": p.get("createdOn")}

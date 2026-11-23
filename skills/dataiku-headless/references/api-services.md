@@ -142,9 +142,11 @@ services or publishing an existing package does not require the child reference.
   settings in the Dataiku UI, then re-read and create a new package. The reported
   mode does not prove that credentials/OAuth are functional. Do not reuse the
   Headless instance credential as an endpoint credential.
-- Reads omit service credentials and raw package diagnostics, and redact nested
-  endpoint credential fields. Code, SQL and test queries can contain application
-  data; use only what the task needs and never embed credentials in examples.
+- Reads omit service credentials and raw package diagnostics, redact nested endpoint
+  credential fields, preserve saved header names, and redact all saved header values.
+  Other result redaction is best effort by field name. Code, SQL and test queries can
+  contain application data; use only what the task needs and never embed credentials
+  in examples.
 - After a timeout, cancellation or uncertain result, inspect on the same instance
   before retrying. Creation may have completed; settings may be saved; packaging
   may still be running. Check the configured API Deployer's versions after an

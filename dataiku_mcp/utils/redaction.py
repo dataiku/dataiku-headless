@@ -115,6 +115,35 @@ def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any
     return value
 
 
+def redact_api_test_queries(test_queries: Any) -> Any:
+    """Redact API test queries while retaining saved header names for inspection."""
+    redacted = redact_sensitive_data(test_queries)
+    if not isinstance(test_queries, list) or not isinstance(redacted, list):
+        return redacted
+
+    for query, redacted_query in zip(test_queries, redacted):
+        if not isinstance(query, dict) or not isinstance(redacted_query, dict):
+            continue
+        headers = query.get("headers")
+        if not isinstance(headers, list):
+            continue
+        redacted_query["headers"] = _redact_api_test_headers(headers)
+    return redacted
+
+
+def _redact_api_test_headers(headers: list[Any]) -> list[Any]:
+    result = []
+    for header in headers:
+        redacted = redact_sensitive_data(header)
+        if isinstance(header, dict) and isinstance(redacted, dict):
+            if isinstance(header.get("key"), str):
+                redacted["key"] = header["key"]
+            if "value" in header:
+                redacted["value"] = _CONNECTION_SECRET_REDACTION
+        result.append(redacted)
+    return result
+
+
 def contains_redacted_values(value: Any) -> bool:
     """Detect result placeholders that must never become replacement credentials."""
     if isinstance(value, str):

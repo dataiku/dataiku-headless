@@ -114,7 +114,13 @@ def test_list_and_get_exclude_service_credentials_and_redact_nested_fields(backe
     backend.services = [{"id": "service", **backend.raw}]
     backend.raw["endpoints"][0]["nested"] = {"password": SECRET}
     backend.raw["endpoints"][1]["testQueries"] = [
-        {"q": {}, "headers": [{"key": "Authorization", "value": SECRET}]}
+        {
+            "q": {},
+            "headers": [
+                {"key": "Authorization", "value": SECRET},
+                {"key": "X-Custom-Auth", "value": SECRET},
+            ],
+        }
     ]
     backend.packages = [{"id": "v1", "createdOn": 42, "secret": SECRET}]
     listing = call("list_api_services")
@@ -123,6 +129,9 @@ def test_list_and_get_exclude_service_credentials_and_redact_nested_fields(backe
     assert detail["auth_method"] == "API_KEYS"
     assert detail["packages"]["rows"] == [["v1", 42]]
     assert detail["endpoints"][0]["modelRef"] == "model"
+    headers = detail["endpoints"][1]["testQueries"][0]["headers"]
+    assert [header["key"] for header in headers] == ["Authorization", "X-Custom-Auth"]
+    assert all(header["value"] == "__DATAIKU_REDACTED__" for header in headers)
     assert SECRET not in json.dumps([listing, detail])
     assert "authRealm" not in detail
     assert "oauth2Config" not in detail
