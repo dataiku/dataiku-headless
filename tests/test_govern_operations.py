@@ -24,7 +24,7 @@ import dataikuapi
 import pytest
 from dataikuapi.utils import DataikuException
 from fastmcp import Client
-from requests.exceptions import InvalidHeader
+from requests.exceptions import InvalidHeader, JSONDecodeError
 
 from dataiku_mcp import mcp, auth
 from dataiku_mcp.config import request, stdio
@@ -423,6 +423,29 @@ def test_govern_transport_failure_hides_the_requests_message(monkeypatch):
     assert SECRET not in text
     assert "Govern request failed: InvalidHeader" in text
     assert "Re-read the affected object before retrying" in text
+
+
+def test_govern_empty_response_reports_a_possible_missing_object(monkeypatch):
+    class Role:
+        def get_definition(self):
+            raise JSONDecodeError("Expecting value", "", 0)
+
+    text = _govern_failure(
+        monkeypatch,
+        SimpleNamespace(
+            get_roles_permissions_handler=lambda: SimpleNamespace(
+                get_role=lambda role_id: Role()
+            )
+        ),
+        "govern.get_role",
+        {"role_id": "ro.missing"},
+        "run_read_operation",
+    )
+    assert (
+        "Govern request failed: Govern returned an empty or non-JSON response" in text
+    )
+    assert "The object may not exist" in text
+    assert "Re-read the affected object" not in text
 
 
 def test_govern_catalog_covers_expected_actions_without_new_mcp_tools():

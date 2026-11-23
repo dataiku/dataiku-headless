@@ -39,7 +39,7 @@ from dataikuapi.govern.artifact_search import (
     GovernArtifactSearchSortWorkflow,
 )
 from dataikuapi.utils import DataikuException
-from requests import RequestException
+from requests import JSONDecodeError, RequestException
 from pydantic import BaseModel
 
 from ...auth import get_govern_client
@@ -1870,6 +1870,12 @@ def operation_handler(spec: GovernOperation):
                 message = dataiku_message(err)
                 if len(message) > ERROR_MESSAGE_MAX_CHARS:
                     message = message[:ERROR_MESSAGE_MAX_CHARS] + " [truncated]"
+            except JSONDecodeError:
+                # Govern answers a read of some missing objects, such as a role, with an empty body.
+                message = (
+                    "Govern returned an empty or non-JSON response. "
+                    "The object may not exist; if every call fails, check the instance URL."
+                )
             except RequestException as err:
                 # A requests message can hold header values and the request URL, so only the type is shown.
                 message = (
