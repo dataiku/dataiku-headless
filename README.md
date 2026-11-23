@@ -29,6 +29,8 @@ Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli)
 
 ## Requirements
 
+The local runtime supports Python 3.10–3.15.
+
 Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-started/installation/) to provide its isolated Python runtime and pinned dependencies. You do not need to install it before installing the plugin: the setup skill checks for uv and, with your approval, can run the official installer for your platform.
 
 ## Get started with the Codex app or Claude Desktop app

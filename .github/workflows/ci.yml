@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
@@ -69,10 +69,17 @@ jobs:
           uv run python scripts/check_release.py --notes
       - name: Run tests
         run: uv run pytest
+      - name: Smoke-test locked plugin launcher
+        run: uv run --quiet --locked --python ${{ matrix.python-version }} --script runtime/run_mcp.py --transport stdio < /dev/null
+        timeout-minutes: 2
 
   package:
-    name: Package build and wheel smoke
+    name: Package build and wheel smoke (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
@@ -84,6 +91,6 @@ jobs:
       - name: Smoke-test built wheel
         run: |
           set -euo pipefail
-          uv venv --python 3.12 "$RUNNER_TEMP/package-smoke"
+          uv venv --python ${{ matrix.python-version }} "$RUNNER_TEMP/package-smoke"
           uv pip install --python "$RUNNER_TEMP/package-smoke/bin/python" dist/*.whl
           "$RUNNER_TEMP/package-smoke/bin/python" -c "import dataiku_mcp"
