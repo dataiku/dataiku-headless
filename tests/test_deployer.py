@@ -15,6 +15,7 @@
 """Deployer SDK contract, async boundary and secret-exposure regressions."""
 
 import asyncio
+import base64
 import copy
 import json
 import threading
@@ -23,12 +24,12 @@ from types import SimpleNamespace
 import pytest
 from dataikuapi.dss.apideployer import DSSAPIDeployer
 from dataikuapi.dss.projectdeployer import DSSProjectDeployer
-from dataikuapi.utils import DataikuException
+from dataikuapi.utils import DataikuException, handle_http_exception
 from fastmcp import Client
 from requests import Timeout
 
 from dataiku_mcp import mcp
-from dataiku_mcp.tools import deployer
+from dataiku_mcp.operations.handlers import deployer
 
 SECRET = "DO_NOT_RETURN_THIS_SECRET"
 
@@ -55,8 +56,23 @@ class Backend:
                 ],
             },
             "auth": {"apiKeys": [{"key": SECRET}]},
-            "localVariables": {"credential": SECRET},
+            "localVariables": {"output_schema": "production", "credential": SECRET},
+            "bundleContainerSettings": {
+                "remapping": {
+                    "connections": [{"source": "development", "target": "production"}]
+                },
+                "codeEnvsBehavior": "USE_EXISTING",
+            },
+            "scenariosToActivate": {"refresh": True},
             "untouched": {"nested": "preserved"},
+        }
+        self.infra_settings = {
+            "id": "target",
+            "defaultConnectionRemapping": [
+                {"source": "development", "target": "production"}
+            ],
+            "apiNodes": [{"url": "https://node.example", "adminAPIKey": SECRET}],
+            "futureSetting": {"enabled": False, "password": SECRET},
         }
         self.info = {
             "infraBasicInfo": {
@@ -90,7 +106,23 @@ class Backend:
             "endTimestamp": 456,
             "status": "DONE",
             "type": "UPDATE",
-            "logs": {"lines": [SECRET]},
+            "report": {
+                "error": True,
+                "messages": [
+                    {
+                        "severity": "ERROR",
+                        "code": "IMPORT_FAILED",
+                        "title": "Data import failed",
+                        "message": "Data import failed: target table is not writable",
+                        "details": "target table is not writable",
+                    }
+                ],
+                "activateReport": {
+                    "importedDatasets": ["input"],
+                    "connection": {"password": SECRET},
+                },
+            },
+            "logs": {"lines": ["Starting deployment", "Data import failed"]},
             "error": SECRET,
         }
 
@@ -105,11 +137,20 @@ class Backend:
         if method == "POST":
             return {}
         if path.endswith("/settings"):
-            return copy.deepcopy(self.settings)
+            return copy.deepcopy(
+                self.infra_settings if "/infras/" in path else self.settings
+            )
         if path.endswith("/governance-status"):
             return {
                 "messages": [
-                    {"code": "GOVERN", "severity": "WARNING", "details": SECRET}
+                    {
+                        "code": "GOVERN",
+                        "severity": "WARNING",
+                        "title": "Invalid governance status",
+                        "details": "The bundle is not governed",
+                        "governLink": "https://govern.example/artifact/123",
+                        "password": SECRET,
+                    }
                 ]
             }
         if path.endswith("/status"):
@@ -117,7 +158,12 @@ class Backend:
                 "health": "OUT_OF_SYNC",
                 "healthMessages": {
                     "messages": [
-                        {"code": "SYNC", "severity": "WARNING", "message": SECRET}
+                        {
+                            "code": "SYNC",
+                            "severity": "WARNING",
+                            "message": "The project is out of sync",
+                            "password": SECRET,
+                        }
                     ]
                 },
                 "apiNodes": [{"apiKey": SECRET}],
@@ -157,11 +203,11 @@ def backend(request, monkeypatch):
 
 def call(function, backend, **kwargs):
     result = asyncio.run(function(deployer_type=backend.kind, **kwargs))
-    assert SECRET not in result
+    assert SECRET not in json.dumps(result)
     assert all(
         path.startswith(f"/{backend.kind}-deployer/") for _, path, _ in backend.calls
     )
-    return json.loads(result)
+    return result
 
 
 @pytest.mark.parametrize(
@@ -196,8 +242,18 @@ def test_deployment_detail_reports_health_mapping_and_codes(backend):
         "generation": "other",
         "proba": 0.5,
     }
-    assert result["health_messages"] == [{"severity": "WARNING", "code": "SYNC"}]
-    assert result["governance_messages"] == [{"severity": "WARNING", "code": "GOVERN"}]
+    assert result["health_messages"] == [
+        {"severity": "WARNING", "code": "SYNC", "message": "The project is out of sync"}
+    ]
+    assert result["governance_messages"] == [
+        {
+            "severity": "WARNING",
+            "code": "GOVERN",
+            "title": "Invalid governance status",
+            "details": "The bundle is not governed",
+            "governLink": "https://govern.example/artifact/123",
+        }
+    ]
 
 
 def test_published_versions_are_discoverable(backend):
@@ -208,6 +264,186 @@ def test_published_versions_are_discoverable(backend):
     }
     assert result["canDeploy"] is True
     assert result["canWrite"] is False
+
+
+def test_update_detail_includes_report_without_logs_or_saved_settings(backend):
+    backend.update["infra"] = {"apiKey": SECRET}
+    backend.update["deployment"] = backend.settings
+    result = call(
+        deployer.get_deployer_update,
+        backend,
+        deployment_id="deployment",
+        timestamp="123",
+    )
+    assert result["report"]["messages"] == backend.update["report"]["messages"]
+    assert result["report"]["error"] is True
+    assert result["report"]["activateReport"]["connection"]["password"] == (
+        "__DATAIKU_REDACTED__"
+    )
+    assert not {"logs", "error", "infra", "deployment"} & result.keys()
+    assert backend.calls[0][1].endswith("/update/123")
+
+
+def test_update_logs_are_opt_in_and_preserve_all_lines(backend):
+    lines = [f"Log line {index}" for index in range(350)]
+    backend.update["logs"] = {"lines": lines}
+    result = call(
+        deployer.get_deployer_update,
+        backend,
+        deployment_id="deployment",
+        include_logs=True,
+    )
+    assert result["logs"] == lines
+    assert backend.calls[0][1].endswith("/last-update")
+    assert len(backend.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "[2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test]  - ",
+        "1234 [FT-1] INFO  dku.test  - [ct: 12] ",
+    ],
+)
+@pytest.mark.parametrize("manifest", ["deployment", "opaque secret"])
+def test_update_logs_omit_generated_kubernetes_manifests(backend, prefix, manifest):
+    # SingleK8SDeploymentManager logs whole manifests; Secret data is base64,
+    # while legacy Deployment env values are plaintext. Neither is safe text.
+    encoded = base64.b64encode(SECRET.encode()).decode()
+    before = prefix + "Preparing deployment"
+    after = prefix + "Applying configuration"
+    lines = [
+        before,
+        prefix + f"final {manifest}:",
+        "apiVersion: v1",
+        "kind: Secret" if manifest == "opaque secret" else "kind: Deployment",
+        "data:" if manifest == "opaque secret" else "spec:",
+        "  SERVICE_PASSWORD: " + encoded,
+        "  env:",
+        "  - name: DATABASE_URL",
+        "    value: |",
+        "      " + SECRET,
+        "      " + SECRET + " final deployment:",
+        "      [2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test]  - " + SECRET,
+        "",
+        after,
+        "Diagnostic continuation",
+    ]
+    backend.update["logs"] = {"lines": lines}
+    result = call(
+        deployer.get_deployer_update,
+        backend,
+        deployment_id="deployment",
+        timestamp="123",
+        include_logs=True,
+    )
+    assert result["logs"] == [
+        before,
+        prefix + f"final {manifest}: [Kubernetes manifest redacted]",
+        after,
+        "Diagnostic continuation",
+    ]
+    assert encoded not in json.dumps(result)
+    assert backend.update["logs"]["lines"] == lines
+
+
+@pytest.mark.parametrize("ending", [[], ["CUSTOM INFO - Finished"]])
+def test_update_logs_suppress_truncated_or_unrecognized_manifest_continuations(ending):
+    lines = ["final opaque secret: " + SECRET, "data:", "  value: " + SECRET]
+    assert deployer._redact_deployer_logs(lines + ending) == [
+        "final opaque secret: [Kubernetes manifest redacted]"
+    ]
+
+
+def test_update_logs_filter_consecutive_manifests_within_multiline_entries():
+    prefix = "[2026/01/02-03:04:05.006] [FT-1] [INFO] [dku.test] context - "
+    entry = (
+        prefix + "final deployment:\r\n"
+        "spec:\r\n"
+        "  env: " + SECRET + "\r\n" + prefix + "final opaque secret:\r\n"
+        "data:\r\n"
+        "  value: " + SECRET + "\r\n" + prefix + "Applying configuration\r\n"
+    )
+    assert deployer._redact_deployer_logs([entry]) == [
+        prefix
+        + "final deployment: [Kubernetes manifest redacted]\r\n"
+        + prefix
+        + "final opaque secret: [Kubernetes manifest redacted]\r\n"
+        + prefix
+        + "Applying configuration\r\n"
+    ]
+
+
+def test_update_logs_preserve_ordinary_entries_and_apply_shared_redaction():
+    lines = [
+        "",
+        "Ordinary entry\nwith continuation\n",
+        "https://user:" + SECRET + "@example.com/path",
+    ]
+    result = deployer._redact_deployer_logs(lines)
+    assert result[:2] == lines[:2]
+    assert result[2] == "https://example.com/path"
+    assert deployer._redact_deployer_logs(["Ordinary entry"]) == ["Ordinary entry"]
+
+
+@pytest.mark.parametrize("lines", [None, []])
+def test_update_handles_pending_report_and_unavailable_or_empty_logs(backend, lines):
+    backend.update.pop("report")
+    backend.update.pop("logs")
+    if lines is not None:
+        backend.update["logs"] = {"lines": lines}
+    result = call(
+        deployer.get_deployer_update,
+        backend,
+        deployment_id="deployment",
+        include_logs=True,
+    )
+    assert "report" not in result
+    assert result["logs"] == lines
+
+
+def test_update_lists_remain_compact(backend):
+    result = call(deployer.list_deployer_updates, backend, deployment_id="deployment")
+    assert result["updates"] == [
+        {
+            "startTimestamp": 123,
+            "endTimestamp": 456,
+            "status": "DONE",
+            "type": "UPDATE",
+        }
+    ]
+
+
+def test_mcp_update_detail_accepts_include_logs(backend, monkeypatch):
+    from dataiku_mcp.config import stdio
+    from tests.test_instance_policy import _instance
+    from tests.test_operations import _call
+
+    backend.update["logs"]["lines"] = [
+        "final opaque secret:",
+        "data:",
+        "  SERVICE_PASSWORD: " + SECRET,
+        "1234 [FT-1] INFO  dku.test  - Applying configuration",
+    ]
+    monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
+    result = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="deployer.get_update",
+            arguments={
+                "deployer_type": backend.kind,
+                "deployment_id": "deployment",
+                "timestamp": "123",
+                "include_logs": True,
+            },
+        )
+    )["result"]
+    assert result["logs"] == [
+        "final opaque secret: [Kubernetes manifest redacted]",
+        "1234 [FT-1] INFO  dku.test  - Applying configuration",
+    ]
+    assert result["report"]["messages"][0]["details"] == "target table is not writable"
+    assert SECRET not in json.dumps(result)
 
 
 def test_create_only_saves_configuration(backend):
@@ -274,6 +510,85 @@ def test_version_change_preserves_other_settings_and_governance(backend):
         }
     assert [method for method, _, _ in backend.calls] == ["GET", "PUT"]
     assert backend.calls[-1][2]["params"]["ignoreWarnings"] is False
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+@pytest.mark.parametrize("severity", ["WARNING", "ERROR"])
+def test_governance_warning_requires_explicit_retry(
+    backend, monkeypatch, action, severity
+):
+    code = "ERR_DEPLOYER_INVALID_GOVERNANCE_STATUS"
+    report = (
+        f"{severity} : Invalid governance status: "
+        'The bundle "version" should be approved before deployment, but is not governed.'
+    )
+    warning = f"com.dataiku.dip.exceptions.CodedException: {report}"
+    original_request = backend._request
+
+    def request(method, path, kwargs):
+        if method in {"POST", "PUT"} and (
+            severity == "ERROR" or not kwargs["params"]["ignoreWarnings"]
+        ):
+            assert threading.get_ident() != backend.owner_thread
+            backend.calls.append((method, path, copy.deepcopy(kwargs)))
+            handle_http_exception(
+                SimpleNamespace(
+                    status_code=500,
+                    json=lambda: {
+                        "errorType": "com.dataiku.dip.exceptions.CodedException",
+                        "errorCode": code,
+                        "detailedMessage": report,
+                    },
+                )
+            )
+        return original_request(method, path, kwargs)
+
+    monkeypatch.setattr(backend, "_request", request)
+    function = (
+        deployer.create_deployer_deployment
+        if action == "create"
+        else deployer.update_deployer_deployment
+    )
+    arguments = {"deployment_id": "deployment", "version": "version"}
+    if action == "create":
+        arguments.update(source_id="source", infra_id="target")
+
+    with pytest.raises(RuntimeError, match="Invalid governance status") as error:
+        call(function, backend, **arguments)
+    assert str(error.value) == warning
+    assert error.value.__suppress_context__
+    writes = [entry for entry in backend.calls if entry[0] != "GET"]
+    assert len(writes) == 1  # No automatic retry with warnings ignored.
+    assert writes[0][2]["params"]["ignoreWarnings"] is False
+
+    if severity == "ERROR":
+        with pytest.raises(RuntimeError, match="Invalid governance status"):
+            call(function, backend, **arguments, ignore_warnings=True)
+    else:
+        result = call(function, backend, **arguments, ignore_warnings=True)
+        assert result["update_started"] is False
+    writes = [entry for entry in backend.calls if entry[0] != "GET"]
+    assert len(writes) == 2
+    assert writes[-1][2]["params"]["ignoreWarnings"] is True
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+def test_governance_override_schema_defaults_to_false(action):
+    from dataiku_mcp.operations.catalog import OPERATIONS
+
+    operation = OPERATIONS[f"deployer.{action}_deployment"]
+    field = operation.describe()["input_schema"]["properties"]["ignore_warnings"]
+    assert field["type"] == "boolean"
+    assert field["default"] is False
+    assert "explicit user approval" in field["description"]
+    with pytest.raises(ValueError, match="ignore_warnings: bool_type"):
+        operation.validate({**operation.example, "ignore_warnings": "true"})
+    assert (
+        operation.validate({**operation.example, "ignore_warnings": True})[
+            "ignore_warnings"
+        ]
+        is True
+    )
 
 
 def test_api_disable_preserves_version_mapping(backend):
@@ -425,7 +740,7 @@ def test_mcp_keeps_deployer_target_when_active_instance_changes(backend, monkeyp
 
 
 def test_deployer_is_exposed_only_as_operations():
-    from dataiku_mcp.operations_catalog import OPERATIONS
+    from dataiku_mcp.operations.catalog import OPERATIONS
 
     tools = asyncio.run(mcp.list_tools())
     assert not any("deployer" in tool.name for tool in tools)
@@ -445,3 +760,178 @@ def test_start_without_future_id_does_not_fetch_or_leak_result(backend, monkeypa
     result = call(deployer.start_deployer_update, backend, deployment_id="deployment")
     assert result["future_id"] is None
     assert "inspect update history" in result["hint"]
+
+
+def test_dispatch_normalizes_identifiers_before_sdk_calls(backend, monkeypatch):
+    from dataiku_mcp.config import stdio
+    from tests.test_instance_policy import _instance
+    from tests.test_operations import _call
+
+    monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
+    result = asyncio.run(
+        _call(
+            "run_read_operation",
+            operation_id="deployer.get_update",
+            arguments={
+                "deployer_type": backend.kind,
+                "deployment_id": " deployment ",
+                "timestamp": " 123 ",
+            },
+        )
+    )
+    assert result["result"]["status"] == "DONE"
+    assert [(method, path) for method, path, _ in backend.calls] == [
+        ("GET", f"/{backend.kind}-deployer/deployments/deployment/update/123")
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation_id,field",
+    [
+        ("deployer.get_infrastructure", "infra_id"),
+        ("deployer.get_published_item", "source_id"),
+        ("deployer.get_deployment", "deployment_id"),
+        ("deployer.list_updates", "deployment_id"),
+        ("deployer.get_update", "deployment_id"),
+        ("deployer.get_update", "timestamp"),
+        ("deployer.create_deployment", "deployment_id"),
+        ("deployer.create_deployment", "source_id"),
+        ("deployer.create_deployment", "infra_id"),
+        ("deployer.create_deployment", "deployed_project_key"),
+        ("deployer.create_deployment", "project_folder_id"),
+        ("deployer.create_deployment", "endpoint_id"),
+        ("deployer.update_deployment", "deployment_id"),
+        ("deployer.start_update", "deployment_id"),
+        ("deployer.get_future_status", "future_id"),
+    ],
+)
+def test_direct_handlers_validate_identifiers_before_sdk_calls(
+    monkeypatch, operation_id, field
+):
+    from dataiku_mcp.operations.catalog import get_operation
+
+    monkeypatch.setattr(
+        deployer,
+        "get_dss_client",
+        lambda: pytest.fail("Invalid identifier reached SDK"),
+    )
+    operation = get_operation(operation_id)
+    arguments = {**operation.example, field: "invalid?identifier"}
+    if field == "endpoint_id":
+        arguments["deployer_type"] = "api"
+    with pytest.raises(ValueError, match=field):
+        asyncio.run(operation.handler(**arguments))
+
+
+def test_infrastructure_detail_includes_redacted_saved_settings(backend):
+    before = copy.deepcopy(backend.infra_settings)
+    result = call(deployer.get_deployer_infrastructure, backend, infra_id="target")
+    assert result["settings"] == {
+        "id": "target",
+        "defaultConnectionRemapping": [
+            {"source": "development", "target": "production"}
+        ],
+        "apiNodes": [
+            {"url": "https://node.example", "adminAPIKey": "__DATAIKU_REDACTED__"}
+        ],
+        "futureSetting": {"enabled": False, "password": "__DATAIKU_REDACTED__"},
+    }
+    assert result["infraBasicInfo"]["id"] == "target"
+    assert result["canDeploy"] is True
+    assert result["deployments"][0]["id"] == "deployment"
+    assert backend.infra_settings == before
+    assert [(method, path) for method, path, _ in backend.calls] == [
+        ("GET", f"/{backend.kind}-deployer/infras/target"),
+        ("GET", f"/{backend.kind}-deployer/infras/target/settings"),
+    ]
+
+
+def test_deployment_detail_keeps_native_settings_and_redacts_nested_credentials(
+    backend,
+):
+    before = copy.deepcopy(backend.settings)
+    result = call(deployer.get_deployer_deployment, backend, deployment_id="deployment")
+    settings = result["settings"]
+    assert set(settings) == set(before)
+    assert settings["bundleContainerSettings"] == before["bundleContainerSettings"]
+    assert settings["localVariables"] == {
+        "output_schema": "production",
+        "credential": "__DATAIKU_REDACTED__",
+    }
+    assert settings["auth"] == {"apiKeys": "__DATAIKU_REDACTED__"}
+    assert settings["scenariosToActivate"] == {"refresh": True}
+    assert settings["untouched"] == before["untouched"]
+    assert backend.settings == before
+    assert all(method == "GET" for method, _, _ in backend.calls)
+    assert sum(path.endswith("/settings") for _, path, _ in backend.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "function",
+    [deployer.list_deployer_infrastructures, deployer.list_deployer_deployments],
+)
+def test_list_responses_remain_compact_without_settings_reads(backend, function):
+    result = call(function, backend)
+    assert "settings" not in json.dumps(result)
+    assert "localVariables" not in json.dumps(result)
+    assert "bundleContainerSettings" not in json.dumps(result)
+    assert all(not path.endswith("/settings") for _, path, _ in backend.calls)
+
+
+@pytest.mark.parametrize(
+    "function,arguments",
+    [
+        (deployer.get_deployer_infrastructure, {"infra_id": "target"}),
+        (deployer.get_deployer_deployment, {"deployment_id": "deployment"}),
+    ],
+)
+def test_detail_settings_read_errors_are_safely_reported(
+    backend, monkeypatch, function, arguments
+):
+    request = backend._perform_json
+
+    def fail_settings(method, path, **kwargs):
+        if path.endswith("/settings"):
+            raise DataikuException(SECRET)
+        return request(method, path, **kwargs)
+
+    monkeypatch.setattr(backend, "_perform_json", fail_settings)
+    with pytest.raises(RuntimeError) as error:
+        call(function, backend, **arguments)
+    assert SECRET not in str(error.value)
+    assert error.value.__suppress_context__
+    assert all(method == "GET" for method, _, _ in backend.calls)
+
+
+@pytest.mark.parametrize(
+    "operation,arguments",
+    [
+        ("deployer.get_infrastructure", {"infra_id": "target"}),
+        ("deployer.get_deployment", {"deployment_id": "deployment"}),
+    ],
+)
+def test_mcp_detail_reads_include_settings_without_new_arguments(
+    backend, monkeypatch, operation, arguments
+):
+    from dataiku_mcp.config import stdio
+    from tests.test_instance_policy import _instance
+
+    monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
+
+    async def run():
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "run_read_operation",
+                {
+                    "operation_id": operation,
+                    "arguments": {"deployer_type": backend.kind, **arguments},
+                },
+            )
+            return json.loads(result.content[0].text)
+
+    result = asyncio.run(run())
+    assert result["operation_id"] == operation
+    assert result["result"]["settings"]["id"] in {"target", "deployment"}
+    assert "__DATAIKU_REDACTED__" in json.dumps(result["result"]["settings"])
+    assert SECRET not in json.dumps(result)
+    assert all(method == "GET" for method, _, _ in backend.calls)

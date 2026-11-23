@@ -15,12 +15,14 @@ across instance switches. Other profile types cannot use these tools.
 1. Select the intended profile using list_instances, get_current_instance and
    switch_instance. A configured node type is policy, not live feature detection.
 2. Search by query, domain (deployer, govern), and effect.
-   Search filters by selected type. Results default to 10 (maximum 50); use the
-   returned next_offset to page with offset, or narrow the query. All four v2
-   tools require a selected profile; search and describe inspect the local catalog
-   without contacting Dataiku.
-3. Describe a returned operation_id. Inspect input_schema, category, effects,
-   allowed types, requirements, transports, local_file_fields and response_contract.
+   Search filters by selected type and returns all matching summaries in catalog
+   declaration order, without pagination. Narrow the query or filters when useful.
+   All four v2 tools require a selected profile; search and describe inspect the
+   local catalog without contacting Dataiku.
+3. Describe a returned operation_id. Inspect input_schema, effect, allowed types,
+   requirements, transports and response_contract. Identifier strings are validated
+   in the handler before SDK calls; URL delimiters, percent escapes, dot segments
+   and control characters are rejected.
    Definitions and settings vary by backend release, infrastructure or blueprint;
    nested objects explicitly described as backend-defined are not fully specified
    by the structural schema. Read their current definitions before replacing them.

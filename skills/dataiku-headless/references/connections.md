@@ -17,7 +17,7 @@ When selecting a connection, consider its type, whether it supports the intended
 
 1. Use `list_connections` to discover exact connection names. Do not infer names from defaults or memory.
 2. When restricted discovery requires filtering, read [Connection Type Filters](./connections/connection-types.md) and use either `connection_type` or `connection_category`, never both.
-3. Use `get_connection_info` on candidate connections before recommending or using one. Pass `contextual_project_key` when project variables or permissions may affect usability.
+3. Use `get_connection_info` on candidate connections before recommending or using one. Pass `contextual_project_key` when project variables or permissions may affect usability. For an existing dataset's storage target, also call `get_dataset_info` with `include_location=true`; connection settings alone omit dataset-specific paths, identifiers and overrides. Follow the [dataset location guide](./datasets.md#configured-storage-locations) to interpret configured parameters and inherited defaults.
 4. Use `test_connection` only when the user is diagnosing connectivity, permissions, or setup issues, or explicitly requests validation.
 5. Recommend a connection based on its type, writeability, managed-dataset or folder support, project-specific usability, and any remaining uncertainty.
 6. When a project asset must use the selected connection, route that asset change through `./cobuild.md`.

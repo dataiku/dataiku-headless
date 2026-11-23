@@ -18,6 +18,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from dataclasses import replace
 
 import pytest
 from fastmcp import Client
@@ -26,9 +27,10 @@ from dataikuapi.dss.projectdeployer import DSSProjectDeployer
 
 from dataiku_mcp import mcp, server
 from dataiku_mcp.config import http, request, stdio
-from dataiku_mcp.operations_catalog import OPERATIONS
-from dataiku_mcp.operation_registry import get_operation
-from dataiku_mcp.tools import deployer
+from dataiku_mcp.operations.catalog import OPERATIONS, _DEPLOYER_OPERATIONS
+from dataiku_mcp.operations.catalog import get_operation
+from dataiku_mcp.operations.handlers import deployer
+from dataiku_mcp.tools import operations
 from tests.test_instance_policy import _instance
 from tests.test_deployer import Backend
 
@@ -167,20 +169,51 @@ def test_v2_tools_reject_design_and_automation_before_exchange(
     assert not events
 
 
-def test_each_v2_operation_requires_its_matching_instance_type():
-    from dataiku_mcp.operation_registry import require_operation
-
+def test_each_v2_operation_requires_its_matching_instance_type(monkeypatch):
     for operation in OPERATIONS.values():
         assert operation.allowed_instance_types == (operation.domain,)
+
+        async def handler(**arguments):
+            assert arguments == operation.validate(operation.example)
+            return {"ok": True}
+
+        monkeypatch.setattr(
+            operations, "get_operation", lambda _: replace(operation, handler=handler)
+        )
         for kind in ("design", "automation", "agent-management", "deployer", "govern"):
+            monkeypatch.setattr(request, "get_pinned_instance", lambda: _instance(kind))
+            call = operations._dispatch(
+                operation.operation_id, operation.example, operation.effect, None
+            )
             if kind == operation.domain:
-                assert (
-                    require_operation(operation.operation_id, operation.effect, kind)
-                    is operation
-                )
+                assert json.loads(asyncio.run(call))["result"] == {"ok": True}
             else:
                 with pytest.raises(ValueError, match="unavailable for instance type"):
-                    require_operation(operation.operation_id, operation.effect, kind)
+                    asyncio.run(call)
+
+
+def test_transport_rejected_before_sdk_execution(monkeypatch):
+    _http_setup(monkeypatch)
+    operation = replace(get_operation("deployer.list_stages"), transports=("stdio",))
+    monkeypatch.setattr(operations, "get_operation", lambda _: operation)
+    monkeypatch.setattr(
+        deployer,
+        "get_dss_client",
+        lambda: pytest.fail("Unsupported transport reached SDK"),
+    )
+    with pytest.raises(Exception, match="unavailable over transport 'http'"):
+        asyncio.run(
+            _call(
+                "run_read_operation",
+                operation_id=operation.operation_id,
+                arguments={"deployer_type": "project"},
+            )
+        )
+
+
+def test_operation_ids_are_unique():
+    ids = [operation.operation_id for operation in _DEPLOYER_OPERATIONS]
+    assert len(ids) == len(set(ids))
 
 
 def test_all_schemas_accept_examples_and_are_closed():
@@ -193,27 +226,36 @@ def test_all_schemas_accept_examples_and_are_closed():
         assert description["requirements"]
         assert description["response_contract"]
         assert description["effect"] in {"read", "write"}
+        assert not {"category", "backend", "local_file_fields"} & description.keys()
 
 
-def test_search_filters_paginates_and_preserves_tool_catalog(monkeypatch):
+def test_search_returns_all_matches_and_preserves_tool_catalog(monkeypatch):
     monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
 
     async def run():
         before = {tool.name for tool in await mcp.list_tools()}
-        results = []
-        offset = 0
-        while offset is not None:
-            page = await _call(
-                "search_operations", domain="deployer", limit=5, offset=offset
-            )
-            assert page["total"] == 13
-            results.extend(op["operation_id"] for op in page["operations"])
-            offset = page["next_offset"]
-        assert len(set(results)) == 13
-        writes = await _call("search_operations", query="deployment", effect="write")
-        assert "deployer.update_deployment" in {
-            op["operation_id"] for op in writes["operations"]
-        }
+        result = await _call("search_operations", domain="deployer")
+        assert result["total"] == 13
+        assert [op["operation_id"] for op in result["operations"]] == [
+            op.operation_id for op in _DEPLOYER_OPERATIONS
+        ]
+        assert set(result) == {"instance_name", "server_support", "total", "operations"}
+        assert all("input_schema" not in op for op in result["operations"])
+        writes = await _call("search_operations", query="DEPLOYMENT", effect="write")
+        assert [op["operation_id"] for op in writes["operations"]] == [
+            "deployer.create_deployment",
+            "deployer.update_deployment",
+            "deployer.start_update",
+        ]
+        assert writes["total"] == 3
+        reads = await _call("search_operations", effect="read")
+        assert reads["total"] == 10
+        assert all(op["effect"] == "read" for op in reads["operations"])
+        empty = await _call("search_operations", query="no-such-operation")
+        assert empty["total"] == 0
+        assert empty["operations"] == []
+        search = await mcp.get_tool("search_operations")
+        assert set(search.parameters["properties"]) == {"query", "domain", "effect"}
         detail = await _call("describe_operation", operation_id="deployer.start_update")
         assert detail["allowed_on_selected_instance"] is True
         assert {tool.name for tool in await mcp.list_tools()} == before
@@ -233,6 +275,11 @@ def test_search_filters_paginates_and_preserves_tool_catalog(monkeypatch):
             {"deployer_type": "project", "path": "/admin"},
         ),
         ("run_read_operation", "deployer.list_stages", 42),
+        (
+            "run_write_operation",
+            "deployer.update_deployment",
+            {"deployer_type": "api", "deployment_id": "deployment", "enabled": "false"},
+        ),
     ],
 )
 def test_invalid_operation_rejected_before_sdk_execution(
@@ -261,7 +308,24 @@ def test_invalid_operation_rejected_before_sdk_execution(
 
 
 @pytest.mark.parametrize(
-    "bad_id", [".", "..", " .. ", "x/y", "x\\y", "%2e%2e", "%252f", "a\n", " "]
+    "bad_id",
+    [
+        "",
+        ".",
+        "..",
+        " .. ",
+        "x/y",
+        "x\\y",
+        "%2e%2e",
+        "%252f",
+        "x?y",
+        "x#y",
+        "a\n",
+        "\ta",
+        "a\x00b",
+        "a\x7f",
+        " ",
+    ],
 )
 def test_path_escape_rejected_before_sdk_execution(monkeypatch, bad_id):
     _http_setup(monkeypatch)
@@ -349,3 +413,13 @@ def test_redacted_credentials_cannot_be_written_back():
         operation.validate(
             {"deployer_type": "project", "deployment_id": "__DATAIKU_REDACTED__"}
         )
+
+
+def test_identifier_schemas_use_plain_strings():
+    schema = get_operation("deployer.get_infrastructure").describe()["input_schema"]
+    assert schema["properties"]["infra_id"] == {"title": "Infra Id", "type": "string"}
+    schema = get_operation("deployer.get_update").describe()["input_schema"]
+    assert schema["properties"]["timestamp"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]

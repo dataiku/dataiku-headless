@@ -28,8 +28,8 @@ from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
 from .utils.parsing import coerce_json_object as _coerce_json_object
-from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import (
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 

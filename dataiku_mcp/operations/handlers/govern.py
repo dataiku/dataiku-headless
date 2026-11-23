@@ -41,13 +41,12 @@ from dataikuapi.govern.artifact_search import (
 from dataikuapi.utils import DataikuException
 from requests import RequestException
 from pydantic import BaseModel
-from .utils.errors import dataiku_message
-from .utils.redaction import redact_sensitive_data
 
-from ..auth import get_govern_client
-from ..executors import run_blocking
-from .utils.serialization import compact_json
-from .utils.validation import require_non_empty_string
+from ...auth import get_govern_client
+from ...executors import run_blocking
+from ...tools.utils.errors import dataiku_message
+from dataiku_mcp.utils.redaction import redact_sensitive_data
+from dataiku_mcp.utils.validation import require_non_empty_string
 
 DOMAINS = (
     "artifacts",
@@ -1882,6 +1881,6 @@ def operation_handler(spec: GovernOperation):
                 text += "\nRe-read the affected object before retrying; the write may have reached Govern."
             raise RuntimeError(text) from None
 
-        return compact_json(await run_blocking(_run))
+        return await run_blocking(_run)
 
     return execute

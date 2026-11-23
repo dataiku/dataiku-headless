@@ -31,8 +31,11 @@ from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking, run_cobuild_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from .utils.cobuild_links import extract_object_links
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
 
 TURN_WAIT_TIMEOUT_SECONDS = 240
 
@@ -112,6 +115,7 @@ def _terminal_turn_result(
         or response_type == "ask_question_to_user_request"
     )
     is_error = bool(getattr(response, "is_error", False))
+    message = str(getattr(response, "message", ""))
     result = {
         "status": "failed" if is_error else "completed",
         "conversation_id": conversation_id,
@@ -119,7 +123,10 @@ def _terminal_turn_result(
         "instance_name": entry.instance_name,
         "project_key": entry.project_key,
         "project_url": _project_url(entry),
-        "message": str(getattr(response, "message", "")),
+        "message": message,
+        "object_links": extract_object_links(
+            message, entry.instance_url, entry.project_key
+        ),
         "response_type": response_type,
         "is_error": is_error,
         "is_confirmation_request": confirmation_requested,

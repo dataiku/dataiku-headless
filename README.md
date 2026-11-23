@@ -25,7 +25,7 @@
 
 Dataiku Headless is an MCP server with tools for working in Dataiku, plus skills that teach AI assistants how to use them. Connect it to a Dataiku instance, and your AI assistant can build data pipelines, models, dashboards, agents, and more.
 
-Install the plugin from the [Claude Code](#claude-code-cli) or [Codex](#codex-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
+Install the plugin from the [Claude Code](#claude-code-cli), [Codex](#codex-cli), or [GitHub Copilot](#github-copilot-cli) plugin marketplace, or install it as an agent plugin from this GitHub repository for Cursor, Snowflake CoCo, AWS Kiro, OpenCode, and more.
 
 ## Requirements
 
@@ -33,7 +33,9 @@ Dataiku Headless uses [uv 0.12.0 or later](https://docs.astral.sh/uv/getting-sta
 
 ## Get started with the Codex app or Claude Desktop app
 
-Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/dataiku-headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
+Install the plugin, then select or ask **Set up Dataiku Headless**. In Claude Code, you can explicitly run `/headless:dataiku-headless-setup`. The setup skill checks the local runtime, helps install uv when needed, and securely saves your Dataiku URL and personal API key on your local machine.
+
+To manage saved instances later, ask **Manage Dataiku instances**. The local browser manager groups instances by type and supports adding, editing, deleting, switching, and choosing a startup default. For Design and Automation, test before saving; other types can be saved without testing. Then select **Done**. Saved credentials stay hidden; environment and Code Studio instances are read-only.
 
 Here's how to do it in the Codex app; Claude has a similar plugin-install flow.
 
@@ -47,7 +49,7 @@ Here, we use the Claude Code CLI to build a visual pipeline to clean up hospital
 
 ## Install with another agent
 
-`dataiku-headless` also works with Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
+`dataiku-headless` also works with GitHub Copilot CLI, Snowflake CoCo (Cortex Code), Cursor, OpenCode, and custom MCP-compatible agents. Each plugin starts the same local MCP server; after installation, use the same setup flow above.
 
 > **First launch:** If Dataiku Headless tools are unavailable, first check that `uv` is installed and on your `PATH`:
 >
@@ -68,7 +70,14 @@ codex plugin add dataiku-headless@dataiku
 
 ```bash
 claude plugin marketplace add https://github.com/dataiku/dataiku-headless.git
-claude plugin install dataiku-headless@dataiku
+claude plugin install headless@dataiku
+```
+
+### GitHub Copilot CLI
+
+```bash
+copilot plugin marketplace add dataiku/dataiku-headless
+copilot plugin install dataiku-headless@dataiku
 ```
 
 ### Grok CLI
@@ -81,7 +90,7 @@ grok plugin install dataiku/dataiku-headless --trust
 
 ```bash
 cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
-# Tip: use /plugins in interactive mode to install `dataiku-headless` plugin from this marketplace.
+# Tip: use /plugins in interactive mode to install the `dataiku-headless` plugin from this marketplace.
 ```
 
 ### Snowflake CoCo
@@ -89,6 +98,11 @@ cursor agent plugin marketplace add github.com/dataiku/dataiku-headless
 ```bash
 cortex plugin install dataiku/dataiku-headless
 ```
+
+Each client uses its own plugin manifest. Codex, Claude Code, Copilot, and Cursor
+also have separate marketplace catalogs. Claude Code
+uses the plugin identifier `headless`; Codex, Cursor, Copilot, and CoCo use
+`dataiku-headless`. CoCo installs directly from Git without a repo marketplace catalog.
 
 ### Other AI assistants
 
@@ -120,18 +134,33 @@ npx skills add dataiku/dataiku-headless
 
 Dataiku Headless is an MCP server and agent skill library for operating Dataiku from an AI agent. Connect it to a Dataiku instance to inspect projects, gather context, and use Cobuild—Dataiku's agent for building data pipelines, analytics, machine learning models, multi-agent workflows, applications, and automation pipelines.
 
-Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, three deterministic executions of existing assets (`build_datasets`, `run_recipe`, and `run_scenario`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
+Cobuild runs as a retained conversation through MCP tools. This repository intentionally keeps its own tool surface small: inspection tools, execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `run_macro`), narrow configuration actions such as selecting which container an existing object runs in, and a few bootstrap actions that Cobuild cannot perform, such as creating a project or uploading a local file.
 
 Project and API Deployer operations discover infrastructures, published versions and deployments,
 create deployment configurations, change target versions, apply updates asynchronously,
-and inspect health, governance codes and update history. They operate on already published
+and inspect saved settings, health, governance codes and update history. They operate on already published
 bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
 for node selection, production effects and coverage limits.
 
 Direct project reads, execution and administration support Design, Automation.
 Project edits and Cobuild require Design. The four shared operation tools expose
 99 public SDK actions for Deployer, Govern, restricted to their matching profiles.
-Search and describe load schemas on demand; separate read/write tools execute them.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
+See the [operation guide](skills/dataiku-headless/references/operations.md).
+
+
+Project and API Deployer operations discover infrastructures, published versions and deployments,
+create deployment configurations, change target versions, apply updates asynchronously,
+and inspect saved settings, health, governance codes and update history. They operate on already published
+bundles and API services. See the [Deployer guide](skills/dataiku-headless/references/deployer.md)
+for node selection, production effects and coverage limits.
+
+Direct project reads, execution and administration support Design, Automation.
+Project edits and Cobuild require Design. The four shared operation tools expose
+99 public SDK actions for Deployer, Govern, restricted to their matching profiles.
+Search returns all matching operation summaries; describe loads individual schemas
+on demand, and separate read/write tools execute them.
 See the [operation guide](skills/dataiku-headless/references/operations.md).
 
 
@@ -166,9 +195,9 @@ The reference library covers the main Dataiku object areas and workflows, includ
 
 ## Stdio onboarding and authentication
 
-Outside a Code Studio, configure a connection using a personal API key:
+Outside a Code Studio, configure an instance using a personal API key:
 
-1. Ask the agent to **Set up Dataiku Headless** (or run `/dataiku-headless:dataiku-headless-setup` in Claude Code).
+1. Ask the agent to **Set up Dataiku Headless** (or run `/headless:dataiku-headless-setup` in Claude Code).
 2. Approve the MCP URL prompt.
 3. Enter an instance name, choose its type, and supply its Dataiku URL and personal API key.
 4. Repeat to add more instances; use `list_instances` and `switch_instance` while working.
@@ -177,6 +206,21 @@ Inside a Code Studio, the hosting DSS instance is discovered automatically using
 its injected API ticket. No personal API key or setup popup is needed.
 
 API keys and tickets never appear in MCP tool arguments or instance responses.
+
+### HTTPS certificate trust
+
+The server uses the operating system certificate store through `truststore` for
+HTTPS connections, including connection tests in the setup page. Corporate CAs
+trusted on the machine running Dataiku Headless are trusted automatically; no
+CA-bundle environment variable is needed. In a container or remote deployment,
+the CA must be trusted inside that environment.
+
+Keep **Skip certificate verification** unchecked. If a saved profile previously
+disabled verification, edit it in the instance manager, uncheck that option, and
+test and save the connection again.
+
+System trust is activated by `runtime/run_mcp.py` for both stdio and HTTP
+transports. Applications that import `dataiku_mcp` directly own their TLS setup.
 
 ### Where configuration lives
 
@@ -220,7 +264,7 @@ empty ones. Direct package imports do not load `.env`.
 3. The saved profiles' `default_instance`.
 
 All sources remain available through `list_instances` and `switch_instance`;
-use `get_current_instance` to verify the active connection. Environment instances
+use `get_current_instance` to verify the active instance. Environment instances
 take precedence over profiles with the same name. The explicit target must have
 a different name from `dataiku-from-code-studio` when both exist. Missing required
 credentials or environment types, unsupported types, and duplicate environment names fail startup.
@@ -256,6 +300,13 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 ├── dataiku_mcp/
 │   ├── auth.py                # Dataiku client creation and HTTP token exchange
 │   ├── executors.py           # Shared blocking and Cobuild executors
+│   ├── operations/            # Operation models, catalog, and undecorated handlers
+│   │   ├── models.py          # Typed operation definitions and argument schemas
+│   │   ├── catalog.py         # Explicit registration and lookup
+│   │   ├── govern_schemas.py  # Govern argument schemas
+│   │   ├── handlers/deployer.py  # Internal Deployer SDK adapters
+│   │   └── handlers/govern.py  # Internal Govern SDK adapters
+│   ├── utils/                 # Shared validation, serialization, and redaction
 │   ├── tools/
 │   │   ├── agents.py          # Agent/agent-version/agent-tool inspection tools
 │   │   ├── agent_reviews.py   # Agent review/test/run inspection tools
@@ -268,8 +319,6 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── data_quality.py    # Dataset Data Quality rule inspection tools
 │   │   ├── dashboards.py      # Dashboard inspection tools
 │   │   ├── datasets.py        # Dataset inspection tools + local-file upload writes
-│   │   ├── deployer.py        # Internal Deployer operation adapters
-│   │   ├── govern.py          # Govern SDK operation adapters
 │   │   ├── operations.py      # Shared discovery/read/write MCP tools
 │   │   ├── evaluation_stores.py  # Evaluation Store inspection tools
 │   │   ├── flow.py            # Flow inspection tools
@@ -278,6 +327,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── llms_and_knowledge_banks.py  # LLM, Knowledge Bank, and RAG inspection tools
 │   │   ├── managed_folders.py # Managed folder inspection tools + local-file upload write
 │   │   ├── plugins.py         # Instance plugin lifecycle and managed code environments
+│   │   ├── project_bundles.py  # Design bundle listing, creation, and publication
 │   │   ├── project_folders.py # Project folder hierarchy inspection and organization tools
 │   │   ├── projects.py        # Project inspection, creation, variables, and settings
 │   │   ├── scenarios.py       # Scenario/run-history/messaging-channel inspection tools
@@ -290,7 +340,7 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   │   ├── project_libraries.py  # Project library inspection/search + local-file write
 │   │   ├── recipes.py         # Recipe inspection tools
 │   │   ├── machine_learning/  # ML analysis/saved-model inspection tools
-│   │   └── utils/             # Tool validation and response-shaping utilities
+│   │   └── utils/             # Tool-specific helpers
 │   ├── config/                # Models, stdio/HTTP configuration, and request routing
 │   ├── server.py              # FastMCP construction, middleware, and transport startup
 │   ├── setup_server.py        # Temporary loopback page used by URL elicitation
@@ -320,10 +370,16 @@ The Dataiku Headless marketplace plugin uses stdio transport. For customer-manag
 │   ├── plugin.json             # Claude Code plugin manifest (skills + stdio MCP)
 │   └── marketplace.json        # Marketplace catalog (single-plugin, source: "./")
 ├── .cursor-plugin/
-│   └── plugin.json             # Cursor-native plugin manifest
+│   ├── plugin.json             # Cursor-native plugin manifest
+│   └── marketplace.json        # Cursor marketplace catalog
+├── .github/plugin/
+│   ├── plugin.json             # GitHub Copilot CLI plugin manifest
+│   └── marketplace.json        # GitHub Copilot CLI marketplace
+├── .agents/plugins/
+│   └── marketplace.json        # Codex/ChatGPT marketplace catalog
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest
-├── .mcp.json                   # Bundled Codex/ChatGPT MCP config
+│   ├── plugin.json             # Codex plugin manifest
+│   └── mcp.json                # Codex/ChatGPT MCP config, scoped to this manifest
 ├── CODING_STANDARDS_AND_STRUCTURE.md  # Contributor guide
 └── pyproject.toml
 ```

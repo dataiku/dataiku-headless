@@ -13,9 +13,9 @@ of an ML analysis, dashboard, insight, agent, agent tool, scenario, webapp, wiki
 data quality rule, knowledge bank, semantic model, or evaluation store. The container
 execution override below changes only which container an existing object runs in.
 
-Headless writes Dataiku objects directly in four cases: **bootstrap** (get a project
+Headless writes Dataiku objects directly in five cases: **bootstrap** (get a project
 or local content onto the instance so Cobuild has something to work with), **project
-configuration**, **cross-project**, and **instance-level administration**. It also
+configuration**, **deployment packaging**, **cross-project**, and **instance-level administration**. It also
 re-runs assets that already exist. Some bootstrap writes do land inside a project —
 see the table below.
 Local profile actions are listed separately because they only change which Dataiku
@@ -24,15 +24,15 @@ instance the local client targets.
 
 ## Surface
 
-**135 tools** · 96 read · 25 direct Dataiku write · 6 Cobuild · 4 execute · 3 local
+**144 tools** · 99 read · 27 direct Dataiku write · 6 Cobuild · 8 execute · 3 local
 profile · 1 connection test
 
 | Bucket | # | Scope |
 |---|---|---|
-| Read / inspect | 96 | Never mutates |
-| Direct Dataiku write | 25 | Bootstrap, project configuration, cross-project, admin |
+| Read / inspect | 99 | Never mutates |
+| Direct Dataiku write | 27 | Bootstrap, project configuration, deployment packaging, cross-project, admin |
 | Cobuild conversation | 6 | All flow and analytic building |
-| Execute | 4 | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` |
+| Execute | 8 | `build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, `get_dataset_metrics` (recomputes metrics before reading them) |
 | Local profile action | 3 | `configure_instance`, `switch_instance`, `delete_instance` |
 | Connection test | 1 | `test_connection` |
 
@@ -60,8 +60,8 @@ empty managed folder, and select container execution for an existing object (see
 | Webapps | `list_webapps`, `get_webapp_settings`, `get_webapp_state` | `set_container_exec_config` |
 | Wikis | `list_wiki_articles`, `get_wiki_article` | — |
 | Data quality | `list_data_quality_rules`, `get_data_quality_status`, `get_data_quality_rule`, `get_data_quality_rule_results`, `get_data_quality_rule_history` | — |
-| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_retrieval_augmented_llms`, `get_retrieval_augmented_llm_settings` | `set_container_exec_config` (knowledge banks) |
-| Semantic models | `list_semantic_models`, `get_semantic_model_version_settings` | — |
+| LLMs & knowledge banks | `list_llms`, `get_llm_info`, `list_knowledge_banks`, `get_knowledge_bank_settings`, `search_knowledge_bank`, `list_rag_llms`, `get_rag_llm_settings` | `set_container_exec_config` (knowledge banks) |
+| Semantic models | `list_semantic_models`, `get_semantic_model_version_config` | — |
 | Evaluation stores | `list_evaluation_stores`, `get_evaluation_store_details` | — |
 
 ## Driving Cobuild
@@ -82,6 +82,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Area | Inspect | Act | Scope |
 |---|---|---|---|
 | Projects | `count_projects`, `list_projects`, `get_project_metadata`, `get_project_variables`, `get_project_settings` | `create_project`, `set_project_variables`, `update_project_settings` | Bootstrap and project configuration — direct writes are **in-project** |
+| Project bundles | `list_project_bundles` | `create_project_bundle`, `publish_project_bundle` | Design only — inspects saved content options, optionally updates them before packaging existing assets with standards checks, and publishes to the Design node's configured Project Deployer without deploying to Automation |
 | Container execution placement | `get_recipe_settings`, `get_ml_analysis_settings`, `get_webapp_settings`, `get_knowledge_bank_settings`, `get_agent_tool_settings`, `list_container_exec_configs` | `set_container_exec_config` | Project configuration, **in-project** — sets which container a recipe, ML task, WebApp backend, Knowledge Bank, or agent tool runs in. Saved-model retrains use their training recipe's `params.containerSelection`. |
 | Uploaded Files datasets | — | `create_upload_dataset` | Bootstrap, **in-project** — supplied rows in HTTP; local files in stdio only |
 | Managed folders | `list_managed_folders`, `get_managed_folder_info`, `get_managed_folder_contents` | `create_managed_folder`, `upload_file_to_managed_folder` | Bootstrap, **in-project** — local-file upload is stdio only |
@@ -93,6 +94,7 @@ No Cobuild involved. Scope says what kind of access, and where a write lands.
 | Users | `list_users` | `create_user`, `update_user`, `delete_user` | Instance-level |
 | Groups | `list_groups` | `create_group`, `update_group`, `delete_group` | Instance-level |
 | Jobs | `list_jobs`, `get_job_status`, `get_job_log`, `get_future_status`, `wait_for_job` | `build_datasets`, `run_recipe`, `run_scenario`, `abort_job` | Execution — re-runs or stops assets that already exist |
+| Macros | `list_macros`, `get_macro_definition`, `get_macro_status` | `run_macro`, `get_macro_result`, `abort_macro_run` | Execution — installed macros; includes status, result retrieval, and cancellation. Effects depend on the macro and can extend beyond the project. |
 | Connections | `list_connections`, `get_connection_info`, `test_connection` | — | Read-only |
 | Instance settings | `list_container_exec_configs`, `list_spark_configs`, `get_licensing_status` | — | Read-only |
 | Data collections & sharing | `list_data_collections`, `list_data_collection_objects`, `list_shared_objects` | — | Read-only |
@@ -122,7 +124,7 @@ Local client configuration, not Dataiku objects.
 | Policy group | Allowed configured instance types |
 | --- | --- |
 | V1 explicit project reads, execution and administration | Design, Automation |
-| V1 explicit project edits and project Cobuild | Design |
+| V1 explicit project edits, project bundle tools (including listing), and project Cobuild | Design |
 | V2 general API operation discovery and execution | Deployer, Govern |
 | Instance management | All five types |
 

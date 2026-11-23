@@ -16,12 +16,21 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, create_model, model_validator
+from pydantic import AfterValidator, Field, create_model, model_validator
 
-from .operation_registry import OperationArguments
-from .tools.utils.validation import PathSegment
+from .models import OperationArguments
+from dataiku_mcp.utils.validation import require_path_segment
 
 NonEmpty = Annotated[str, Field(min_length=1)]
+PathSegment = Annotated[
+    str,
+    Field(
+        min_length=1,
+        pattern=r"^[^/\\%\x00-\x1f\x7f]+$",
+        description="One identifier segment; dot segments, slashes, backslashes and percent escapes are rejected.",
+    ),
+    AfterValidator(lambda value: require_path_segment(value, "identifier")),
+]
 
 
 class UserContainer(OperationArguments):

@@ -34,6 +34,7 @@ from dataiku_mcp.tools import connections
         "keyPassphrase",
         "appSecretContent",
         "keyJsonData",
+        "keyPath",
         "keyBase64Data",
         "sessionToken",
         "token_key",
@@ -59,4 +60,23 @@ def test_redacts_sensitive_connection_fields(key):
 def test_preserves_non_sensitive_connection_fields(key):
     assert connections._redact_sensitive_data({key: "https://example.com"}) == {
         key: "https://example.com"
+    }
+
+
+def test_diagnostics_can_be_preserved_without_exposing_credentials():
+    value = {
+        "error": True,
+        "errors": [{"message": "Import failed", "password": "sensitive"}],
+        "logs": {"lines": ["Import failed"], "apiKey": "sensitive"},
+    }
+    assert connections._redact_sensitive_data(value, redact_diagnostics=False) == {
+        "error": True,
+        "errors": [{"message": "Import failed", "password": "__DATAIKU_REDACTED__"}],
+        "logs": {
+            "lines": ["Import failed"],
+            "apiKey": "__DATAIKU_REDACTED__",
+        },
+    }
+    assert connections._redact_sensitive_data(value) == {
+        key: "__DATAIKU_REDACTED__" for key in value
     }

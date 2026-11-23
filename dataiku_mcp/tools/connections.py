@@ -22,13 +22,13 @@ from pydantic import Field
 from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
 from ..auth import get_dss_client
-from .utils.validation import (
+from dataiku_mcp.utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 
-from .utils.redaction import redact_sensitive_data as _redact_sensitive_data
+from dataiku_mcp.utils.redaction import redact_sensitive_data as _redact_sensitive_data
 
 
 _CONNECTION_TYPES_BY_CATEGORY = {

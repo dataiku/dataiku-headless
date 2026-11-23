@@ -20,8 +20,9 @@ Read [the shared operation guide](./operations.md). Search with domain="govern",
 describe a returned operation_id, then call run_read_operation or
 run_write_operation with operation IDs prefixed by govern. The arguments object
 is flat: identifiers, definitions and options use the names in the input schema.
-Category distinguishes artifacts, signoffs, blueprints, roles, custom_pages,
-time_series, files, users and instance administration. Search supports pagination.
+Operations cover artifacts, signoffs, blueprints, roles, custom pages, time
+series, files, users and instance administration. Search returns all matching
+operations without pagination; add a query word to narrow the result.
 
 Results use public SDK structures with credential fields recursively redacted.
 Blueprint-specific definitions remain backend-defined; the structural schema does

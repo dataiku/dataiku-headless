@@ -1,3 +1,18 @@
+## v0.9.0 (2026-11-05)
+
+### Feat
+
+- **setup**: manage saved instance connections (#199)
+- **plugins**: install from Git and manage plugin code environments (#193)
+- **tools**: enforce instance-type policies (#179)
+- **plugins**: support GitHub Copilot CLI (#198)
+
+### Fix
+
+- **tls**: trust operating system certificate authorities (#204)
+- **datasets**: recompute metrics before reading them (#205)
+- **plugins**: shorten Claude Code plugin and tool names for Bedrock; reinstall with `/plugin install headless@dataiku` (#201, #207)
+
 ## v0.8.0 (2026-10-08)
 
 ### Feat

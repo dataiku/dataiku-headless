@@ -1,6 +1,6 @@
 ---
 name: users
-description: List and administer Dataiku users. Use when finding, creating, updating, disabling, or deleting instance users.
+description: List and administer Dataiku users. Use when inspecting login or session activity, finding, creating, updating, disabling, or deleting instance users.
 ---
 
 # Users
@@ -22,6 +22,14 @@ Use these tools for instance-level Dataiku user administration. `list_users` wor
 - `create_user`
 - `update_user`
 - `delete_user`
+
+## User Activity
+
+Use `list_users(include_activity=true)` with administrator credentials to add
+`last_successful_login`, `last_failed_login`, and `last_session_activity` as Unix
+milliseconds (`null` when absent). Session activity means opening a new Dataiku tab
+or refreshing a session. Filters and pagination still apply; permission or API errors
+fail the call. Activity is omitted by default.
 
 ## Safety Rules
 

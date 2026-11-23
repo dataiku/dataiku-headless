@@ -28,8 +28,8 @@ from requests.exceptions import InvalidHeader
 
 from dataiku_mcp import mcp, auth
 from dataiku_mcp.config import request, stdio
-from dataiku_mcp.operations_catalog import OPERATIONS
-from dataiku_mcp.tools import govern
+from dataiku_mcp.operations.catalog import OPERATIONS
+from dataiku_mcp.operations.handlers import govern
 from tests.test_instance_policy import _instance
 from tests.test_operations import _call, _http_setup
 
@@ -328,28 +328,11 @@ def test_govern_time_series_destructive_intent_and_upsert_default(monkeypatch):
     assert captured["upsert"] is False
 
 
-def test_search_pages_all_operations_without_increasing_tool_catalog(monkeypatch):
+def test_search_returns_all_operations_without_increasing_tool_catalog(monkeypatch):
     monkeypatch.setattr(stdio, "_current_instance", _instance("govern"))
-    first = asyncio.run(_call("search_operations", domain="govern", limit=50))
-    second = asyncio.run(
-        _call(
-            "search_operations",
-            domain="govern",
-            limit=50,
-            offset=first["next_offset"],
-        )
-    )
-    assert first["total"] == 86
-    assert second["next_offset"] is None
-    assert (
-        len(
-            {
-                item["operation_id"]
-                for item in first["operations"] + second["operations"]
-            }
-        )
-        == 86
-    )
+    found = asyncio.run(_call("search_operations", domain="govern"))
+    assert found["total"] == 86
+    assert len({item["operation_id"] for item in found["operations"]}) == 86
 
 
 def _govern_failure(monkeypatch, client, operation_id, arguments, tool):
@@ -449,8 +432,8 @@ def test_govern_catalog_covers_expected_actions_without_new_mcp_tools():
         if op.domain == "govern"
     }
     assert ids == EXPECTED_GOVERN_IDS
+    # tests/test_tool_surface.py pins the registered tool set.
     tools = asyncio.run(mcp.list_tools())
-    assert len(tools) == 135
     assert not any(
         tool.name == "govern" or "mira" in tool.name or "deployer" in tool.name
         for tool in tools

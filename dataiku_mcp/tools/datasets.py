@@ -25,17 +25,24 @@ from pydantic import Field
 
 from ..instance_policy import (
     PROJECT_EDIT_POLICY,
+    PROJECT_EXECUTION_POLICY,
     PROJECT_READ_POLICY,
 )
 from ..config import request
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
+from .utils.metrics import compute_report_errors as _compute_report_errors
 from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
-from .utils.serialization import columnar, compact_json, is_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
-from .utils.validation import require_positive_int as _require_positive_int
+from .utils.metrics import stale_metric_ids as _stale_metric_ids
+from .utils.metrics import unrefreshed_metric_ids as _unrefreshed_metric_ids
+from dataiku_mcp.utils.serialization import columnar, compact_json, is_empty
+from dataiku_mcp.utils.redaction import redact_sensitive_data
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
+from dataiku_mcp.utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
 _MAX_UPLOAD_ROWS = 10_000
@@ -579,6 +586,20 @@ async def export_dataset(
     return compact_json(await run_blocking(_run))
 
 
+def _dataset_location(settings: dict) -> dict:
+    """Return configured location fields; leave variable expressions unexpanded."""
+    parameters = dict(settings.get("params") or {})
+    result = {"parameters": parameters, "resolution": "configured"}
+    # Query-mode SQL datasets can retain a table from their previous settings.
+    if parameters.get("mode") == "query" and "table" in parameters:
+        parameters.pop("table")
+        result["omitted_parameters"] = ["table"]
+    partitioning = settings.get("partitioning") or {}
+    if partitioning.get("dimensions") or partitioning.get("filePathPattern"):
+        result["partitioning"] = partitioning
+    return redact_sensitive_data(result)
+
+
 @mcp.tool(
     meta=PROJECT_READ_POLICY,
     title="Get Dataset Info",
@@ -588,7 +609,9 @@ async def export_dataset(
         "openWorldHint": False,
     },
 )
-async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) -> str:
+async def get_dataset_info(
+    project_key: str, dataset_name: str, ctx: Context, include_location: bool = False
+) -> str:
     """Inspect where a dataset's data lives and what its columns mean."""
     await ctx.info(f"Loading dataset info for {dataset_name} in {project_key}...")
 
@@ -597,14 +620,12 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
         dataset = project.get_dataset(dataset_name)
         schema = dataset.get_schema()
         settings = dataset.get_settings().get_raw()
-        dataset_type = None
-        for ds_info in project.list_datasets():
-            if ds_info.get("name") == dataset_name:
-                dataset_type = ds_info.get("type")
-                break
+        params = settings.get("params") or {}
         result = {
-            "type": dataset_type,
-            "connection": settings.get("params", {}).get("connection"),
+            "type": settings.get("type"),
+            "connection": params.get("connection")
+            or params.get("uploadConnection")
+            or (params.get("uploadedConfig") or {}).get("connection"),
             "columns": columnar(
                 [
                     {
@@ -618,6 +639,10 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
                 ["name", "type", "meaning", "comment"],
             ),
         }
+        if include_location:
+            result["location"] = _dataset_location(settings)
+        if "managed" in settings:
+            result["managed"] = settings["managed"]
         for key in ("type", "connection"):
             if is_empty(result[key]):
                 del result[key]
@@ -847,10 +872,10 @@ async def get_dataset_profile(
 
 
 @mcp.tool(
-    meta=PROJECT_READ_POLICY,
+    meta=PROJECT_EXECUTION_POLICY,
     title="Get Dataset Metrics",
     annotations={
-        "readOnlyHint": True,
+        "readOnlyHint": False,
         "destructiveHint": False,
         "openWorldHint": False,
     },
@@ -865,19 +890,60 @@ async def get_dataset_metrics(
             description="JSON array of ids, e.g. '[\"records:COUNT_RECORDS\"]'. Every metric when omitted."
         ),
     ] = None,
+    refresh: Annotated[
+        bool,
+        Field(
+            description="Recompute on the current data first; needs project write access. False returns stored values, which builds do not always update."
+        ),
+    ] = True,
 ) -> str:
-    """Read the metric values Dataiku last computed for a dataset."""
+    """Read a dataset's metric values, recomputed on its current data by default."""
     await ctx.info(f"Loading dataset metrics for {dataset_name} in {project_key}...")
     metric_ids_list = _parse_metric_ids(metric_ids)
 
     def _run():
         dataset = get_dss_client().get_project(project_key).get_dataset(dataset_name)
-        result: dict = {}
+        result: dict = {"refreshed": False}
+        report = None
+        if refresh:
+            # Stored values are not a safe default: the built-in record count probe
+            # does not recompute on build, so it keeps describing older data.
+            try:
+                report = dataset.compute_metrics(metric_ids=metric_ids_list)
+            except Exception as exc:
+                result["refresh_error"] = str(exc)
+            else:
+                errors = _compute_report_errors(report)
+                if errors:
+                    result["refresh_error"] = "; ".join(errors)
+                else:
+                    result["refreshed"] = True
         try:
             raw_metrics = dataset.get_last_metric_values().get_raw().get("metrics", [])
             result.update(_select_metrics(raw_metrics, metric_ids_list))
         except Exception as exc:
             result["metrics_warning"] = str(exc)
+            return result
+        if result["refreshed"]:
+            expected_ids = (
+                metric_ids_list
+                if metric_ids_list is not None
+                else [metric["metric"]["id"] for metric in result["metrics"]]
+            )
+            unrefreshed = _unrefreshed_metric_ids(report, expected_ids)
+            if unrefreshed:
+                result["refreshed"] = False
+                result["unrefreshed_metric_ids"] = unrefreshed
+                result["refresh_error"] = (
+                    "Some metrics were not recomputed; stored values may be stale."
+                )
+        if not result["refreshed"]:
+            last_build = dataset.get_info().get_raw().get("lastBuild") or {}
+            stale = _stale_metric_ids(
+                result["metrics"], last_build.get("buildStartTime")
+            )
+            if stale:
+                result["stale_metric_ids"] = stale
         return result
 
     return compact_json(await run_blocking(_run))

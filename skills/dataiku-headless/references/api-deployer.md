@@ -36,7 +36,8 @@ The tool does not configure or invoke prediction endpoints.
 
 API service authoring/publication, advanced traffic splits, endpoint authentication,
 API key handling, infrastructure provisioning and deployment deletion are not
-exposed. Inspect the Dataiku UI for these operations and detailed error logs.
+exposed. Use the Dataiku UI for these operations; inspect deployment failures with
+`deployer.get_update`, adding `include_logs=true` when needed.
 Never return raw light status: it can contain service and inherited API keys.
 
 [Official Python API reference](https://developer.dataiku.com/latest/api-reference/python/api-deployer.html)

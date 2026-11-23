@@ -66,13 +66,14 @@ def test_govern_client_rejects_wrong_profile(monkeypatch):
         auth.get_govern_client()
 
 
-def test_govern_setup_tests_the_correct_client_and_invalidates_type_change(monkeypatch):
+def test_govern_setup_tests_the_govern_client(monkeypatch):
     captured = []
 
-    def create(url, key):
+    def create(url, **kwargs):
         captured.append("govern")
         return SimpleNamespace(
-            _session=SimpleNamespace(verify=None), get_auth_info=lambda: {}
+            _session=SimpleNamespace(request=lambda *a, **k: None, close=lambda: None),
+            get_auth_info=lambda: {},
         )
 
     monkeypatch.setattr(setup_server.dataikuapi, "GovernClient", create)
@@ -81,14 +82,13 @@ def test_govern_setup_tests_the_correct_client_and_invalidates_type_change(monke
         "DSSClient",
         lambda *a, **k: pytest.fail("Wrong client"),
     )
-    values = {
-        "url": "https://govern.example",
-        "api_key": "placeholder",
-        "no_check_certificate": False,
-        "instance_type": "govern",
-    }
-    setup_server._test_connection(values)
+    setup_server._test_connection(
+        {
+            "url": "https://govern.example",
+            "api_key": "placeholder",
+            "api_ticket": None,
+            "no_check_certificate": False,
+            "instance_type": "govern",
+        }
+    )
     assert captured == ["govern"]
-    assert setup_server._connection_settings(
-        values
-    ) != setup_server._connection_settings({**values, "instance_type": "design"})

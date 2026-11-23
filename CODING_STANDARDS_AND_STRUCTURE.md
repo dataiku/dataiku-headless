@@ -29,7 +29,7 @@ export DKU_API_KEY="your-api-key"
 | What to change | Where |
 | --- | --- |
 | MCP tool logic | `dataiku_mcp/tools/**/*.py` |
-| Shared validation helpers | `dataiku_mcp/tools/utils/validation.py` |
+| Shared validation helpers | `dataiku_mcp/utils/validation.py` |
 | Workflow prompts | `dataiku_mcp/prompts/workflows.py` |
 | Project/dataset/folder/recipe/ML skills | `skills/**/SKILL.md` |
 | Cobuild conversation tools | `dataiku_mcp/tools/cobuild.py` |
@@ -74,7 +74,7 @@ export DKU_API_KEY="your-api-key"
 ## Tool Input Validation
 - Assume FastMCP/Pydantic type validation for tool signatures; avoid duplicating type checks in tool code unless there is a clear compatibility/safety reason.
 - Keep validation for structured inputs (JSON payloads/lists), enum-like parameters, and semantic risk parameters (`overwrite`, `drop_data`, replace modes, recursive build modes).
-- Put reusable validation logic in `dataiku_mcp/tools/utils/validation.py` and reuse those helpers from tool modules instead of creating ad-hoc local validators.
+- Put reusable validation logic in `dataiku_mcp/utils/validation.py` and reuse those helpers from tool modules instead of creating ad-hoc local validators.
 - When reducing validation, preserve existing destructive-action safeguards and return clear errors from downstream API calls.
 
 ## Async And Blocking Style
@@ -103,9 +103,9 @@ export DKU_API_KEY="your-api-key"
 - Give a fixed-value parameter a `Literal` so its allowed values ride in the schema, and drop the `require_allowed_value` check it replaces. Keep the check and describe the values in prose instead when it normalizes input (for example `.upper()`), since a `Literal` would reject values that work today, or when the value set is large enough that listing it in every catalog send costs more than a description.
 
 ## Cobuild Write-Routing Convention
-- This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead. `set_container_exec_config` is the narrow, placement-only exception; all other changes stay with Cobuild.
+- This server intentionally does not expose direct create/update/delete tools for in-project flow and analytic assets (recipes, ML analyses, dashboards, insights, agents, agent tools, scenarios, webapps, wiki articles, data quality rules, knowledge banks, semantic models, evaluation stores). Project-level building goes through `dataiku_mcp/tools/cobuild.py`'s Cobuild conversation tools instead. `set_container_exec_config` is the narrow, placement-only exception; deployment bundle packaging is the fixed exception below. All other changes stay with Cobuild.
 - Do not add a new direct write tool for an in-project asset type beyond the fixed exceptions below. If a gap in Cobuild's coverage is found, note it in the relevant SKILL.md rather than adding an MCP write tool around it.
-- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, and `abort_job`, which stops an existing job) and deterministic container execution placement for an existing object (`set_container_exec_config`).
+- A new direct write tool is only justified when the operation is cross-project, instance-level, or must happen before a project/Cobuild conversation exists, apart from the fixed deployment-packaging exception below. The fixed bootstrap exceptions are `create_project`, `create_upload_dataset`, `create_managed_folder`, `upload_file_to_managed_folder`, `write_project_library_file`, and `set_project_variables`; all but `create_project` write into a project, and each creates a container or carries local content rather than building logic. The other fixed exceptions are deterministic execution of existing assets (`build_datasets`, `run_recipe`, `run_scenario`, `run_macro`, `get_macro_result`, `abort_macro_run`, `abort_job`, which stops an existing job, and `get_dataset_metrics`, which recomputes a dataset's existing metric probes so a read does not return stale stored values) and deterministic container execution placement for an existing object (`set_container_exec_config`). The fixed deployment-packaging exception is `create_project_bundle` and `publish_project_bundle` on Design: they may update bundle-content export options, package existing assets, and publish through the configured Project Deployer. They do not construct analytic logic or activate bundles on Automation.
 
 ## Fixed Tool Surface
 
