@@ -69,30 +69,10 @@ Once connected, use your own project and dataset names in requests such as:
 
 ## Get started
 
-1. **Install and connect Dataiku Headless.** Choose your harness guide:
-
-   - [ChatGPT desktop (Codex or Work)](docs/getting-started/chatgpt-desktop.md) /
-     [Codex CLI](docs/getting-started/codex-cli.md)
-   - [Claude desktop (Cowork or Claude Code)](docs/getting-started/claude-desktop.md) /
-     [Claude Code CLI](docs/getting-started/claude-code-cli.md)
-   - [Cursor desktop](docs/getting-started/cursor-desktop.md) /
-     [Cursor Agent CLI](docs/getting-started/cursor-agent-cli.md)
-   - [GitHub Copilot desktop](docs/getting-started/github-copilot-desktop.md) /
-     [GitHub Copilot CLI](docs/getting-started/github-copilot-cli.md)
-   - [Snowflake CoCo desktop](docs/getting-started/snowflake-coco-desktop.md) /
-     [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
-   - [Grok CLI](docs/getting-started/grok-cli.md)
-   - [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
-
+1. **Install and connect Dataiku Headless.** Follow the guide for your assistant
+   [above](#about-dataiku-headless).
 2. **Start with a project.** Ask your agent to show the projects you can access,
    then describe what you want to explore or build.
-
-If your organization provides a remote Dataiku Headless plugin, use its
-installation and login instructions instead. Inside a Dataiku Code Studio, the
-hosting instance is discovered automatically.
-
-For multiple instances, credentials, certificates, or advanced configuration,
-see [Connecting to Dataiku](docs/connecting-to-dataiku.md).
 
 ## See it in action
 
@@ -110,6 +90,10 @@ Cobuild handles changes to project logic. You can return to an ongoing Cobuild
 conversation, answer its questions, and review the resulting project.
 
 For detailed workflows, see the [agent skill guide](skills/dataiku-headless/SKILL.md).
+
+If your organization provides a custom Dataiku Headless plugin, follow its
+setup instructions. For more connection options, see
+[Connecting to Dataiku](docs/connecting-to-dataiku.md).
 
 ## Contributing
 
