@@ -100,8 +100,7 @@ setup instructions. For more connection options, see
 See [Contributing](CONTRIBUTING.md) to report an issue or open a pull request.
 Contributors can find implementation guidance in the
 [coding standards](CODING_STANDARDS_AND_STRUCTURE.md) and publishing instructions
-in the [release guide](RELEASE.md). To build or update a Dataiku plugin, see the
-[plugin development guide](skills/dataiku-headless/references/plugin-development.md).
+in the [release guide](RELEASE.md).
 
 ## License
 
