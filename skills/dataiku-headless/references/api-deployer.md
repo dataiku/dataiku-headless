@@ -55,7 +55,7 @@ explicit body. API Deployer supports these infrastructure types:
 | --- | --- |
 | `STATIC` | Static API Node. The standard-prediction `features` example below applies. |
 | `K8S` | Kubernetes API Node infrastructure. The same standard-prediction example applies. |
-| `AZURE_ML`, `DATABRICKS`, `SAGEMAKER`, `SNOWPARK`, `VERTEX_AI` | Fully managed infrastructure. Start with a saved query from the target deployment; the provider and endpoint family determine the body shape. Vertex AI prediction requests use `instances`. |
+| `AZURE_ML`, `DATABRICKS`, `SAGEMAKER`, `SNOWPARK`, `VERTEX_AI` | Fully managed infrastructure. Start with a saved query from the target deployment; the provider and endpoint family determine the body shape. |
 
 1. Select the intended `deployer` profile. Use `deployer.get_deployment` to inspect
    health, configured versions/traffic mapping, and `endpoints` (IDs, types and saved
