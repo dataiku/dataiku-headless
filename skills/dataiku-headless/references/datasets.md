@@ -41,9 +41,20 @@ The direct-upload exception applies only to creating a new Uploaded Files datase
 2. Use `get_dataset_info` to inspect a selected dataset's type, managed flag, connection, schema, meanings, and descriptions. Set `include_location=true` when inspecting storage location or preparing deployment; read the location response as described below.
 3. Use `get_dataset_profile` to inspect null rates, value frequencies, distributions, and numeric ranges.
 4. Use `get_dataset_sample` when raw values or formatting details matter, such as date formats, delimiters, text structure, or unexpected encodings.
-5. In stdio, use `export_dataset` when every row is needed for parity checks, offline inspection, or downstream local tooling. It is unavailable in Streamable HTTP because it writes a local CSV. On large datasets this can take a while to run, so prefer the lighter inspection tools unless a full local CSV is truly needed. Use `limit` to bound the export; the tool will not export more than 1,000,000 rows in one call.
-6. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter. `get_dataset_metrics` recomputes the requested metrics on the current data before it reads them, which needs project write access and scans the data for record counts. See [Metric Freshness](#metric-freshness).
-7. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step.
+5. Use `get_dataset_metrics` and `get_dataset_column_descriptions` when attached metrics or descriptions matter. `get_dataset_metrics` recomputes the requested metrics on the current data before it reads them, which needs project write access and scans the data for record counts. See [Metric Freshness](#metric-freshness).
+6. Interpret findings in context. Flag type mismatches, high null rates, outliers, duplicates, skewed values, identifier-like columns, and potential leakage or small-sample risks when they affect the user's next step. State sampling and coverage limits; a sample does not establish whole-dataset results.
+
+## Analysis Beyond Inspection
+
+Keep dataset analysis in Dataiku. When inspection tools cannot answer the question, use `./cobuild.md` on Design for analysis in the project. Keep `allow_edit_project=false` for inspection or explanation; enable edits only for user-requested asset creation or modification. On Automation, inspect or execute existing assets and return to Design when new analysis assets are needed.
+
+Do not export rows simply because local Python is convenient or because `get_dataset_sample` reaches its row cap. If the available tools and Cobuild cannot perform the analysis, report the coverage gap rather than silently moving the work to a local CSV.
+
+## Local CSV Exports
+
+Use `export_dataset` when the user requests a local file or the applicable workflow explicitly requires offline validation, such as the Excel migration parity workflow. Routine exploration and verification should use the inspection tools above or analysis in Dataiku.
+
+Export is available only in stdio; Streamable HTTP cannot write a host-local CSV. Select only the required `columns` and bound `limit` to the requested scope. Each call is capped at 1,000,000 rows, so an export does not establish full coverage when the dataset exceeds that cap. Follow the applicable validation workflow when exhaustive comparison is required.
 
 ## Metric Freshness
 
@@ -81,10 +92,11 @@ Inspect `./connections.md` before a Cobuild request when the required connection
 - `get_dataset_info`
 - `get_dataset_profile`
 - `get_dataset_sample`
-- `export_dataset`
 - `get_dataset_metrics`
 - `get_dataset_column_descriptions`
 - `create_upload_dataset`
+
+For requested local files or explicit offline validation workflows: `export_dataset`.
 
 ## Safety Rules
 
@@ -98,4 +110,3 @@ Inspect `./connections.md` before a Cobuild request when the required connection
   `spreadsheet_safe=true` when the export may contain untrusted values and will
   be opened in spreadsheet software.
 - Keep samples small unless the user requests a larger inspection.
-- Treat `export_dataset` as a heavier operation on large datasets, and bound it with `limit` when a complete export is unnecessary.

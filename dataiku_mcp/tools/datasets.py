@@ -475,7 +475,7 @@ async def export_dataset(
         Field(description="Escapes text a spreadsheet would evaluate as a formula."),
     ] = False,
 ) -> str:
-    """Write a dataset's rows to a local CSV file, when every row is needed offline."""
+    """Export a local CSV for user-requested files or explicit offline validation workflows; prefer dataset inspection tools for analysis."""
     if request.is_http_request():
         raise ValueError(
             "export_dataset is unavailable in HTTP mode because it writes to the MCP host filesystem."
