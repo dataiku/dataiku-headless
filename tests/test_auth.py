@@ -25,10 +25,11 @@ from dataiku_mcp.config import request, stdio
 from dataiku_mcp.config.models import DSSInstance
 
 
+@pytest.mark.parametrize("client_application", [None, "dataiku-migrate"])
 @pytest.mark.parametrize("no_check_certificate", [False, True])
 @pytest.mark.parametrize("credential", ["api_key", "api_ticket", "http"])
 def test_client_uses_selected_authentication(
-    monkeypatch, credential, no_check_certificate
+    monkeypatch, credential, no_check_certificate, client_application
 ):
     instance = DSSInstance(
         name="dev",
@@ -56,7 +57,10 @@ def test_client_uses_selected_authentication(
 
     monkeypatch.setattr(auth.dataikuapi, "DSSClient", create_client)
 
-    assert auth.get_dss_client() is client
+    arguments = (
+        {} if client_application is None else {"client_application": client_application}
+    )
+    assert auth.get_dss_client(**arguments) is client
     expected = {
         "api_key": {"api_key": "api-key"},
         "api_ticket": {"internal_ticket": "api-ticket"},
@@ -64,10 +68,42 @@ def test_client_uses_selected_authentication(
     }
     assert captured == {
         "url": instance.url,
-        "extra_headers": {"X-DKU-Client-Application": "dataiku-headless"},
+        "extra_headers": {
+            "X-DKU-Client-Application": client_application or "dataiku-headless"
+        },
         **expected[credential],
     }
     assert client._session.verify is not no_check_certificate
+
+
+@pytest.mark.parametrize("client_application", [None, "dataiku-migrate"])
+@pytest.mark.parametrize("credential", ["api_key", "api_ticket", "http"])
+def test_client_application_is_sent_in_request_headers(
+    monkeypatch, credential, client_application
+):
+    instance = DSSInstance(
+        name="dev",
+        url="https://dev.example.com",
+        api_key="api-key" if credential == "api_key" else None,
+        api_ticket="api-ticket" if credential == "api_ticket" else None,
+        no_check_certificate=False,
+        source="http" if credential == "http" else "environment",
+        instance_type="design",
+    )
+    monkeypatch.setattr(request, "get_pinned_instance", lambda: instance)
+    monkeypatch.setattr(request, "is_http_request", lambda: credential == "http")
+    monkeypatch.setattr(request, "get_http_dss_token", lambda: "delegated-token")
+    arguments = (
+        {} if client_application is None else {"client_application": client_application}
+    )
+    client = auth.get_dss_client(**arguments)
+    with client._session:
+        prepared = client._session.prepare_request(
+            requests.Request("GET", instance.url)
+        )
+    assert prepared.headers["X-DKU-Client-Application"] == (
+        client_application or "dataiku-headless"
+    )
 
 
 def test_client_ticket_uses_sdk_ticket_header(monkeypatch):

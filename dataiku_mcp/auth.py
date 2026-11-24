@@ -27,27 +27,30 @@ from .executors import run_blocking
 logger = logging.getLogger("dataiku-mcp")
 
 
-def get_dss_client() -> dataikuapi.DSSClient:
+def get_dss_client(
+    client_application: str = "dataiku-headless",
+) -> dataikuapi.DSSClient:
     """Get a Dataiku API client for the currently active instance."""
     current_instance = request.get_pinned_instance()
+    extra_headers = {"X-DKU-Client-Application": client_application}
 
     if request.is_http_request():
         client = dataikuapi.DSSClient(
             current_instance.url,
             jwt_bearer_token=request.get_http_dss_token(),
-            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+            extra_headers=extra_headers,
         )
     elif current_instance.api_ticket is not None:
         client = dataikuapi.DSSClient(
             current_instance.url,
             internal_ticket=current_instance.api_ticket,
-            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+            extra_headers=extra_headers,
         )
     else:
         client = dataikuapi.DSSClient(
             current_instance.url,
             api_key=current_instance.api_key,
-            extra_headers={"X-DKU-Client-Application": "dataiku-headless"},
+            extra_headers=extra_headers,
         )
     client._session.verify = (
         False
