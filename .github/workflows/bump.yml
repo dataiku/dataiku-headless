@@ -1,24 +1,17 @@
-name: Bump version
+name: Release
 
-# Collect changes on release/X.Y.Z, then finalize that branch with Commitizen.
-# Publishing is a separate manual dispatch targeting that PR's merged commit.
+# Publish automatically after main CI, with manual dispatch for recovery.
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
-      operation:
-        description: Prepare a release PR or publish a merged release PR
-        type: choice
-        options: [prepare, publish]
-        default: prepare
-        required: true
-      release_branch:
-        description: Existing release/X.Y.Z branch to finalize (required for prepare)
-        type: string
-        default: ''
       release_pr:
         description: Merged release PR number (required for publish)
         type: string
-        default: ''
+        required: true
 
 concurrency:
   group: bump
@@ -28,75 +21,12 @@ permissions:
   contents: read
 
 jobs:
-  prepare:
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'prepare'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Validate release branch input
-        env:
-          RELEASE_BRANCH: ${{ inputs.release_branch }}
-        run: |
-          [[ "$RELEASE_BRANCH" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Provide an existing release/X.Y.Z branch.'; exit 1; }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.release_branch }}
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-      - name: Check release baseline
-        env:
-          RELEASE_BRANCH: ${{ inputs.release_branch }}
-        run: |
-          set -euo pipefail
-          current=$(python3 scripts/check_release.py)
-          python3 scripts/check_release.py --target-branch "$RELEASE_BRANCH"
-          git merge-base --is-ancestor "refs/tags/v$current" HEAD
-          git merge-base --is-ancestor origin/main HEAD || { echo 'Merge main into the release branch first.'; exit 1; }
-          if git show-ref --verify --quiet "refs/tags/v${RELEASE_BRANCH#release/}"; then
-            echo 'The target version already has a tag.'
-            exit 1
-          fi
-      - name: Verify PEP 723 script lockfile is current
-        run: |
-          set -euo pipefail
-          uv lock --script runtime/run_mcp.py --check
-          uv lock --script runtime/run_mcp.py --upgrade
-          git diff --exit-code -- runtime/run_mcp.py.lock
-      - name: Finalize version and changelog locally
-        env:
-          RELEASE_BRANCH: ${{ inputs.release_branch }}
-        run: |
-          set -euo pipefail
-          uv sync --locked
-          # The branch name is the intended version; Commitizen still owns the
-          # version-file updates and conventional-commit changelog generation.
-          uv run cz bump "${RELEASE_BRANCH#release/}" --version-files-only --changelog
-          uv lock
-          uv sync --locked
-          test "$(python3 scripts/check_release.py)" = "${RELEASE_BRANCH#release/}"
-          python3 scripts/check_release.py --notes > "$RUNNER_TEMP/notes.md"
-      - name: Open finalization PR into the release branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_BRANCH: ${{ inputs.release_branch }}
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          version="${RELEASE_BRANCH#release/}"
-          git add --update
-          git commit -m "bump: finalize $version"
-          branch="prepare-release/$version"
-          # Neither protected integration branch is written directly. A
-          # non-fast-forward push fails rather than replacing a previous run.
-          git push origin "HEAD:refs/heads/$branch"
-          url=$(gh pr create --base "$RELEASE_BRANCH" --head "$branch" --title "bump: finalize $version" --body-file "$RUNNER_TEMP/notes.md")
-          echo "Finalization PR: $url. Approve workflows, review and merge. Then open $RELEASE_BRANCH into main and use a merge commit." >> "$GITHUB_STEP_SUMMARY"
-
   publish:
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'publish'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,24 +39,44 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.release_pr }}
+          EVENT_NAME: ${{ github.event_name }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_run ]]; then
+            # Query trusted API metadata; never consume artifacts or PR code.
+            gh api --paginate --slurp "repos/$GH_REPO/commits/$CI_SHA/pulls?per_page=100" > "$RUNNER_TEMP/pulls.json"
+            jq --arg repo "$GH_REPO" --arg sha "$CI_SHA" '[.[][] | select(.merged_at != null and .base.ref == "main" and .head.repo.full_name == $repo and .merge_commit_sha == $sha and (.head.ref | test("^release/[0-9]+\\.[0-9]+\\.[0-9]+$")))]' "$RUNNER_TEMP/pulls.json" > "$RUNNER_TEMP/candidates.json"
+            count=$(jq length "$RUNNER_TEMP/candidates.json")
+            if [[ "$count" == 0 ]]; then
+              echo 'No merged release PR for this CI commit; nothing to publish.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            test "$count" = 1 || { echo 'Multiple release PRs match this commit.'; exit 1; }
+            PR_NUMBER=$(jq -r '.[0].number' "$RUNNER_TEMP/candidates.json")
+          fi
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Provide a release PR number.'; exit 1; }
           gh api "repos/$GH_REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
           jq -e --arg repo "$GH_REPO" '.merged == true and .base.ref == "main" and .head.repo.full_name == $repo and (.head.ref | test("^release/[0-9]+\\.[0-9]+\\.[0-9]+$"))' "$RUNNER_TEMP/pr.json"
           sha=$(jq -r .merge_commit_sha "$RUNNER_TEMP/pr.json")
+          if [[ "$EVENT_NAME" == workflow_run ]]; then
+            test "$sha" = "$CI_SHA" || { echo 'Release merge does not match the CI commit.'; exit 1; }
+          fi
           version=$(jq -r '.head.ref | ltrimstr("release/")' "$RUNNER_TEMP/pr.json")
           gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&per_page=1" > "$RUNNER_TEMP/ci.json"
-          jq -e '.workflow_runs[0] | .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/ci.json"
+          jq -e --arg sha "$sha" --arg repo "$GH_REPO" '.workflow_runs[0] | .head_sha == $sha and .head_branch == "main" and .head_repository.full_name == $repo and .event == "push" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/ci.json"
           echo "head_sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.target.outputs.sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.target.outputs.sha }}
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - if: steps.target.outputs.sha != ''
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Verify merged release before publishing
+        if: steps.target.outputs.sha != ''
         env:
           VERSION: ${{ steps.target.outputs.version }}
           RELEASE_HEAD: ${{ steps.target.outputs.head_sha }}
@@ -139,6 +89,7 @@ jobs:
           uv lock --script runtime/run_mcp.py --check
           python3 scripts/check_release.py --notes > "$RUNNER_TEMP/notes.md"
       - name: Push matching tags and publish release
+        if: steps.target.outputs.sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.target.outputs.version }}

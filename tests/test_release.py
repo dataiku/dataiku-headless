@@ -20,6 +20,7 @@ from pathlib import Path
 import runpy
 import shutil
 import subprocess
+import sys
 
 import pytest
 import yaml
@@ -262,46 +263,252 @@ def test_workflows_cover_release_targets_and_trusted_source_check():
     )
 
 
-def test_preparation_opens_pr_into_existing_release_without_writing_it(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "pyproject.toml").write_text('version = "0.7.0"\n')
-    init_repo(repo)
-    baseline = git(repo, "rev-parse", "HEAD")
-    git(repo, "switch", "-c", "release/0.8.0")
-    remote = tmp_path / "remote.git"
-    subprocess.run(
-        ["git", "init", "--bare", str(remote)], check=True, capture_output=True
-    )
-    git(repo, "remote", "add", "origin", str(remote))
-    git(repo, "push", "origin", "main", "release/0.8.0")
-    (repo / "pyproject.toml").write_text('version = "0.8.0"\n')
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text(
-        '#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/gh-args"\necho "https://example.invalid/pr/1"\n'
-    )
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "automatic",
+        "manual",
+        "no-release",
+        "fork",
+        "wrong-merge",
+        "ambiguous",
+        "failed-ci",
+        "wrong-ci-sha",
+        "wrong-ci-branch",
+        "wrong-ci-repo",
+    ],
+)
+def test_resolve_publication_target(tmp_path, mode):
+    """Run the actual resolver with API fixtures; only verified commits get outputs."""
+    pr = {
+        "number": 42,
+        "merged": True,
+        "merged_at": "2026-11-24T12:00:00Z",
+        "base": {"ref": "main"},
+        "head": {
+            "ref": "release/1.2.3",
+            "sha": "release-head",
+            "repo": {"full_name": "org/project"},
+        },
+        "merge_commit_sha": "merge-sha",
+    }
+    if mode == "fork":
+        pr["head"]["repo"]["full_name"] = "fork/project"
+    candidates = [] if mode == "no-release" else [pr]
+    if mode == "ambiguous":
+        candidates.append(pr)
+    (tmp_path / "pulls-fixture.json").write_text(json.dumps([candidates]))
+    if mode == "wrong-merge":
+        pr["merge_commit_sha"] = "other-sha"
+    (tmp_path / "pr-fixture.json").write_text(json.dumps(pr))
+    ci = {
+        "head_sha": "wrong" if mode == "wrong-ci-sha" else "merge-sha",
+        "head_branch": "release/1.2.3" if mode == "wrong-ci-branch" else "main",
+        "head_repository": {
+            "full_name": "fork/project" if mode == "wrong-ci-repo" else "org/project"
+        },
+        "event": "push",
+        "status": "completed",
+        "conclusion": "failure" if mode == "failed-ci" else "success",
+    }
+    (tmp_path / "ci-fixture.json").write_text(json.dumps({"workflow_runs": [ci]}))
+    gh = tmp_path / "gh"
+    gh.write_text("""#!/bin/sh
+case "$*" in
+  *commits/*/pulls*) cat "$RUNNER_TEMP/pulls-fixture.json" ;;
+  *pulls/42*) cat "$RUNNER_TEMP/pr-fixture.json" ;;
+  *workflows/ci.yml/runs*) cat "$RUNNER_TEMP/ci-fixture.json" ;;
+  *) exit 1 ;;
+esac
+""")
     gh.chmod(0o755)
     workflow = yaml.safe_load((ROOT / ".github/workflows/bump.yml").read_text())
-    script = workflow["jobs"]["prepare"]["steps"][-1]["run"]
     result = subprocess.run(
-        ["bash", "-c", script],
-        cwd=repo,
+        ["bash", "-c", workflow["jobs"]["publish"]["steps"][0]["run"]],
         capture_output=True,
         text=True,
         env=dict(
             os.environ,
-            RELEASE_BRANCH="release/0.8.0",
+            GH_REPO="org/project",
+            PR_NUMBER="42" if mode == "manual" else "",
+            EVENT_NAME="workflow_dispatch" if mode == "manual" else "workflow_run",
+            CI_SHA="merge-sha",
             RUNNER_TEMP=str(tmp_path),
             GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
-            PATH=f"{bin_dir}:{os.environ['PATH']}",
+            GITHUB_OUTPUT=str(tmp_path / "output"),
+            PATH=f"{tmp_path}:{os.environ['PATH']}",
         ),
     )
-    assert result.returncode == 0, result.stderr
-    assert git(remote, "rev-parse", "main") == baseline
-    assert git(remote, "rev-parse", "release/0.8.0") == baseline
-    assert git(remote, "rev-parse", "prepare-release/0.8.0") != baseline
-    assert git(remote, "tag", "--list") == ""
-    args = (tmp_path / "gh-args").read_text().splitlines()
-    assert args[args.index("--base") + 1] == "release/0.8.0"
+    if mode in {"automatic", "manual"}:
+        assert result.returncode == 0, result.stderr
+        assert (
+            tmp_path / "output"
+        ).read_text() == "head_sha=release-head\nsha=merge-sha\nversion=1.2.3\n"
+    else:
+        assert not (tmp_path / "output").exists()
+        assert (result.returncode == 0) == (mode in {"no-release", "fork"})
+
+
+def test_automatic_publication_only_follows_trusted_main_push_ci():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/bump.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    assert workflow["on"]["workflow_run"] == {
+        "workflows": ["CI"],
+        "types": ["completed"],
+        "branches": ["main"],
+    }
+    condition = workflow["jobs"]["publish"]["if"]
+    for guard in (
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'main'",
+        "github.event.workflow_run.head_repository.full_name == github.repository",
+    ):
+        assert guard in condition
+    for step in workflow["jobs"]["publish"]["steps"][1:]:
+        assert step["if"] == "steps.target.outputs.sha != ''"
+
+
+@pytest.fixture
+def finalization_repo(release_tree, tmp_path, monkeypatch):
+    # Exercise real uv locking without registry packages or a developer's cache.
+    monkeypatch.setenv(
+        "UV_CACHE_DIR", str(tmp_path.parent / f"{tmp_path.name}-uv-cache")
+    )
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_PYTHON", sys.executable)
+    monkeypatch.setenv("UV_PYTHON_DOWNLOADS", "never")
+    pyproject = release_tree / "pyproject.toml"
+    settings = HELPERS["tomllib"].loads(pyproject.read_text())
+    sections = {
+        "project": {
+            key: settings["project"][key]
+            for key in ("name", "version", "requires-python")
+        },
+        "tool.commitizen": settings["tool"]["commitizen"],
+    }
+    pyproject.write_text(
+        "\n".join(
+            f"[{section}]\n"
+            + "\n".join(f"{key} = {json.dumps(value)}" for key, value in values.items())
+            + "\n"
+            for section, values in sections.items()
+        )
+    )
+    subprocess.run(["uv", "lock"], cwd=release_tree, check=True, capture_output=True)
+    (release_tree / "runtime").mkdir()
+    for name in ("run_mcp.py", "run_mcp.py.lock"):
+        shutil.copy(ROOT / "runtime" / name, release_tree / "runtime" / name)
+    init_repo(release_tree)
+    baseline = HELPERS["validate"](release_tree)
+    major, minor, _ = map(int, baseline.split("."))
+    branch = f"release/{major}.{minor + 1}.0"
+    git(release_tree, "tag", f"v{baseline}")
+    git(release_tree, "branch", branch)
+    remote = tmp_path.parent / f"{tmp_path.name}-remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", str(remote)], check=True, capture_output=True
+    )
+    git(release_tree, "remote", "add", "origin", str(remote))
+    git(release_tree, "push", "origin", "main", branch, "--tags")
+    git(release_tree, "switch", "-c", "feat/final-feature")
+    git(release_tree, "commit", "--allow-empty", "-m", "feat: final capability")
+    return release_tree, branch
+
+
+def run_finalization(repo, branch):
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts/finalize_release.py"), branch],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, UV_OFFLINE="1"),
+    )
+
+
+def test_local_finalization_refreshes_notes_without_publishing(finalization_repo):
+    repo, branch = finalization_repo
+    target = branch.removeprefix("release/")
+    head = git(repo, "rev-parse", "HEAD")
+    main = git(repo, "rev-parse", "origin/main")
+    previous_notes = (repo / "CHANGELOG.md").read_text()
+    result = run_finalization(repo, branch)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert HELPERS["validate"](repo) == target
+    assert "final capability" in HELPERS["release_notes"](repo, target)
+    assert (repo / "CHANGELOG.md").read_text().endswith(previous_notes)
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert git(repo, "rev-parse", "origin/main") == main
+    assert git(repo, "rev-parse", f"origin/{branch}") == main
+    assert git(repo, "tag", "--list", f"*v{target}") == ""
+    assert git(repo, "branch", "--show-current") == "feat/final-feature"
+    git(repo, "add", "-u")
+    git(repo, "commit", "-m", f"bump: finalize {target}")
+    git(repo, "commit", "--allow-empty", "-m", "fix: late correction")
+    result = run_finalization(repo, branch)
+    assert result.returncode == 0, result.stdout + result.stderr
+    notes = HELPERS["release_notes"](repo, target)
+    assert "late correction" in notes
+    assert "final capability" in notes
+    assert (repo / "CHANGELOG.md").read_text().count(f"## v{target} (") == 1
+    assert (repo / "CHANGELOG.md").read_text().endswith(previous_notes)
+    assert set(git(repo, "diff", "--name-only").splitlines()) == {"CHANGELOG.md"}
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "dirty",
+        "main",
+        "release",
+        "detached",
+        "stale-main",
+        "stale-release",
+        "tag",
+        "plugin-tag",
+        "invalid-target",
+    ],
+)
+def test_local_finalization_rejects_unsafe_state(finalization_repo, mode):
+    repo, branch = finalization_repo
+    target = branch.removeprefix("release/")
+    if mode == "dirty":
+        (repo / "untracked").write_text("preserve me")
+    elif mode in {"main", "release"}:
+        git(repo, "switch", "main" if mode == "main" else branch)
+    elif mode == "detached":
+        git(repo, "checkout", "--detach")
+    elif mode in {"stale-main", "stale-release"}:
+        git(repo, "switch", "main" if mode == "stale-main" else branch)
+        git(repo, "commit", "--allow-empty", "-m", "fix: new upstream change")
+        git(repo, "push", "origin", "HEAD")
+        git(repo, "switch", "feat/final-feature")
+    elif mode in {"tag", "plugin-tag"}:
+        git(
+            repo,
+            "tag",
+            f"v{target}" if mode == "tag" else f"dataiku-headless--v{target}",
+        )
+    elif mode == "invalid-target":
+        branch = "release/1.2.3;echo unsafe"
+    original = {
+        name: (repo / name).read_bytes()
+        for name in ("pyproject.toml", "CHANGELOG.md", "uv.lock")
+    }
+    result = run_finalization(repo, branch)
+    assert result.returncode != 0
+    assert "Finalization failed" in result.stderr
+    for name, content in original.items():
+        assert (repo / name).read_bytes() == content
+    if mode == "dirty":
+        assert (repo / "untracked").read_text() == "preserve me"
+
+
+def test_release_workflow_only_publishes():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/bump.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    assert set(workflow["jobs"]) == {"publish"}
+    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {"release_pr"}
+    assert workflow["jobs"]["publish"]["permissions"]["pull-requests"] == "read"

@@ -1,3 +1,21 @@
+## v0.10.0 (2026-11-24)
+
+### Feat
+
+- **api-services**: create real-time API services from ML models, SQL queries, Python functions, and more (#220)
+- **project bundles**: create and publish project bundles from Design nodes (#215)
+- **deployer**: deploy API services to API infrastructures and project bundles to Automation nodes (#194)
+- **antigravity**: dedicated Antigravity plugin support (#225)
+- **users**: expose optional login and session activity (#221)
+- **cobuild**: return links to Dataiku objects back to the user (#218)
+- **macros**: discover and run project macros
+- **runtime**: support Python 3.15 (#223)
+
+### Fix
+
+- **setup**: sort instance manager names alphabetically (#219)
+- **datasets**: keep dataset analysis in Dataiku by default (#224)
+
 ## v0.9.0 (2026-11-05)
 
 ### Feat
