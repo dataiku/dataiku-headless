@@ -102,9 +102,7 @@ setup instructions. For more connection options, see
 See [Contributing](CONTRIBUTING.md) to report an issue or open a pull request.
 Contributors can find implementation guidance in the
 [coding standards](CODING_STANDARDS_AND_STRUCTURE.md) and publishing instructions
-in the [release guide](RELEASE.md). Finalize versions and release notes in the
-last feature/fix PR with `uv run python scripts/finalize_release.py release/X.Y.Z`.
-Release branches publish automatically after merging into main and passing CI.
+in the [release guide](RELEASE.md).
 
 ## License
 
