@@ -29,8 +29,9 @@ The configured instance type controls which tools are allowed; it does not estab
 6. Route in-project asset creation and modification through `./references/cobuild.md` unless the matching guide documents a narrow direct exception.
 7. Use direct writes only for exceptions documented in the matching reference guide. Missing Cobuild coverage does not authorize a new direct-write path.
 8. Use visual recipes by default. A code recipe is appropriate only when the user explicitly requests a code-based transformation.
-9. Preserve surrounding flow, storage, and operational context unless the user requests a change.
-10. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
+9. Keep dataset analysis in Dataiku by default.
+10. Preserve surrounding flow, storage, and operational context unless the user requests a change.
+11. If MCP or Cobuild coverage is insufficient, stop and report the gap rather than falling back to raw Python, `dataikuapi`, or ad hoc REST calls. Attribute the gap to the Dataiku version only when that requirement is known; otherwise, do not guess.
 
 ## Default Workflow — Design Node
 
