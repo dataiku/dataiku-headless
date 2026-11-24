@@ -23,6 +23,7 @@ from .server import mcp, run_http_server, run_stdio_server
 from .tools import (  # noqa: F401
     agent_reviews,
     agents,
+    api_services,
     cobuild,
     code_environments,
     connections,

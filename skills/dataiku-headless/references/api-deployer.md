@@ -1,6 +1,6 @@
 ---
 name: api-deployer
-description: Deploy already published API service versions, select a single target version and verify asynchronous API deployment updates.
+description: Deploy published API Services, verify asynchronous updates, and run endpoint test queries on deployed versions.
 ---
 
 # API Deployer
@@ -11,7 +11,8 @@ coverage and recovery. Pass arguments through the shared read/write dispatcher. 
 API services are authored in a Design/Automation project's API Designer and
 published as versioned packages. API Deployer manages those packages and sends them
 to an infrastructure. An API node serves requests; it is not the Deployer profile.
-The tool does not configure or invoke prediction endpoints.
+Test deployed endpoints with `deployer.run_test_queries`. Omit `test_queries` by
+default to run the saved-query snapshot in the deployed package.
 
 1. Discover infrastructures and stages, then inspect the chosen target and its
    reported deployment permissions and governance policy. Infrastructure type
@@ -31,10 +32,112 @@ The tool does not configure or invoke prediction endpoints.
    enabled=true to save re-enablement. A save alone does not change serving state.
    Authentication and other settings are preserved.
 7. Apply with `deployer.start_update`, track the future and exact update record, and
-   re-read deployment health. A successful update does not prove prediction quality;
-   endpoint invocation and test queries are outside this surface.
+   re-read deployment health. A successful update does not establish readiness:
+   Kubernetes rollout or public-address provisioning may still be in progress.
+   Inspect health messages and wait for readiness before testing; keep tracking the
+   existing update rather than resubmitting it. A healthy deployment does not prove prediction quality;
+   run representative endpoint test queries when execution validation is requested.
 
-API service authoring/publication, advanced traffic splits, endpoint authentication,
+## Test deployed endpoints
+
+Use `deployer.run_test_queries` through `run_write_operation`, even for prediction
+or lookup endpoints: function/SQL endpoints may write data or trigger external
+work. This runs real requests against the currently serving deployment; it is not
+a dry run or a Design development-server test. No publication or deployment update
+is performed by the test operation.
+
+### Match a test body to the infrastructure
+
+Inspect `infra_type` with `deployer.get_infrastructure` before supplying an
+explicit body. API Deployer supports these infrastructure types:
+
+| `infra_type` | Explicit test-query guidance |
+| --- | --- |
+| `STATIC` | Static API Node. The standard-prediction `features` example below applies. |
+| `K8S` | Kubernetes API Node infrastructure. The same standard-prediction example applies. |
+| `AZURE_ML`, `DATABRICKS`, `SAGEMAKER`, `SNOWPARK`, `VERTEX_AI` | Fully managed infrastructure. Start with a saved query from the target deployment; the provider and endpoint family determine the body shape. |
+
+1. Select the intended `deployer` profile. Use `deployer.get_deployment` to inspect
+   health, configured versions/traffic mapping, and `endpoints` (IDs, types and saved
+   `test_queries`). An unhealthy or out-of-sync deployment is not proof that the
+   corresponding current Design definition is invalid. Do not repair or redeploy it
+   merely to get a test result unless that is part of the user's request.
+2. Choose one endpoint explicitly. For function and SQL endpoints, inspect the
+   corresponding code/query and side effects before execution. Check the deployed
+   package and origin; current Design code may have changed since packaging.
+3. Omit `test_queries` to execute all saved queries from the deployed package for
+   that endpoint. This is the default validation path: it uses the exact query
+   snapshot that shipped with the package. An empty saved list executes no tests and
+   is not a pass. Saved header names are visible, but their values are redacted; do
+   not copy and resubmit those queries. Describe and run the saved queries with:
+
+   ```json
+   {
+     "operation_id": "deployer.run_test_queries",
+     "expected_instance": "<selected Deployer instance name>",
+     "arguments": {
+       "deployer_type": "api",
+       "deployment_id": "<discovered deployment ID>",
+       "endpoint_id": "<discovered endpoint ID>"
+     }
+   }
+   ```
+
+4. Supply explicit queries only to bound a test or provide a missing query. Provide
+   1–20 objects with required `q` (the request body), optional `name`, and optional
+   `headers: [{"key": "X-Example", "value": "example"}]`. Use only non-sensitive
+   explicit bodies and header values: the pinned SDK places supplied bodies and
+   headers in the request URL, which DSS or proxy access logs may retain. Custom
+   headers depend on the server version; older servers may silently ignore them.
+   When credentials are needed, prefer a saved query on a server that supports its
+   headers. Bodies follow the endpoint family's contract in
+   [API Endpoint Definitions](./api-services/api-endpoint-definitions.md#test-queries).
+   Explicit queries execute without being saved into the service or package.
+   Use this shape for an explicit query:
+
+   ```json
+   {
+     "operation_id": "deployer.run_test_queries",
+     "expected_instance": "<selected Deployer instance name>",
+     "arguments": {
+       "deployer_type": "api",
+       "deployment_id": "<discovered deployment ID>",
+       "endpoint_id": "<discovered endpoint ID>",
+       "test_queries": [{"q": {"features": {"<feature name>": 1}}}]
+     }
+   }
+   ```
+
+   This example is for a standard prediction endpoint on a static API Node (`STATIC`)
+   or Kubernetes API Node (`K8S`) infrastructure. Use the selected endpoint's actual
+   feature names, data types and non-sensitive representative values. Do not send
+   redacted placeholders.
+5. Repeat for each endpoint to validate the whole API Service. A passing test on
+   one endpoint does not validate its siblings. Inspect `query_count`, `succeeded_count`, `failed_count`,
+   `all_requests_succeeded`, `uncertain_count`, and each `responses` entry
+   (`query_index`, `request_succeeded`, `outcome_uncertain`, and `response` or error
+   type/code). A timeout or transport error can leave endpoint effects uncertain;
+   inspect effects before retrying. Zero queries never count
+   as a pass. These flags report request execution, not prediction quality or
+   application correctness: inspect response records for errors and compare outputs
+   with expected behavior. For multi-version routing, one successful request does
+   not establish that every version works; retain the configured mapping and any
+   version reported in the response.
+
+Responses have credential fields redacted by best effort field-name matching and
+omit query echoes, response headers, raw error messages and stack traces. Large
+individual response bodies are bounded and marked with `response_truncated`.
+The documented SQL result format (`results[].columns` containing `name`/`type`
+objects and positional `rows`) also has cells under sensitive column names
+redacted before truncation. Values under unrecognized names or in custom response
+formats may remain visible. Inspect detailed failures in the Deployer test
+UI. After a timeout or uncertain failure, queries may already have executed; do not
+blindly retry functions or SQL with side effects. Test requests can create audit
+records and incur normal serving costs.
+
+For Design service authoring and package publication, use [API Services](./api-services.md).
+
+Advanced traffic splits, endpoint authentication,
 API key handling, infrastructure provisioning and deployment deletion are not
 exposed. Use the Dataiku UI for these operations; inspect deployment failures with
 `deployer.get_update`, adding `include_logs=true` when needed.

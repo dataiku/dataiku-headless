@@ -745,7 +745,7 @@ def test_deployer_is_exposed_only_as_operations():
     tools = asyncio.run(mcp.list_tools())
     assert not any("deployer" in tool.name for tool in tools)
     operations = [op for op in OPERATIONS.values() if op.domain == "deployer"]
-    assert len(operations) == 13
+    assert len(operations) == 14
     assert all(op.allowed_instance_types == ("deployer",) for op in operations)
     assert OPERATIONS["deployer.start_update"].destructive
     assert not OPERATIONS["deployer.list_stages"].destructive
@@ -803,6 +803,8 @@ def test_dispatch_normalizes_identifiers_before_sdk_calls(backend, monkeypatch):
         ("deployer.update_deployment", "deployment_id"),
         ("deployer.start_update", "deployment_id"),
         ("deployer.get_future_status", "future_id"),
+        ("deployer.run_test_queries", "deployment_id"),
+        ("deployer.run_test_queries", "endpoint_id"),
     ],
 )
 def test_direct_handlers_validate_identifiers_before_sdk_calls(
@@ -935,3 +937,296 @@ def test_mcp_detail_reads_include_settings_without_new_arguments(
     assert "__DATAIKU_REDACTED__" in json.dumps(result["result"]["settings"])
     assert SECRET not in json.dumps(result)
     assert all(method == "GET" for method, _, _ in backend.calls)
+
+
+@pytest.fixture
+def api_test_backend(monkeypatch):
+    fake = Backend("api")
+    fake.test_response = {"responses": []}
+    request = fake._request
+
+    def perform(method, path, kwargs):
+        if path.endswith("/actions/run-test-queries"):
+            assert threading.get_ident() != fake.owner_thread
+            fake.calls.append((method, path, copy.deepcopy(kwargs)))
+            return copy.deepcopy(fake.test_response)
+        return request(method, path, kwargs)
+
+    monkeypatch.setattr(fake, "_request", perform)
+    monkeypatch.setattr(
+        deployer,
+        "get_dss_client",
+        lambda: SimpleNamespace(get_apideployer=lambda: DSSAPIDeployer(fake)),
+    )
+    return fake
+
+
+def test_api_test_queries_use_public_sdk_and_strip_echoed_credentials(api_test_backend):
+    api_test_backend.test_response = {
+        "responses": [
+            {
+                "query": {"q": {"password": SECRET}},
+                "headers": [{"key": "Set-Cookie", "value": SECRET}],
+                "response": {"results": [{"prediction": 0.7}], "token": SECRET},
+            },
+            {
+                "query": {"q": {}},
+                "error": {
+                    "errorType": "InvalidQuery",
+                    "code": "INVALID_QUERY",
+                    "message": SECRET,
+                    "stackTraceStr": SECRET,
+                    "payload": {"secret": SECRET},
+                },
+            },
+            {
+                "error": {
+                    "errorType": "TimeoutException",
+                    "code": "QUERY_TIMEOUT",
+                    "message": SECRET,
+                }
+            },
+        ]
+    }
+    query = deployer.APITestQuery(
+        q={"features": {"value": None}},
+        name="example",
+        headers=[deployer.APITestHeader(key="X-Example", value="test")],
+    )
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+        test_queries=[query],
+    )
+    assert result["query_count"] == 3
+    assert result["succeeded_count"] == 1
+    assert result["failed_count"] == 2
+    assert result["uncertain_count"] == 1
+    assert result["all_requests_succeeded"] is False
+    assert result["query_source"] == "supplied"
+    assert result["responses"][0]["response"]["results"] == [{"prediction": 0.7}]
+    assert result["responses"][1]["error"] == {
+        "errorType": "InvalidQuery",
+        "code": "INVALID_QUERY",
+    }
+    assert result["responses"][1]["outcome_uncertain"] is False
+    assert result["responses"][2]["outcome_uncertain"] is True
+    assert "query" not in result["responses"][0]
+    assert "headers" not in result["responses"][0]
+    method, path, options = api_test_backend.calls[-1]
+    assert method == "POST"
+    assert path == "/api-deployer/deployments/deployment/actions/run-test-queries"
+    assert options["params"]["endpointIdParam"] == "endpoint"
+    assert json.loads(options["params"]["testQueriesParam"]) == [
+        {
+            "q": {"features": {"value": None}},
+            "name": "example",
+            "headers": [{"key": "X-Example", "value": "test"}],
+        }
+    ]
+
+
+def test_saved_queries_and_zero_query_result_are_not_a_pass(api_test_backend):
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+    )
+    assert result["query_source"] == "deployed_package"
+    assert result["query_count"] == 0
+    assert result["all_requests_succeeded"] is False
+    assert api_test_backend.calls[-1][2] == {"params": {"endpointIdParam": "endpoint"}}
+
+
+def test_api_test_queries_are_write_only_and_schema_validates_inputs():
+    from dataiku_mcp.operations.catalog import get_operation
+
+    operation = get_operation("deployer.run_test_queries")
+    assert operation.effect == "write"
+    assert operation.destructive is True
+    assert operation.idempotent is False
+    base = {
+        "deployer_type": "api",
+        "deployment_id": "deployment",
+        "endpoint_id": "endpoint",
+    }
+    invalid = [
+        {**base, "deployer_type": "project"},
+        {"deployer_type": "api", "deployment_id": "deployment"},
+        {**base, "test_queries": []},
+        {**base, "test_queries": [{"features": {}}]},
+        {**base, "test_queries": [{"q": {}}] * 21},
+        {
+            **base,
+            "test_queries": [{"q": {}, "headers": [{"name": "bad", "value": "test"}]}],
+        },
+    ]
+    for arguments in invalid:
+        with pytest.raises(ValueError):
+            operation.validate(arguments)
+
+
+def test_api_test_operation_dispatch_and_read_denial(api_test_backend, monkeypatch):
+    from dataiku_mcp.config import stdio
+    from tests.test_instance_policy import _instance
+
+    monkeypatch.setattr(stdio, "_current_instance", _instance("deployer"))
+    api_test_backend.test_response = {"responses": [{"response": {"value": 1}}]}
+    arguments = {
+        "deployer_type": "api",
+        "deployment_id": "deployment",
+        "endpoint_id": "endpoint",
+        "test_queries": [{"q": {}}],
+    }
+
+    async def run():
+        async with Client(mcp) as client:
+            denied = await client.call_tool(
+                "run_read_operation",
+                {"operation_id": "deployer.run_test_queries", "arguments": arguments},
+                raise_on_error=False,
+            )
+            assert denied.is_error
+            assert not api_test_backend.calls
+            result = await client.call_tool(
+                "run_write_operation",
+                {"operation_id": "deployer.run_test_queries", "arguments": arguments},
+            )
+            payload = json.loads(result.content[0].text)
+            assert payload["result"]["all_requests_succeeded"] is True
+
+    asyncio.run(run())
+
+
+def test_api_deployment_read_discovers_endpoint_queries_without_code(
+    api_test_backend, monkeypatch
+):
+    request = api_test_backend._request
+
+    def perform(method, path, kwargs):
+        raw = request(method, path, kwargs)
+        if path.endswith("/status"):
+            raw["endpoints"] = [
+                {
+                    "id": "endpoint",
+                    "type": "PY_FUNCTION",
+                    "testQueries": [
+                        {
+                            "q": {"value": 1, "password": SECRET},
+                            "headers": [
+                                {"key": "Authorization", "value": SECRET},
+                                {"key": "X-Custom-Auth", "value": SECRET},
+                            ],
+                        }
+                    ],
+                    "code": SECRET,
+                }
+            ]
+        return raw
+
+    monkeypatch.setattr(api_test_backend, "_request", perform)
+    result = call(
+        deployer.get_deployer_deployment, api_test_backend, deployment_id="deployment"
+    )
+    assert result["endpoints"] == [
+        {
+            "id": "endpoint",
+            "type": "PY_FUNCTION",
+            "test_queries": [
+                {
+                    "q": {"value": 1, "password": "__DATAIKU_REDACTED__"},
+                    "headers": [
+                        {"key": "Authorization", "value": "__DATAIKU_REDACTED__"},
+                        {"key": "X-Custom-Auth", "value": "__DATAIKU_REDACTED__"},
+                    ],
+                }
+            ],
+        }
+    ]
+
+
+@pytest.mark.parametrize("row_count", [1, 1_000])
+def test_sql_test_results_redact_sensitive_columns_before_truncation(
+    api_test_backend, row_count
+):
+    columns = [
+        {"name": "id", "type": "int8"},
+        {"name": "api_key", "type": "text"},
+        {"name": "description", "type": "text"},
+    ]
+    body = {
+        "results": [
+            {
+                "columns": columns,
+                "rows": [[1, SECRET, "x" * 30] for _ in range(row_count)],
+                "updatedRows": 0,
+            },
+            {"updatedRows": 2},
+        ]
+    }
+    before = copy.deepcopy(body)
+    api_test_backend.test_response = {"responses": [{"response": body}]}
+
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+    )
+
+    response = result["responses"][0]
+    assert SECRET not in json.dumps(response)
+    assert body == before
+    if row_count == 1:
+        assert response["response"] == {
+            "results": [
+                {
+                    "columns": columns,
+                    "rows": [[1, "__DATAIKU_REDACTED__", "x" * 30]],
+                    "updatedRows": 0,
+                },
+                {"updatedRows": 2},
+            ]
+        }
+    else:
+        assert response["response_truncated"] is True
+        assert "__DATAIKU_REDACTED__" in response["response"]["preview"]
+
+
+def test_api_test_responses_are_bounded_and_marked_truncated(api_test_backend):
+    api_test_backend.test_response = {
+        "responses": [{"response": {"result": "x" * 20_000}}]
+    }
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+    )
+    response = result["responses"][0]
+    assert response["response_truncated"] is True
+    assert response["response"]["truncated"] is True
+    assert len(response["response"]["preview"]) < 16_000
+
+
+@pytest.mark.parametrize("exception", [Timeout, DataikuException])
+def test_api_test_failures_report_uncertain_execution_without_credentials(
+    api_test_backend, monkeypatch, exception
+):
+    def fail(*args, **kwargs):
+        raise exception(SECRET)
+
+    monkeypatch.setattr(api_test_backend, "_perform_json", fail)
+    with pytest.raises(
+        RuntimeError, match="queries may already have executed"
+    ) as error:
+        call(
+            deployer.run_deployer_test_queries,
+            api_test_backend,
+            deployment_id="deployment",
+            endpoint_id="endpoint",
+        )
+    assert SECRET not in str(error.value)

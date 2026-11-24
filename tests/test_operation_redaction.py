@@ -54,6 +54,10 @@ def test_deployer_future_status_does_not_fetch_results(monkeypatch):
     [
         {"apiKeys": [SECRET]},
         {"passwords": [SECRET]},
+        {"headers": [{"key": "Authorization", "value": SECRET}]},
+        {"headers": [{"key": "Cookie", "value": SECRET}]},
+        {"headers": [{"key": "X-API-Key", "value": SECRET}]},
+        {"properties": [{"key": "clientSecret", "value": SECRET}]},
         {"url": "https://user:" + SECRET + "@example.com/path?api_key=" + SECRET},
     ],
 )
@@ -61,3 +65,67 @@ def test_operation_redaction_covers_secret_containers_and_url_credentials(value)
     from dataiku_mcp.utils.redaction import redact_sensitive_data
 
     assert SECRET not in json.dumps(redact_sensitive_data(value))
+
+
+@pytest.mark.parametrize(
+    "column_name,redact_diagnostics,should_redact",
+    [
+        ("X-API-Key", False, True),
+        ("password", True, True),
+        ("error", True, True),
+        ("error", False, False),
+        ("description", True, False),
+    ],
+)
+def test_sql_column_redaction_uses_existing_field_name_policy(
+    column_name, redact_diagnostics, should_redact
+):
+    from dataiku_mcp.utils.redaction import redact_sensitive_data
+
+    table = {
+        "columns": [{"name": column_name, "type": "text"}],
+        "rows": [[SECRET], [], [None]],
+    }
+    result = redact_sensitive_data(table, redact_diagnostics=redact_diagnostics)
+
+    hidden = "__DATAIKU_REDACTED__"
+    assert result["columns"] == table["columns"]
+    assert result["rows"] == [
+        [hidden if should_redact else SECRET],
+        [],
+        [hidden if should_redact else None],
+    ]
+    assert table["rows"] == [[SECRET], [], [None]]
+
+
+def test_api_test_query_redaction_preserves_only_saved_header_names():
+    from dataiku_mcp.utils.redaction import (
+        redact_api_test_queries,
+        redact_sensitive_data,
+    )
+
+    test_queries = [
+        {
+            "headers": [
+                {"key": "X-Custom-Auth", "value": SECRET},
+                {"key": None, "value": SECRET},
+            ],
+            "properties": [{"key": "displayName", "value": "ordinary"}],
+        }
+    ]
+
+    default = redact_sensitive_data(test_queries)
+    assert default[0]["headers"] == [
+        {"key": "__DATAIKU_REDACTED__", "value": SECRET},
+        {"key": "__DATAIKU_REDACTED__", "value": SECRET},
+    ]
+    assert default[0]["properties"] == [
+        {"key": "__DATAIKU_REDACTED__", "value": "ordinary"}
+    ]
+
+    header_safe = redact_api_test_queries(test_queries)
+    assert header_safe[0]["headers"] == [
+        {"key": "X-Custom-Auth", "value": "__DATAIKU_REDACTED__"},
+        {"key": "__DATAIKU_REDACTED__", "value": "__DATAIKU_REDACTED__"},
+    ]
+    assert header_safe[0]["properties"] == default[0]["properties"]

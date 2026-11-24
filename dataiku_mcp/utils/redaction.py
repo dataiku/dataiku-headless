@@ -70,14 +70,44 @@ def _is_sensitive_key(key: str, *, redact_diagnostics: bool = True) -> bool:
 
 def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any:
     if isinstance(value, dict):
+        # Header/property lists encode the sensitive name in a key/value pair.
+        sensitive_pair = isinstance(value.get("key"), str) and _is_sensitive_key(
+            value["key"], redact_diagnostics=False
+        )
         redacted = {}
         for key, item in value.items():
-            if _is_sensitive_key(str(key), redact_diagnostics=redact_diagnostics):
+            if _is_sensitive_key(str(key), redact_diagnostics=redact_diagnostics) or (
+                key == "value" and sensitive_pair
+            ):
                 redacted[key] = _CONNECTION_SECRET_REDACTION
             else:
                 redacted[key] = redact_sensitive_data(
                     item, redact_diagnostics=redact_diagnostics
                 )
+        # SQL endpoint result sets describe positional row values in columns.
+        columns = value.get("columns")
+        if isinstance(columns, list) and isinstance(value.get("rows"), list):
+            sensitive_columns = {
+                index
+                for index, column in enumerate(columns)
+                if isinstance(column, dict)
+                and isinstance(column.get("name"), str)
+                and _is_sensitive_key(
+                    column["name"], redact_diagnostics=redact_diagnostics
+                )
+            }
+            if sensitive_columns:
+                redacted["rows"] = [
+                    [
+                        _CONNECTION_SECRET_REDACTION
+                        if index in sensitive_columns
+                        else cell
+                        for index, cell in enumerate(row)
+                    ]
+                    if isinstance(row, list)
+                    else row
+                    for row in redacted["rows"]
+                ]
         return redacted
 
     if isinstance(value, list):
@@ -107,6 +137,35 @@ def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any
         except ValueError:
             return _CONNECTION_SECRET_REDACTION
     return value
+
+
+def redact_api_test_queries(test_queries: Any) -> Any:
+    """Redact API test queries while retaining saved header names for inspection."""
+    redacted = redact_sensitive_data(test_queries)
+    if not isinstance(test_queries, list) or not isinstance(redacted, list):
+        return redacted
+
+    for query, redacted_query in zip(test_queries, redacted):
+        if not isinstance(query, dict) or not isinstance(redacted_query, dict):
+            continue
+        headers = query.get("headers")
+        if not isinstance(headers, list):
+            continue
+        redacted_query["headers"] = _redact_api_test_headers(headers)
+    return redacted
+
+
+def _redact_api_test_headers(headers: list[Any]) -> list[Any]:
+    result = []
+    for header in headers:
+        redacted = redact_sensitive_data(header)
+        if isinstance(header, dict) and isinstance(redacted, dict):
+            if isinstance(header.get("key"), str):
+                redacted["key"] = header["key"]
+            if "value" in header:
+                redacted["value"] = _CONNECTION_SECRET_REDACTION
+        result.append(redacted)
+    return result
 
 
 def contains_redacted_values(value: Any) -> bool:

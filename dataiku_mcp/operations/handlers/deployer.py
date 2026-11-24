@@ -24,13 +24,40 @@ from requests import RequestException
 
 from ...auth import get_dss_client
 from ...executors import run_blocking
-from dataiku_mcp.utils.serialization import columnar
-from dataiku_mcp.utils.redaction import redact_sensitive_data
+from ..models import OperationArguments
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.redaction import redact_api_test_queries, redact_sensitive_data
 from dataiku_mcp.utils.validation import require_non_empty_string
 from dataiku_mcp.utils.validation import require_path_segment
 
 
 DeployerType = Literal["project", "api"]
+_TEST_RESPONSE_CHAR_LIMIT = 16_000
+
+
+def _test_outcome_uncertain(error: dict) -> bool:
+    error_identity = (
+        " ".join(str(error.get(field, "")) for field in ("errorType", "code"))
+        .lower()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+    return any(
+        marker in error_identity
+        for marker in (
+            "timeout",
+            "timedout",
+            "connection",
+            "transport",
+            "network",
+            "ioerror",
+            "oserror",
+            "i/o",
+        )
+    )
+
+
 Version = Annotated[
     str, Field(description="Published bundle ID (project) or service version ID (api).")
 ]
@@ -40,6 +67,18 @@ IgnoreWarnings = Annotated[
         description="Ignore governance warnings only after explicit user approval for this version and target. Blocking policies still apply."
     ),
 ]
+
+
+class APITestHeader(OperationArguments):
+    key: str
+    value: str
+
+
+class APITestQuery(OperationArguments):
+    q: dict
+    name: str | None = None
+    headers: list[APITestHeader] | None = None
+
 
 # Status/list responses include credentials, scripts and endpoint code. Keep their
 # summaries allowlisted; detail reads return saved settings with shared redaction.
@@ -270,7 +309,7 @@ async def get_deployer_deployment(
         deployment = deployer.get_deployment(deployment_id)
         status = deployment.get_status()
         governance = deployment.get_governance_status()
-        return {
+        result = {
             **_summary(status.get_light()),
             "settings": redact_sensitive_data(deployment.get_settings().get_raw()),
             "health": status.get_health(),
@@ -283,6 +322,18 @@ async def get_deployer_deployment(
                 for message in governance.get("messages", [])
             ],
         }
+        if deployer_type == "api":
+            result["endpoints"] = [
+                {
+                    "id": endpoint.get("id"),
+                    "type": endpoint.get("type"),
+                    "test_queries": redact_api_test_queries(
+                        endpoint.get("testQueries", [])
+                    ),
+                }
+                for endpoint in status.get_heavy().get("endpoints", [])
+            ]
+        return result
 
     return await _execute(deployer_type, _run)
 
@@ -464,3 +515,76 @@ async def get_deployer_future_status(future_id: str) -> dict:
         return {"future_id": future_id, "state": _pick(state, fields)}
 
     return await run_blocking(_run)
+
+
+async def run_deployer_test_queries(
+    deployer_type: Literal["api"],
+    deployment_id: str,
+    endpoint_id: str,
+    test_queries: Annotated[
+        list[APITestQuery] | None,
+        Field(
+            min_length=1,
+            max_length=20,
+            description="Explicit test bodies (q), optional name/headers; omit to run the deployed package's saved queries. Executes real endpoint logic.",
+        ),
+    ] = None,
+) -> dict:
+    """Execute test queries against one deployed API endpoint, including functions and SQL with possible side effects. Result redaction is best effort by field name."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    endpoint_id = require_path_segment(endpoint_id, "endpoint_id")
+    queries = (
+        [query.model_dump(exclude_none=True) for query in test_queries]
+        if test_queries is not None
+        else None
+    )
+
+    def _run(deployer):
+        # Never echo request bodies, request/response headers or serialized errors.
+        try:
+            raw = deployer.get_deployment(deployment_id).run_test_queries(
+                endpoint_id=endpoint_id, test_queries=queries
+            )
+        except (DataikuException, RequestException):
+            raise RuntimeError(
+                "API test execution could not be verified. Some queries may already have executed. Inspect the deployment's test results or application effects before retrying, especially functions or SQL with side effects. Raw errors are omitted."
+            ) from None
+        responses = []
+        for index, item in enumerate(raw.get("responses", [])):
+            error = item.get("error")
+            response = {
+                "query_index": index,
+                "request_succeeded": error is None,
+                "outcome_uncertain": error is not None
+                and _test_outcome_uncertain(error),
+            }
+            if error is not None:
+                response["error"] = _pick(error, ("errorType", "code"))
+            else:
+                safe_response = redact_sensitive_data(item.get("response"))
+                serialized_response = compact_json(safe_response)
+                if len(serialized_response) > _TEST_RESPONSE_CHAR_LIMIT:
+                    response["response"] = {
+                        "truncated": True,
+                        "preview": serialized_response[
+                            : _TEST_RESPONSE_CHAR_LIMIT - 100
+                        ],
+                    }
+                    response["response_truncated"] = True
+                else:
+                    response["response"] = safe_response
+            responses.append(response)
+        succeeded = sum(item["request_succeeded"] for item in responses)
+        return {
+            "deployment_id": deployment_id,
+            "endpoint_id": endpoint_id,
+            "query_source": "supplied" if queries is not None else "deployed_package",
+            "query_count": len(responses),
+            "succeeded_count": succeeded,
+            "failed_count": len(responses) - succeeded,
+            "uncertain_count": sum(item["outcome_uncertain"] for item in responses),
+            "all_requests_succeeded": bool(responses) and succeeded == len(responses),
+            "responses": responses,
+        }
+
+    return await _execute(deployer_type, _run)

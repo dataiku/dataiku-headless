@@ -9,9 +9,10 @@ Deployer is an instance-level control plane with two independent components:
 Project Deployer sends published project bundles to Automation nodes; API Deployer
 sends published API service versions to API nodes or supported managed infrastructures.
 Deployer may be standalone or enabled locally on a Design or Automation node.
-All 13 operations, including future polling, use the schema-backed registry described in [Operations](./operations.md). Deployer operations require a profile declared as type `deployer`.
+All 14 operations, including future polling and API endpoint tests, use the schema-backed registry described in [Operations](./operations.md). Deployer operations require a profile declared as type `deployer`.
 These deployment operations are direct instance-level exceptions to Cobuild routing.
-Building the underlying Flow, models or API endpoint logic remains project work.
+Build the underlying Flow and models with Cobuild; use the Design
+[API Services guide](./api-services.md) for the API Service exception.
 
 ## Select the target first
 
@@ -38,12 +39,16 @@ Building the underlying Flow, models or API endpoint logic remains project work.
   columnar table with id, publishedOn and publishedBy. Use those IDs as versions.
 - `deployer.list_deployments` reports configuration, not live health.
   `deployer.get_deployment` adds full saved settings with credential redaction,
-  health and structured governance messages.
+  health and structured governance messages. For API deployments it also returns
+  endpoint IDs/types and credential-redacted saved test queries.
 - `deployer.create_deployment` creates configuration only. Existing IDs fail through
   Dataiku; this tool has no overwrite mode.
 - `deployer.update_deployment` saves only a target version and/or API enablement.
   Saving is not execution. Other settings are preserved; API version selection
   replaces the existing traffic mapping with a single-version mapping.
+- `deployer.run_test_queries` executes requests against one deployed API endpoint;
+  read [API Deployer](./api-deployer.md#test-deployed-endpoints) before invoking it.
+  It uses the write dispatcher because functions and SQL may have side effects.
 - `deployer.start_update` applies the saved settings asynchronously. It can replace
   production assets, alter API traffic, or disable an API deployment. Inspect the
   target and saved version first, and execute only within the user's request.
@@ -82,18 +87,21 @@ Lists and status summaries expose selected operational fields. Infrastructure an
 deployment detail reads also return backend-defined `settings` with credential
 values redacted.
 Deployment detail includes health and governance explanations. Update detail
-includes diagnostic reports and supports optional logs.
+includes diagnostic reports and supports optional logs. API endpoint test execution
+is supported through the write dispatcher.
 
 Create and publish project bundles on Design using the
-[Project bundles guide](./project-bundles.md), then return here to deploy them.
+[Project bundles guide](./project-bundles.md), or author and publish API service
+packages using the Design [API Services guide](./api-services.md), then return here
+to deploy them.
 
 There are no writes here for infrastructure provisioning, connection remapping,
 authentication, permissions, advanced traffic mappings, deletion, local bundle
-download/upload, API package publication, or deployment test execution. Deployer operations work with
+download/upload, or API package publication. Deployer operations work with
 already published packages.
 Report missing coverage; do not bypass it with raw SDK or REST calls. Use Cobuild for supported
 in-project asset construction; report publication gaps outside the documented
-Design bundle tools.
+Design bundle and API service tools.
 
 ## Official documentation
 

@@ -217,7 +217,7 @@ def test_operation_ids_are_unique():
 
 
 def test_all_schemas_accept_examples_and_are_closed():
-    assert sum(op.domain == "deployer" for op in OPERATIONS.values()) == 13
+    assert sum(op.domain == "deployer" for op in OPERATIONS.values()) == 14
     for operation in OPERATIONS.values():
         operation.validate(operation.example)
         description = operation.describe()
@@ -235,7 +235,7 @@ def test_search_returns_all_matches_and_preserves_tool_catalog(monkeypatch):
     async def run():
         before = {tool.name for tool in await mcp.list_tools()}
         result = await _call("search_operations", domain="deployer")
-        assert result["total"] == 13
+        assert result["total"] == 14
         assert [op["operation_id"] for op in result["operations"]] == list(OPERATIONS)
         assert set(result) == {"instance_name", "server_support", "total", "operations"}
         assert all("input_schema" not in op for op in result["operations"])

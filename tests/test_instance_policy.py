@@ -35,6 +35,7 @@ from tests.utils.fakes import FakeContext
 PROJECT_EDIT_TOOLS = (
     EXPECTED_TOOLS_BY_MODULE["cobuild"]
     | EXPECTED_TOOLS_BY_MODULE["project_bundles"]
+    | EXPECTED_TOOLS_BY_MODULE["api_services"]
     | {
         "create_project",
         "update_project_settings",

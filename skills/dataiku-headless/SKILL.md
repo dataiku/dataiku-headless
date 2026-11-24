@@ -55,6 +55,7 @@ On Automation, use the relevant inspection/execution guide without creating or e
 | Discover projects, inspect project metadata or variables, orient in a flow, or create a new project | `./references/projects.md` |
 | Inspect or update project settings, including Flow display, pipelines, default code envs, project-level container execution defaults, or Cobuild project instructions | `./references/projects/settings.md` |
 | Inspect the instance project-folder hierarchy or organize projects into project folders | `./references/project-folders.md` |
+| Inspect, create, update, or publish an API Service for deployment | `./references/api-services.md` |
 | Inspect, create, or publish a project bundle for deployment | `./references/project-bundles.md` |
 | Build, modify, or continue project-level work through Cobuild | `./references/cobuild.md` |
 | Inspect datasets, schema, samples, or metrics; export a local CSV; or create an Uploaded Files dataset | `./references/datasets.md` |
