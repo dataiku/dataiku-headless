@@ -1,3 +1,33 @@
+## v0.10.0 (2026-11-24)
+
+### Feat
+
+- **release**: finalize locally and publish after main CI
+- **api-services**: add authoring, publication and deployed tests (#220)
+- **plugins**: add Antigravity support and bundle marketplace logos (#225)
+- **cobuild**: tag a conversation's DSS calls with a client application (#226)
+- **users**: expose optional login and session activity (#221)
+- **cobuild**: resolve object references to Dataiku UI links (#218)
+- **bundles**: create and publish project bundles
+- **operations**: add shared API tools and Deployer support (#194)
+- **macros**: add discovery and run lifecycle tools
+
+### Fix
+
+- **datasets**: keep dataset analysis in Dataiku by default (#224)
+- **runtime**: support Python 3.15 (#223)
+- **setup**: sort instance manager names alphabetically (#219)
+- **macros**: clarify reported status errors
+- **macros**: preserve result retrieval error details
+- **macros**: declare instance policies and merge release updates
+- **macros**: return run progress and failure details
+- **macros**: preserve parameter defaults in definitions
+- **runtime**: declare the SDK six requirement
+
+### Refactor
+
+- **macros**: inline client lookups and run validation
+
 ## v0.9.0 (2026-11-05)
 
 ### Feat
