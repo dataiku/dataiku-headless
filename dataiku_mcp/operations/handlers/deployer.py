@@ -1,0 +1,590 @@
+# Copyright 2026 Dataiku SAS
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Project and API Deployer handlers with body validation of identifiers."""
+
+import re
+from typing import Annotated, Literal
+
+from dataikuapi.dss.future import DSSFuture
+from dataikuapi.utils import DataikuException
+from pydantic import Field
+from requests import RequestException
+
+from ...auth import get_dss_client
+from ...executors import run_blocking
+from ..models import OperationArguments
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.redaction import redact_api_test_queries, redact_sensitive_data
+from dataiku_mcp.utils.validation import require_non_empty_string
+from dataiku_mcp.utils.validation import require_path_segment
+
+
+DeployerType = Literal["project", "api"]
+_TEST_RESPONSE_CHAR_LIMIT = 16_000
+
+
+def _test_outcome_uncertain(error: dict) -> bool:
+    error_identity = (
+        " ".join(str(error.get(field, "")) for field in ("errorType", "code"))
+        .lower()
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+    return any(
+        marker in error_identity
+        for marker in (
+            "timeout",
+            "timedout",
+            "connection",
+            "transport",
+            "network",
+            "ioerror",
+            "oserror",
+            "i/o",
+        )
+    )
+
+
+Version = Annotated[
+    str, Field(description="Published bundle ID (project) or service version ID (api).")
+]
+IgnoreWarnings = Annotated[
+    bool,
+    Field(
+        description="Ignore governance warnings only after explicit user approval for this version and target. Blocking policies still apply."
+    ),
+]
+
+
+class APITestHeader(OperationArguments):
+    key: str
+    value: str
+
+
+class APITestQuery(OperationArguments):
+    q: dict
+    name: str | None = None
+    headers: list[APITestHeader] | None = None
+
+
+# Status/list responses include credentials, scripts and endpoint code. Keep their
+# summaries allowlisted; detail reads return saved settings with shared redaction.
+_INFRA_FIELDS = ("id", "stage", "infraType", "governCheckPolicy", "canListHeavyStatus")
+_ITEM_FIELDS = ("id", "name")
+_DEPLOYMENT_FIELDS = (
+    "id",
+    "infraId",
+    "publishedProjectKey",
+    "deployedProjectKey",
+    "bundleId",
+    "publishedServiceId",
+    "deployedServiceId",
+    "enabled",
+    "endpointId",
+)
+_PERMISSION_FIELDS = (
+    "canDeploy",
+    "canWrite",
+    "isAdmin",
+    "hasFullDeployPermissions",
+    "isInfraAdmin",
+    "neverEverDeployed",
+)
+_UPDATE_FIELDS = ("startTimestamp", "endTimestamp", "type", "status", "requester")
+_MESSAGE_FIELDS = (
+    "severity",
+    "isFatal",
+    "code",
+    "title",
+    "message",
+    "details",
+    "governLink",
+)
+
+# DKUtils.startLogAppender reuses the root PatternLayout, or falls back to a
+# relative timestamp. YAML continuation lines have no log-entry header.
+_DEPLOYER_LOG_HEADER = re.compile(
+    r"^(?:"
+    r"\[\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+\] "
+    r"\[[^\]\r\n]*\] \[(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\] \[[^\]\r\n]+\]"
+    r"|\d+\s+\[[^\]\r\n]*\]\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\S+"
+    r")\s+.*? - "
+)
+_KUBERNETES_MANIFEST_LOG = re.compile(r"\bfinal (?:opaque secret|deployment):")
+
+
+def _redact_deployer_logs(lines: list[str] | None) -> list[str] | None:
+    """Omit generated Kubernetes manifests, which can carry environment secrets."""
+    if lines is None:
+        return None
+    result = []
+    in_manifest = False
+    for entry in lines:
+        retained = []
+        for line in entry.splitlines(keepends=True) or [""]:
+            if in_manifest and not _DEPLOYER_LOG_HEADER.match(line):
+                continue
+            marker = _KUBERNETES_MANIFEST_LOG.search(line)
+            if marker:
+                ending = line[len(line.rstrip("\r\n")) :]
+                retained.append(
+                    line[: marker.end()] + " [Kubernetes manifest redacted]" + ending
+                )
+                in_manifest = True
+            else:
+                in_manifest = False
+                retained.append(line)
+        if retained:
+            result.append("".join(retained))
+    return redact_sensitive_data(result, redact_diagnostics=False)
+
+
+def _pick(raw: dict, fields: tuple) -> dict:
+    return {key: raw[key] for key in fields if key in raw}
+
+
+def _deployment_info(raw: dict) -> dict:
+    result = _pick(raw, _DEPLOYMENT_FIELDS)
+    mapping = raw.get("generationsMapping")
+    if mapping is not None:
+        result["generationsMapping"] = _pick(mapping, ("mode", "generation"))
+        if "entries" in mapping:
+            result["generationsMapping"]["entries"] = [
+                _pick(entry, ("generation", "proba")) for entry in mapping["entries"]
+            ]
+    return result
+
+
+def _summary(raw: dict) -> dict:
+    result = _pick(raw, _PERMISSION_FIELDS)
+    for key, fields in (
+        ("infraBasicInfo", _INFRA_FIELDS),
+        ("projectBasicInfo", _ITEM_FIELDS),
+        ("serviceBasicInfo", _ITEM_FIELDS),
+    ):
+        if key in raw:
+            result[key] = _pick(raw[key], fields)
+    if "deploymentBasicInfo" in raw:
+        result["deploymentBasicInfo"] = _deployment_info(raw["deploymentBasicInfo"])
+    if "packages" in raw:
+        result["packages"] = columnar(
+            raw["packages"], ["id", "publishedOn", "publishedBy"]
+        )
+    if "deployments" in raw:
+        result["deployments"] = [_deployment_info(item) for item in raw["deployments"]]
+    if "infras" in raw:
+        result["infras"] = [_pick(item, _INFRA_FIELDS) for item in raw["infras"]]
+    return result
+
+
+async def _execute(deployer_type: DeployerType, operation) -> dict:
+    def _run():
+        client = get_dss_client()
+        deployer = (
+            client.get_projectdeployer()
+            if deployer_type == "project"
+            else client.get_apideployer()
+        )
+        try:
+            return operation(deployer)
+        except (DataikuException, RequestException) as error:
+            if isinstance(error, DataikuException) and any(
+                marker in str(error)
+                for marker in (
+                    "ERR_DEPLOYER_INVALID_GOVERNANCE_STATUS",
+                    "WARNING : Invalid governance status:",
+                    "ERROR : Invalid governance status:",
+                )
+            ):
+                raise RuntimeError(str(error)) from None
+            # Other SDK exception bodies may include credentials or raw settings.
+            raise RuntimeError(
+                "Deployer request failed. Check node capabilities, permissions and object IDs. "
+                "For a write, inspect current state and update history before retrying; "
+                "the request may have reached Dataiku."
+            ) from None
+
+    return await run_blocking(_run)
+
+
+async def list_deployer_stages(deployer_type: DeployerType) -> dict:
+    """Discover configured infrastructure stages for a Project or API Deployer."""
+    return await _execute(
+        deployer_type,
+        lambda deployer: {"stages": columnar(deployer.list_stages(), ["id", "desc"])},
+    )
+
+
+async def list_deployer_infrastructures(deployer_type: DeployerType) -> dict:
+    """Discover deployment targets and the current user’s deployment permissions."""
+    return await _execute(
+        deployer_type,
+        lambda deployer: {
+            "infrastructures": [
+                _summary(raw) for raw in deployer.list_infras(as_objects=False)
+            ]
+        },
+    )
+
+
+async def get_deployer_infrastructure(
+    deployer_type: DeployerType, infra_id: str
+) -> dict:
+    """Inspect an infrastructure's redacted settings, summary and associated deployments."""
+    infra_id = require_path_segment(infra_id, "infra_id")
+
+    def _run(deployer):
+        infra = deployer.get_infra(infra_id)
+        return {
+            **_summary(infra.get_status().get_raw()),
+            "settings": redact_sensitive_data(infra.get_settings().get_raw()),
+        }
+
+    return await _execute(deployer_type, _run)
+
+
+async def list_deployer_published_items(deployer_type: DeployerType) -> dict:
+    """Discover published projects or API services available for deployment."""
+
+    def _run(deployer):
+        items = (
+            deployer.list_projects(as_objects=False)
+            if deployer_type == "project"
+            else deployer.list_services(as_objects=False)
+        )
+        return {"items": [_summary(raw) for raw in items]}
+
+    return await _execute(deployer_type, _run)
+
+
+async def get_deployer_published_item(
+    deployer_type: DeployerType, source_id: str
+) -> dict:
+    """Inspect a published project or API service and its available bundles or versions."""
+    source_id = require_path_segment(source_id, "source_id")
+
+    def _run(deployer):
+        item = (
+            deployer.get_project(source_id)
+            if deployer_type == "project"
+            else deployer.get_service(source_id)
+        )
+        return _summary(item.get_status().get_raw())
+
+    return await _execute(deployer_type, _run)
+
+
+async def list_deployer_deployments(deployer_type: DeployerType) -> dict:
+    """Discover deployment IDs and configured target versions; use detail for live health."""
+    return await _execute(
+        deployer_type,
+        lambda deployer: {
+            "deployments": [
+                _summary(raw) for raw in deployer.list_deployments(as_objects=False)
+            ]
+        },
+    )
+
+
+async def get_deployer_deployment(
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
+    """Inspect redacted deployment settings, current health and governance status."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+
+    def _run(deployer):
+        deployment = deployer.get_deployment(deployment_id)
+        status = deployment.get_status()
+        governance = deployment.get_governance_status()
+        result = {
+            **_summary(status.get_light()),
+            "settings": redact_sensitive_data(deployment.get_settings().get_raw()),
+            "health": status.get_health(),
+            "health_messages": [
+                redact_sensitive_data(_pick(message, _MESSAGE_FIELDS))
+                for message in status.get_health_messages().get("messages", [])
+            ],
+            "governance_messages": [
+                redact_sensitive_data(_pick(message, _MESSAGE_FIELDS))
+                for message in governance.get("messages", [])
+            ],
+        }
+        if deployer_type == "api":
+            result["endpoints"] = [
+                {
+                    "id": endpoint.get("id"),
+                    "type": endpoint.get("type"),
+                    "test_queries": redact_api_test_queries(
+                        endpoint.get("testQueries", [])
+                    ),
+                }
+                for endpoint in status.get_heavy().get("endpoints", [])
+            ]
+        return result
+
+    return await _execute(deployer_type, _run)
+
+
+async def list_deployer_updates(
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
+    """Find deployment update timestamps and outcomes for recovery and auditing."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    return await _execute(
+        deployer_type,
+        lambda deployer: {
+            "updates": [
+                _pick(update.get_raw(), _UPDATE_FIELDS)
+                for update in deployer.get_deployment(deployment_id).list_updates()
+            ]
+        },
+    )
+
+
+async def get_deployer_update(
+    deployer_type: DeployerType,
+    deployment_id: str,
+    timestamp: str | None = None,
+    include_logs: Annotated[
+        bool,
+        Field(
+            description="Include available update logs with generated Kubernetes manifests redacted."
+        ),
+    ] = False,
+) -> dict:
+    """Inspect a deployment update's outcome and diagnostic report, optionally including logs."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    if timestamp is not None:
+        timestamp = require_path_segment(timestamp, "timestamp")
+
+    def _run(deployer):
+        update = deployer.get_deployment(deployment_id).get_update(timestamp)
+        raw = update.get_raw()
+        result = _pick(raw, _UPDATE_FIELDS)
+        if raw.get("report") is not None:
+            result["report"] = redact_sensitive_data(
+                raw["report"], redact_diagnostics=False
+            )
+        if include_logs:
+            result["logs"] = _redact_deployer_logs(update.logs)
+        return result
+
+    return await _execute(deployer_type, _run)
+
+
+async def create_deployer_deployment(
+    deployer_type: DeployerType,
+    deployment_id: str,
+    source_id: str,
+    infra_id: str,
+    version: Version,
+    deployed_project_key: str | None = None,
+    project_folder_id: str | None = None,
+    endpoint_id: str | None = None,
+    ignore_warnings: IgnoreWarnings = False,
+) -> dict:
+    """Create deployment configuration from a published version; start an update to apply it."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    source_id = require_path_segment(source_id, "source_id")
+    infra_id = require_path_segment(infra_id, "infra_id")
+    if deployed_project_key is not None:
+        deployed_project_key = require_path_segment(
+            deployed_project_key, "deployed_project_key"
+        )
+    if project_folder_id is not None:
+        project_folder_id = require_path_segment(project_folder_id, "project_folder_id")
+    if endpoint_id is not None:
+        endpoint_id = require_path_segment(endpoint_id, "endpoint_id")
+    version = require_non_empty_string(version, "version")
+    if deployer_type == "project" and endpoint_id is not None:
+        raise ValueError("endpoint_id is only supported for API deployments")
+    if deployer_type == "api" and (
+        deployed_project_key is not None or project_folder_id is not None
+    ):
+        raise ValueError(
+            "deployed_project_key and project_folder_id are only supported for project deployments"
+        )
+
+    def _run(deployer):
+        if deployer_type == "project":
+            deployment = deployer.create_deployment(
+                deployment_id,
+                source_id,
+                infra_id,
+                version,
+                deployed_project_key=deployed_project_key,
+                project_folder_id=project_folder_id,
+                ignore_warnings=ignore_warnings,
+            )
+        else:
+            deployment = deployer.create_deployment(
+                deployment_id,
+                source_id,
+                infra_id,
+                version,
+                endpoint_id=endpoint_id,
+                ignore_warnings=ignore_warnings,
+            )
+        return {
+            "deployment_id": deployment.id,
+            "status": "configuration_created",
+            "update_started": False,
+        }
+
+    return await _execute(deployer_type, _run)
+
+
+async def update_deployer_deployment(
+    deployer_type: DeployerType,
+    deployment_id: str,
+    version: Version | None = None,
+    enabled: bool | None = None,
+    ignore_warnings: IgnoreWarnings = False,
+) -> dict:
+    """Save a target version or API enablement; an update is still needed to apply it."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    if version is None and enabled is None:
+        raise ValueError("Provide version or enabled")
+    if version is not None:
+        version = require_non_empty_string(version, "version")
+    if enabled is not None and deployer_type != "api":
+        raise ValueError("enabled is only supported for API deployments")
+
+    def _run(deployer):
+        settings = deployer.get_deployment(deployment_id).get_settings()
+        if version is not None:
+            if deployer_type == "project":
+                settings.bundle_id = version
+            else:
+                settings.set_single_version(version)
+        if enabled is not None:
+            settings.set_enabled(enabled)
+        settings.save(ignore_warnings=ignore_warnings)
+        return {
+            "deployment_id": deployment_id,
+            "status": "configuration_saved",
+            "update_started": False,
+        }
+
+    return await _execute(deployer_type, _run)
+
+
+async def start_deployer_update(
+    deployer_type: DeployerType, deployment_id: str
+) -> dict:
+    """Apply saved deployment settings asynchronously, potentially replacing running production assets."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+
+    def _run(deployer):
+        future = deployer.get_deployment(deployment_id).start_update()
+        return {
+            "deployment_id": deployment_id,
+            "future_id": future.job_id,
+            "status": "update_submitted",
+            "hint": "Poll get_future_status on this same instance, then re-read deployment health and update history. If future_id is null, inspect update history. Do not resubmit an uncertain update.",
+        }
+
+    return await _execute(deployer_type, _run)
+
+
+async def get_deployer_future_status(future_id: str) -> dict:
+    """Poll a deployment future without fetching potentially sensitive result payloads."""
+    future_id = require_path_segment(future_id, "future_id")
+
+    def _run():
+        try:
+            state = DSSFuture(get_dss_client(), future_id).peek_state()
+        except (DataikuException, RequestException):
+            raise RuntimeError(
+                "Deployer future polling failed. Inspect deployment health and update history on this instance; do not resubmit the deployment."
+            ) from None
+        fields = ("jobId", "hasResult", "aborted", "alive", "startTime", "endTime")
+        return {"future_id": future_id, "state": _pick(state, fields)}
+
+    return await run_blocking(_run)
+
+
+async def run_deployer_test_queries(
+    deployer_type: Literal["api"],
+    deployment_id: str,
+    endpoint_id: str,
+    test_queries: Annotated[
+        list[APITestQuery] | None,
+        Field(
+            min_length=1,
+            max_length=20,
+            description="Explicit test bodies (q), optional name/headers; omit to run the deployed package's saved queries. Executes real endpoint logic.",
+        ),
+    ] = None,
+) -> dict:
+    """Execute test queries against one deployed API endpoint, including functions and SQL with possible side effects. Result redaction is best effort by field name."""
+    deployment_id = require_path_segment(deployment_id, "deployment_id")
+    endpoint_id = require_path_segment(endpoint_id, "endpoint_id")
+    queries = (
+        [query.model_dump(exclude_none=True) for query in test_queries]
+        if test_queries is not None
+        else None
+    )
+
+    def _run(deployer):
+        # Never echo request bodies, request/response headers or serialized errors.
+        try:
+            raw = deployer.get_deployment(deployment_id).run_test_queries(
+                endpoint_id=endpoint_id, test_queries=queries
+            )
+        except (DataikuException, RequestException):
+            raise RuntimeError(
+                "API test execution could not be verified. Some queries may already have executed. Inspect the deployment's test results or application effects before retrying, especially functions or SQL with side effects. Raw errors are omitted."
+            ) from None
+        responses = []
+        for index, item in enumerate(raw.get("responses", [])):
+            error = item.get("error")
+            response = {
+                "query_index": index,
+                "request_succeeded": error is None,
+                "outcome_uncertain": error is not None
+                and _test_outcome_uncertain(error),
+            }
+            if error is not None:
+                response["error"] = _pick(error, ("errorType", "code"))
+            else:
+                safe_response = redact_sensitive_data(item.get("response"))
+                serialized_response = compact_json(safe_response)
+                if len(serialized_response) > _TEST_RESPONSE_CHAR_LIMIT:
+                    response["response"] = {
+                        "truncated": True,
+                        "preview": serialized_response[
+                            : _TEST_RESPONSE_CHAR_LIMIT - 100
+                        ],
+                    }
+                    response["response_truncated"] = True
+                else:
+                    response["response"] = safe_response
+            responses.append(response)
+        succeeded = sum(item["request_succeeded"] for item in responses)
+        return {
+            "deployment_id": deployment_id,
+            "endpoint_id": endpoint_id,
+            "query_source": "supplied" if queries is not None else "deployed_package",
+            "query_count": len(responses),
+            "succeeded_count": succeeded,
+            "failed_count": len(responses) - succeeded,
+            "uncertain_count": sum(item["outcome_uncertain"] for item in responses),
+            "all_requests_succeeded": bool(responses) and succeeded == len(responses),
+            "responses": responses,
+        }
+
+    return await _execute(deployer_type, _run)

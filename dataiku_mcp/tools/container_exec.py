@@ -27,8 +27,8 @@ from .. import mcp
 from .machine_learning.shared.common import require_single_ml_task
 from ..auth import get_dss_client
 from ..executors import run_blocking
-from .utils.serialization import compact_json
-from .utils.validation import require_allowed_value, require_non_empty_string
+from dataiku_mcp.utils.serialization import compact_json
+from dataiku_mcp.utils.validation import require_allowed_value, require_non_empty_string
 
 ContainerMode = Literal["INHERIT", "NONE", "EXPLICIT_CONTAINER"]
 ObjectType = Literal["recipe", "ml_task", "webapp", "knowledge_bank", "agent_tool"]

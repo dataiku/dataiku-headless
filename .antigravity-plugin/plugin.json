@@ -1,0 +1,24 @@
+{
+  "name": "dataiku-headless",
+  "version": "0.10.0",
+  "description": "Connect your agent to Dataiku: inspect projects, datasets, recipes, ML, and agents with typed MCP tools, and drive Dataiku Cobuild to build project-level assets.",
+  "author": {
+    "name": "Dataiku",
+    "url": "https://www.dataiku.com/"
+  },
+  "homepage": "https://github.com/dataiku/dataiku-headless",
+  "repository": "https://github.com/dataiku/dataiku-headless",
+  "license": "Apache-2.0",
+  "keywords": [
+    "dataiku",
+    "cobuild"
+  ],
+  "skills": "./skills/",
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "displayName": "Dataiku Headless",
+  "logo": "docs/assets/antigravity_logo.png",
+  "suggestedPrompts": [
+    "Set up Dataiku Headless",
+    "How many projects are in this Dataiku instance?"
+  ]
+}

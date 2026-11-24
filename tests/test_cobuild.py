@@ -120,7 +120,7 @@ def environment(monkeypatch):
     cobuild._conversations.clear()
     active_instance = {"name": "instance-a", "url": "https://a.example.com"}
     client = Client()
-    monkeypatch.setattr(cobuild, "get_dss_client", lambda: client)
+    monkeypatch.setattr(cobuild, "get_dss_client", lambda *_: client)
     monkeypatch.setattr(
         request,
         "get_pinned_instance",
@@ -436,12 +436,17 @@ def test_turn_status_waits_for_and_returns_the_terminal_result(
     run(scenario())
 
 
-def test_cancellation_keeps_the_turn_recoverable_from_listing(environment):
+@pytest.mark.parametrize("client_application", ["dataiku-headless", "dataiku-migrate"])
+def test_cancellation_keeps_the_turn_recoverable_from_listing(
+    environment, client_application
+):
     client, _ = environment
     client.conversation.release = threading.Event()
 
     async def scenario():
-        await start()
+        await cobuild.start_cobuild_conversation(
+            "PROJECT", Context(), client_application=client_application
+        )
         waiter = asyncio.create_task(send())
         while not client.conversation.started.is_set():
             await asyncio.sleep(0.01)
@@ -454,6 +459,7 @@ def test_cancellation_keeps_the_turn_recoverable_from_listing(environment):
         )
         columns = listing["conversations"]["columns"]
         row = dict(zip(columns, listing["conversations"]["rows"][0]))
+        assert row["client_application"] == client_application
         assert row["current_turn_status"] == "in_progress"
         client.conversation.release.set()
         assert (await wait_for_terminal(row["current_turn_id"]))[
@@ -470,7 +476,7 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
     monkeypatch.setattr(
         cobuild,
         "get_dss_client",
-        lambda: (
+        lambda *_: (
             clients[0] if "conversation-1" not in cobuild._conversations else clients[1]
         ),
     )
@@ -497,6 +503,95 @@ def test_queued_cobuild_turns_are_accepted_with_pollable_ids(environment, monkey
         assert (await wait_for_terminal(second_turn["turn_id"], "conversation-2"))[
             "status"
         ] == "completed"
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("client_application", [None, "dataiku-migrate"])
+def test_conversation_calls_keep_the_client_application(
+    environment, monkeypatch, client_application
+):
+    client, _ = environment
+    applications = []
+    expected_application = client_application or "dataiku-headless"
+
+    def get_client(application="dataiku-headless"):
+        applications.append(application)
+        return client
+
+    monkeypatch.setattr(cobuild, "get_dss_client", get_client)
+    client.conversation.next_send = Response("Which column?", is_question_request=True)
+    client.conversation.next_question_answer = Response(
+        "Delete?", is_confirmation_request=True
+    )
+
+    async def scenario():
+        arguments = (
+            {}
+            if client_application is None
+            else {"client_application": client_application}
+        )
+        created = json.loads(
+            await cobuild.start_cobuild_conversation("PROJECT", Context(), **arguments)
+        )
+        assert created["client_application"] == expected_application
+        question = await send()
+        assert (await poll(question["turn_id"]))["is_question_request"]
+        confirmation = await answer_question(question["turn_id"], ["order_date"])
+        assert (await poll(confirmation["turn_id"]))["is_confirmation_request"]
+        assert (await answer(confirmation["turn_id"], "CANCEL"))[
+            "status"
+        ] == "completed"
+        assert (await send())["status"] == "completed"
+
+    run(scenario())
+    assert applications == [expected_application] * 5
+    assert client.conversation.question_answer_calls == [(["order_date"], False, False)]
+    assert client.conversation.answer_calls == ["CANCEL"]
+
+
+def test_conversations_keep_separate_client_applications(environment, monkeypatch):
+    clients = {
+        "dataiku-headless": Client(Conversation("headless-conversation")),
+        "dataiku-migrate": Client(Conversation("migrate-conversation")),
+    }
+    monkeypatch.setattr(
+        cobuild,
+        "get_dss_client",
+        lambda application="dataiku-headless": clients[application],
+    )
+
+    async def scenario():
+        await cobuild.start_cobuild_conversation(
+            "PROJECT", Context(), client_application="dataiku-migrate"
+        )
+        await start()
+        results = await asyncio.gather(
+            send("migrate-conversation"), send("headless-conversation")
+        )
+        assert all(result["status"] == "completed" for result in results)
+        listing = json.loads(
+            await cobuild.list_cobuild_conversations("PROJECT", Context())
+        )["conversations"]
+        rows = [dict(zip(listing["columns"], row)) for row in listing["rows"]]
+        assert {row["conversation_id"]: row["client_application"] for row in rows} == {
+            "headless-conversation": "dataiku-headless",
+            "migrate-conversation": "dataiku-migrate",
+        }
+
+    run(scenario())
+    for client in clients.values():
+        assert client.conversation.send_calls == [("do work", False)]
+        assert client.conversation.client is client
+
+
+def test_client_application_tool_schema():
+    async def scenario():
+        tool = await cobuild.mcp.get_tool("start_cobuild_conversation")
+        parameter = tool.parameters["properties"]["client_application"]
+        assert parameter["enum"] == ["dataiku-headless", "dataiku-migrate"]
+        assert parameter["default"] == "dataiku-headless"
+        assert "client_application" not in tool.parameters["required"]
 
     run(scenario())
 
@@ -595,5 +690,40 @@ def test_project_url_tolerates_a_trailing_slash_in_the_instance_url(environment)
 
     async def scenario():
         assert (await start())["project_url"] == PROJECT_URL
+
+    run(scenario())
+
+
+def test_terminal_object_links_preserve_message_and_pinned_instance(environment):
+    client, active_instance = environment
+    message = "Created [sales](WEB_APP:PROJECT.app) and [clean](RECIPE:clean)."
+    client.conversation.next_send = Response(message)
+
+    async def scenario():
+        await start()
+        # The instance URL may change while the retained conversation still
+        # belongs to the same instance name; use its captured URL for links.
+        active_instance["url"] = "https://b.example.com"
+        result = await send(allow_edit_project=True)
+        assert result["message"] == message
+        assert result["object_links"] == [
+            {
+                "reference": "WEB_APP:PROJECT.app",
+                "url": "https://a.example.com/projects/PROJECT/webapps/app_/view",
+            },
+            {
+                "reference": "RECIPE:clean",
+                "url": "https://a.example.com/projects/PROJECT/recipes/clean/",
+            },
+        ]
+        assert (await poll(result["turn_id"]))["object_links"] == result["object_links"]
+
+    run(scenario())
+
+
+def test_terminal_response_without_object_links_omits_the_field(environment):
+    async def scenario():
+        await start()
+        assert "object_links" not in await send()
 
     run(scenario())

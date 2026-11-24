@@ -37,9 +37,12 @@ from .utils.metrics import parse_metric_ids as _parse_metric_ids
 from .utils.metrics import select_metrics as _select_metrics
 from .utils.metrics import stale_metric_ids as _stale_metric_ids
 from .utils.metrics import unrefreshed_metric_ids as _unrefreshed_metric_ids
-from .utils.serialization import columnar, compact_json, is_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
-from .utils.validation import require_positive_int as _require_positive_int
+from dataiku_mcp.utils.serialization import columnar, compact_json, is_empty
+from dataiku_mcp.utils.redaction import redact_sensitive_data
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
+from dataiku_mcp.utils.validation import require_positive_int as _require_positive_int
 
 _MAX_EXPORT_ROWS = 1_000_000
 _MAX_UPLOAD_ROWS = 10_000
@@ -472,7 +475,7 @@ async def export_dataset(
         Field(description="Escapes text a spreadsheet would evaluate as a formula."),
     ] = False,
 ) -> str:
-    """Write a dataset's rows to a local CSV file, when every row is needed offline."""
+    """Export a local CSV for user-requested files or explicit offline validation workflows; prefer dataset inspection tools for analysis."""
     if request.is_http_request():
         raise ValueError(
             "export_dataset is unavailable in HTTP mode because it writes to the MCP host filesystem."
@@ -583,6 +586,20 @@ async def export_dataset(
     return compact_json(await run_blocking(_run))
 
 
+def _dataset_location(settings: dict) -> dict:
+    """Return configured location fields; leave variable expressions unexpanded."""
+    parameters = dict(settings.get("params") or {})
+    result = {"parameters": parameters, "resolution": "configured"}
+    # Query-mode SQL datasets can retain a table from their previous settings.
+    if parameters.get("mode") == "query" and "table" in parameters:
+        parameters.pop("table")
+        result["omitted_parameters"] = ["table"]
+    partitioning = settings.get("partitioning") or {}
+    if partitioning.get("dimensions") or partitioning.get("filePathPattern"):
+        result["partitioning"] = partitioning
+    return redact_sensitive_data(result)
+
+
 @mcp.tool(
     meta=PROJECT_READ_POLICY,
     title="Get Dataset Info",
@@ -592,7 +609,9 @@ async def export_dataset(
         "openWorldHint": False,
     },
 )
-async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) -> str:
+async def get_dataset_info(
+    project_key: str, dataset_name: str, ctx: Context, include_location: bool = False
+) -> str:
     """Inspect where a dataset's data lives and what its columns mean."""
     await ctx.info(f"Loading dataset info for {dataset_name} in {project_key}...")
 
@@ -601,14 +620,12 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
         dataset = project.get_dataset(dataset_name)
         schema = dataset.get_schema()
         settings = dataset.get_settings().get_raw()
-        dataset_type = None
-        for ds_info in project.list_datasets():
-            if ds_info.get("name") == dataset_name:
-                dataset_type = ds_info.get("type")
-                break
+        params = settings.get("params") or {}
         result = {
-            "type": dataset_type,
-            "connection": settings.get("params", {}).get("connection"),
+            "type": settings.get("type"),
+            "connection": params.get("connection")
+            or params.get("uploadConnection")
+            or (params.get("uploadedConfig") or {}).get("connection"),
             "columns": columnar(
                 [
                     {
@@ -622,6 +639,10 @@ async def get_dataset_info(project_key: str, dataset_name: str, ctx: Context) ->
                 ["name", "type", "meaning", "comment"],
             ),
         }
+        if include_location:
+            result["location"] = _dataset_location(settings)
+        if "managed" in settings:
+            result["managed"] = settings["managed"]
         for key in ("type", "connection"):
             if is_empty(result[key]):
                 del result[key]

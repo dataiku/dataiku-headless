@@ -168,6 +168,14 @@ EXPECTED_TOOLS_BY_MODULE = {
             "upload_file_to_managed_folder",
         }
     ),
+    "operations": frozenset(
+        {
+            "search_operations",
+            "describe_operation",
+            "run_read_operation",
+            "run_write_operation",
+        }
+    ),
     "plugins": frozenset(
         {
             "install_plugin",
@@ -177,6 +185,19 @@ EXPECTED_TOOLS_BY_MODULE = {
             "list_plugin_usages",
             "update_plugin",
         }
+    ),
+    "api_services": frozenset(
+        {
+            "list_api_services",
+            "get_api_service",
+            "create_api_service",
+            "update_api_service",
+            "create_api_service_package",
+            "publish_api_service_package",
+        }
+    ),
+    "project_bundles": frozenset(
+        {"list_project_bundles", "create_project_bundle", "publish_project_bundle"}
     ),
     "project_folders": frozenset(
         {
@@ -209,6 +230,16 @@ EXPECTED_TOOLS_BY_MODULE = {
         }
     ),
     "recipes": frozenset({"get_recipe_settings", "list_recipes"}),
+    "macros": frozenset(
+        {
+            "list_macros",
+            "get_macro_definition",
+            "run_macro",
+            "get_macro_status",
+            "get_macro_result",
+            "abort_macro_run",
+        }
+    ),
     "scenarios": frozenset(
         {
             "get_scenario_run_history",

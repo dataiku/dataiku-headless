@@ -31,12 +31,16 @@ from ..auth import get_dss_client
 from ..config import request
 from ..executors import run_blocking, run_cobuild_blocking
 from ..server import DSS_INDEPENDENT_TOOL_TAG, mcp
-from .utils.serialization import columnar, compact_json, omit_empty
-from .utils.validation import require_non_empty_string as _require_non_empty_string
+from .utils.cobuild_links import extract_object_links
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.validation import (
+    require_non_empty_string as _require_non_empty_string,
+)
 
 TURN_WAIT_TIMEOUT_SECONDS = 240
 
 ProjectKey = Annotated[str, Field(description="Must match the conversation's project.")]
+ClientApplication = Literal["dataiku-headless", "dataiku-migrate"]
 
 
 @dataclass
@@ -55,6 +59,7 @@ class _Conversation:
     project_key: str
     sdk_conversation: object
     created_at: str
+    client_application: ClientApplication = "dataiku-headless"
     turn: _Turn | None = None
 
 
@@ -112,6 +117,7 @@ def _terminal_turn_result(
         or response_type == "ask_question_to_user_request"
     )
     is_error = bool(getattr(response, "is_error", False))
+    message = str(getattr(response, "message", ""))
     result = {
         "status": "failed" if is_error else "completed",
         "conversation_id": conversation_id,
@@ -119,7 +125,10 @@ def _terminal_turn_result(
         "instance_name": entry.instance_name,
         "project_key": entry.project_key,
         "project_url": _project_url(entry),
-        "message": str(getattr(response, "message", "")),
+        "message": message,
+        "object_links": extract_object_links(
+            message, entry.instance_url, entry.project_key
+        ),
         "response_type": response_type,
         "is_error": is_error,
         "is_confirmation_request": confirmation_requested,
@@ -266,13 +275,20 @@ async def _wait_for_turn(
         "openWorldHint": False,
     },
 )
-async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
+async def start_cobuild_conversation(
+    project_key: str,
+    ctx: Context,
+    client_application: Annotated[
+        ClientApplication,
+        Field(description="Application that Dataiku records for this conversation."),
+    ] = "dataiku-headless",
+) -> str:
     """Open a Cobuild conversation on a project, if no retained one applies."""
     project_key = _require_non_empty_string(project_key, "project_key")
     await ctx.info(f"Starting Cobuild conversation for project {project_key}...")
 
     instance = request.get_pinned_instance()
-    client = get_dss_client()
+    client = get_dss_client(client_application)
     conversation = await run_blocking(
         lambda: client.get_project(project_key).new_cobuild_conversation()
     )
@@ -283,6 +299,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
         project_key,
         conversation,
         created_at=datetime.now(timezone.utc).isoformat(),
+        client_application=client_application,
     )
     _conversations[conversation.conversation_id] = entry
     return compact_json(
@@ -292,6 +309,7 @@ async def start_cobuild_conversation(project_key: str, ctx: Context) -> str:
             "project_key": entry.project_key,
             "project_url": _project_url(entry),
             "created_at": entry.created_at,
+            "client_application": entry.client_application,
         }
     )
 
@@ -343,7 +361,7 @@ async def send_cobuild_message(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.send_message(
             message, allow_edit_project=allow_edit_project
         )
@@ -392,7 +410,7 @@ async def answer_cobuild_confirmation(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.answer_confirmation(choice)
 
     turn = _start_turn(conversation_id, entry, check, call)
@@ -444,7 +462,7 @@ async def answer_cobuild_question(
             )
 
     def call():
-        entry.sdk_conversation.client = get_dss_client()
+        entry.sdk_conversation.client = get_dss_client(entry.client_application)
         return entry.sdk_conversation.answer_question(
             answers,
             rejected=rejected,
@@ -518,6 +536,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                 "project_url": _project_url(entry),
                 "created_at": entry.created_at,
                 "current_turn_id": turn.id if turn else None,
+                "client_application": entry.client_application,
                 "current_turn_status": (
                     turn.task.result()["status"]
                     if turn and turn.task.done()
@@ -541,6 +560,7 @@ async def list_cobuild_conversations(project_key: str, ctx: Context) -> str:
                     "created_at",
                     "current_turn_id",
                     "current_turn_status",
+                    "client_application",
                 ],
             )
         }

@@ -23,8 +23,8 @@ from ..instance_policy import PROJECT_READ_POLICY
 from ..server import mcp
 from ..auth import get_dss_client
 from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json
-from .utils.validation import require_non_empty_string
+from dataiku_mcp.utils.serialization import columnar, compact_json
+from dataiku_mcp.utils.validation import require_non_empty_string
 
 
 @mcp.tool(

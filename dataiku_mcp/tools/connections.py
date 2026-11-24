@@ -14,8 +14,6 @@
 
 """Dataiku connection discovery and inspection tools."""
 
-from typing import Any
-
 from typing import Annotated, Literal
 
 from fastmcp import Context
@@ -24,57 +22,13 @@ from pydantic import Field
 from ..instance_policy import ADMIN_POLICY
 from ..server import mcp
 from ..executors import run_blocking
-from .utils.serialization import columnar, compact_json, omit_empty
+from dataiku_mcp.utils.serialization import columnar, compact_json, omit_empty
 from ..auth import get_dss_client
-from .utils.validation import (
+from dataiku_mcp.utils.validation import (
     require_non_empty_string as _require_non_empty_string,
 )
 
-_CONNECTION_SECRET_REDACTION = "__DATAIKU_REDACTED__"
-_SENSITIVE_SUFFIXES = (
-    "apikey",
-    "credential",
-    "credentials",
-    "password",
-    "secret",
-    "token",
-)
-_SENSITIVE_EXACT_KEYS = ("key",)
-_SENSITIVE_KEY_FRAGMENTS = (
-    "accesskey",
-    "appsecret",
-    "keybase64data",
-    "keyjsondata",
-    "passphrase",
-    "privatekey",
-    "secretkey",
-    "tokenkey",
-)
-
-
-def _is_sensitive_key(key: str) -> bool:
-    normalized = key.replace("_", "").replace("-", "").lower()
-    return (
-        normalized in _SENSITIVE_EXACT_KEYS
-        or normalized.endswith(_SENSITIVE_SUFFIXES)
-        or any(fragment in normalized for fragment in _SENSITIVE_KEY_FRAGMENTS)
-    )
-
-
-def _redact_sensitive_data(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted = {}
-        for key, item in value.items():
-            if _is_sensitive_key(str(key)):
-                redacted[key] = _CONNECTION_SECRET_REDACTION
-            else:
-                redacted[key] = _redact_sensitive_data(item)
-        return redacted
-
-    if isinstance(value, list):
-        return [_redact_sensitive_data(item) for item in value]
-
-    return value
+from dataiku_mcp.utils.redaction import redact_sensitive_data as _redact_sensitive_data
 
 
 _CONNECTION_TYPES_BY_CATEGORY = {

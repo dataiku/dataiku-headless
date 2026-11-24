@@ -32,6 +32,7 @@ Flow zones organize related Flow items visually. They are useful context when a 
 | --- | --- |
 | Create a new project | Direct creation exception with `create_project` |
 | Update project variables | Direct write with `get_project_variables` then `set_project_variables` |
+| Inspect, create, or publish deployment bundles | Direct packaging tools; follow [Project bundles](./project-bundles.md) |
 | Modify an existing project's metadata, Flow structure, or assets | Cobuild |
 
 ## Workflow

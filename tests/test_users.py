@@ -47,6 +47,7 @@ class FakeUsersClient:
         admin_users: list[dict] | None = None,
         user_info=None,
         group_info=None,
+        activity=None,
     ):
         self.admin_users = admin_users or []
         self.user_info = user_info if user_info is not None else []
@@ -55,6 +56,12 @@ class FakeUsersClient:
         self.list_users_info_calls = 0
         self.list_groups_calls = 0
         self.list_groups_info_calls = 0
+        self.activity = activity if activity is not None else []
+        self.list_users_activity_calls = 0
+
+    def list_users_activity(self):
+        self.list_users_activity_calls += 1
+        return self.activity
 
     def list_users(self) -> list[dict]:
         self.list_users_calls += 1
@@ -110,6 +117,7 @@ def test_list_users_uses_full_admin_result(monkeypatch):
 
     assert client.list_users_calls == 1
     assert client.list_users_info_calls == 0
+    assert client.list_users_activity_calls == 0
     assert result["users"] == {
         "columns": [
             "login",
@@ -209,3 +217,52 @@ def test_list_users_propagates_basic_info_failure(monkeypatch):
 
     with pytest.raises(RuntimeError, match="basic info unavailable"):
         _load(users.list_users(FakeContext()))
+
+
+def test_list_users_includes_activity_by_login_on_filtered_page(monkeypatch):
+    client = FakeUsersClient(
+        admin_users=[
+            {"login": "carol", "groups": ["team"]},
+            {"login": "alice", "groups": ["team"]},
+            {"login": "bob", "groups": ["team"]},
+            {"login": "other", "groups": ["other"]},
+        ],
+        group_info=[FakeGroupInfo({"name": "team"})],
+        activity=[
+            FakeUserInfo(
+                {
+                    "login": "bob",
+                    "lastSuccessfulLogin": 1700000000000,
+                    "lastFailedLogin": 0,
+                    "lastSessionActivity": 1700000002000,
+                    "secret": "must not be returned",
+                }
+            ),
+            FakeUserInfo({"login": "alice", "lastSuccessfulLogin": 123}),
+        ],
+    )
+    monkeypatch.setattr(users, "get_dss_client", lambda: client)
+    monkeypatch.setattr(users, "require_admin", _allow_admin)
+
+    result = _load(
+        users.list_users(
+            FakeContext(), groups=["team"], offset=1, limit=2, include_activity=True
+        )
+    )
+
+    assert client.list_users_activity_calls == 1
+    assert result["total_users"] == 4
+    assert result["matched_users"] == 3
+    assert result["returned_users"] == 2
+    assert result["next_offset"] is None
+    rows = [
+        dict(zip(result["users"]["columns"], row)) for row in result["users"]["rows"]
+    ]
+    assert [row["login"] for row in rows] == ["bob", "carol"]
+    assert rows[0]["last_successful_login"] == 1700000000000
+    assert rows[0]["last_failed_login"] == 0
+    assert rows[0]["last_session_activity"] == 1700000002000
+    assert "secret" not in rows[0]
+    assert rows[1]["last_successful_login"] is None
+    assert rows[1]["last_failed_login"] is None
+    assert rows[1]["last_session_activity"] is None

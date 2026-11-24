@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import threading
 
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -159,8 +160,11 @@ def record(session, name):
     return next(c for c in state["connections"] if c["name"] == name)
 
 
-def test_manager_requires_successful_test_and_rejects_changed_credentials(manager):
-    form = candidate()
+@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
+def test_manager_requires_successful_test_and_rejects_changed_credentials(
+    manager, instance_type
+):
+    form = candidate(instance_type=instance_type)
     assert post(manager, action="save", **form)[0] == 400
     _, tested = post(manager, action="test", **form)
     assert (
@@ -168,7 +172,7 @@ def test_manager_requires_successful_test_and_rejects_changed_credentials(manage
             manager,
             action="save",
             validation_id=tested["validation_id"],
-            **candidate(api_key="changed"),
+            **candidate(api_key="changed", instance_type=instance_type),
         )[0]
         == 400
     )
@@ -383,12 +387,23 @@ def test_environment_connections_are_read_only_but_switchable(manager, monkeypat
     assert not stdio.get_settings_path().exists()
 
 
-def test_done_closes_manager_with_compact_result(manager):
+def test_done_closes_manager_with_compact_result(manager, monkeypatch):
+    socket_closed = threading.Event()
+    server_close = manager.server.server_close
+
+    def close_socket():
+        server_close()
+        socket_closed.set()
+
+    monkeypatch.setattr(manager.server, "server_close", close_socket)
     assert save(manager, **candidate(activate="on"))[0] == 200
     assert post(manager, action="done")[0] == 200
     assert manager.completed.is_set()
     assert manager.result == {"active_instance": "sandbox", "connection_count": 1}
+    # serve_forever exits before the separate close thread releases its socket.
+    assert socket_closed.wait(timeout=2)
     manager.thread.join(timeout=2)
+    assert not manager.thread.is_alive()
     from urllib.error import URLError
 
     with pytest.raises(URLError):
@@ -502,8 +517,9 @@ def test_expiry_during_authentication_cannot_authorize_a_save(manager, monkeypat
 
 
 @pytest.mark.parametrize("credential", ["api_key", "api_ticket"])
+@pytest.mark.parametrize("instance_type", ["design", "automation", "deployer"])
 def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
-    monkeypatch, credential
+    monkeypatch, credential, instance_type
 ):
     from types import SimpleNamespace
 
@@ -526,7 +542,7 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     setup_server._test_connection(
         {
             "url": "https://example.com",
-            "instance_type": "design",
+            "instance_type": instance_type,
             "api_key": None,
             "api_ticket": None,
             credential: "credential",
@@ -541,7 +557,7 @@ def test_connection_probe_uses_correct_sdk_credential_and_bounded_request(
     assert closed == [True]
 
 
-@pytest.mark.parametrize("instance_type", ["agent-management", "govern", "deployer"])
+@pytest.mark.parametrize("instance_type", ["agent-management", "govern"])
 @pytest.mark.parametrize("attempt_test", [False, True])
 def test_unsupported_profile_can_be_saved_without_test(
     manager, monkeypatch, instance_type, attempt_test
@@ -560,7 +576,11 @@ def test_unsupported_profile_can_be_saved_without_test(
     status, result = post(manager, action="save", **form)
     assert status == 200
     assert result["state"]["connections"][0]["instance_type"] == instance_type
-    assert result["state"]["supported_instance_types"] == ["automation", "design"]
+    assert result["state"]["supported_instance_types"] == [
+        "automation",
+        "deployer",
+        "design",
+    ]
 
 
 @pytest.mark.parametrize(
