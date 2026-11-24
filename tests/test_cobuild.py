@@ -597,3 +597,38 @@ def test_project_url_tolerates_a_trailing_slash_in_the_instance_url(environment)
         assert (await start())["project_url"] == PROJECT_URL
 
     run(scenario())
+
+
+def test_terminal_object_links_preserve_message_and_pinned_instance(environment):
+    client, active_instance = environment
+    message = "Created [sales](WEB_APP:PROJECT.app) and [clean](RECIPE:clean)."
+    client.conversation.next_send = Response(message)
+
+    async def scenario():
+        await start()
+        # The instance URL may change while the retained conversation still
+        # belongs to the same instance name; use its captured URL for links.
+        active_instance["url"] = "https://b.example.com"
+        result = await send(allow_edit_project=True)
+        assert result["message"] == message
+        assert result["object_links"] == [
+            {
+                "reference": "WEB_APP:PROJECT.app",
+                "url": "https://a.example.com/projects/PROJECT/webapps/app_/view",
+            },
+            {
+                "reference": "RECIPE:clean",
+                "url": "https://a.example.com/projects/PROJECT/recipes/clean/",
+            },
+        ]
+        assert (await poll(result["turn_id"]))["object_links"] == result["object_links"]
+
+    run(scenario())
+
+
+def test_terminal_response_without_object_links_omits_the_field(environment):
+    async def scenario():
+        await start()
+        assert "object_links" not in await send()
+
+    run(scenario())

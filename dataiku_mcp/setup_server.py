@@ -155,7 +155,9 @@ def _snapshot(config: StdioConfig | None = None) -> dict:
                     else ""
                 ),
             }
-            for instance in instances.values()
+            for instance in sorted(
+                instances.values(), key=lambda item: (item.name.casefold(), item.name)
+            )
         ],
         "active": current.name if current else None,
         "default": config.default_instance,
