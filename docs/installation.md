@@ -10,6 +10,7 @@ the steps to connect to a Dataiku instance.
 - [Cursor desktop app](getting-started/cursor-desktop.md)
 - [GitHub Copilot desktop app](getting-started/github-copilot-desktop.md)
 - [Snowflake CoCo desktop app](getting-started/snowflake-coco-desktop.md)
+- [Google Antigravity](getting-started/google-antigravity.md)
 
 ## Command-line agents
 
@@ -19,6 +20,7 @@ the steps to connect to a Dataiku instance.
 - [Cursor Agent CLI](getting-started/cursor-agent-cli.md)
 - [Snowflake CoCo CLI](getting-started/snowflake-coco-cli.md)
 - [Grok CLI](getting-started/grok-cli.md)
+- [Google Antigravity CLI](getting-started/google-antigravity.md)
 
 ## Other MCP-compatible agents
 

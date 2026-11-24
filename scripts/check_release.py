@@ -35,7 +35,7 @@ def validate(root: Path) -> str:
         raise ValueError(f"Expected a stable release version, got {version}")
     required = {
         f".{name}-plugin/plugin.json"
-        for name in ("claude", "codex", "cortex", "cursor")
+        for name in ("antigravity", "claude", "codex", "cortex", "cursor")
     }
     required.add(".github/plugin/plugin.json")
     for relative in required:

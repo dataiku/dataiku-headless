@@ -49,6 +49,7 @@ def test_current_release_and_notes(release_tree):
 @pytest.mark.parametrize(
     "directory",
     [
+        ".antigravity-plugin",
         ".claude-plugin",
         ".codex-plugin",
         ".cortex-plugin",
@@ -65,7 +66,9 @@ def test_reject_manifest_version_drift(release_tree, directory):
         HELPERS["validate"](release_tree)
 
 
-@pytest.mark.parametrize("directory", [".cursor-plugin", ".github/plugin"])
+@pytest.mark.parametrize(
+    "directory", [".antigravity-plugin", ".cursor-plugin", ".github/plugin"]
+)
 def test_reject_missing_bump_configuration(release_tree, directory):
     path = release_tree / "pyproject.toml"
     path.write_text(path.read_text().replace(f'    "{directory}/plugin.json",\n', ""))

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "dataiku": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        "${PLUGIN_ROOT}/runtime/run_mcp.py",
+        "--transport",
+        "stdio"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "timeoutSeconds": 900
+    }
+  }
+}
