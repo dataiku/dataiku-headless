@@ -12,10 +12,8 @@ or ask a maintainer which one to target. Use a minor bump for new features (for
 example, `0.7.0` → `0.8.0`) and a patch bump for fixes (`0.8.0` → `0.8.1`). The
 release branch name determines the version the finalization command writes.
 
-Before your first release, have an administrator verify the
-[repository settings](#repository-settings) below. Run these commands from a
-clean checkout of this repository with `git` and `gh`
-authenticated to GitHub.
+Run these commands from a clean checkout of this repository with `git` and
+`gh` authenticated to GitHub.
 
 ### 1. Create the release branch
 
@@ -136,33 +134,6 @@ next version.
 | Release (publishes after main CI) | `release/X.Y.Z` → `main` | Create a merge commit |
 | Synchronize main into a release | Working branch containing `main` → `release/X.Y.Z` | Create a merge commit |
 
-## Repository settings
-
-An administrator should verify these settings. Workflow files do not configure
-branch protection or repository permissions:
-
-- Protect `main` and `release/*` with required PR reviews and CI checks. Require
-  branches to be up to date before merging, and dismiss stale reviews on new
-  commits. Do not allow direct pushes or force pushes.
-- On `main`, additionally require **Release branch into main** from the
-  **Release source policy** workflow. It rejects sources other than a
-  same-repository `release/X.Y.Z` branch. Its `pull_request_target` job executes
-  no PR code and needs no token permissions. The check must be marked required
-  in repository settings to block merges; adding YAML alone does not do that.
-- Enable **Allow merge commits** in repository settings. Release PRs into
-  `main` must use **Create a merge commit**, not squash or rebase. Disable any
-  linear-history requirements on `main` and release branches so synchronization
-  PRs can preserve ancestry too. If a ruleset offers allowed merge methods,
-  restrict `main` to merge commits. Release branches need both squash merges
-  for feature PRs and merge commits for synchronization PRs. Publication rejects
-  a squash/rebase release merge.
-
-Publication needs the workflow's declared contents-write, pull-request-read,
-and Actions-read permissions. It does not create or approve PRs. Manual recovery
-is dispatched from `main`. Automatic publication uses `workflow_run` after
-successful push CI on main in this repository; the workflow must be on `main`
-before automatic publication can run.
-
 ## What the release checks
 
 Local finalization requires a clean feature/fix branch containing current main,
@@ -174,7 +145,8 @@ Committed runtime dependencies are checked without upgrading them; dependency
 upgrades belong in their own tested PRs.
 
 The release PR's CI checks that its versions match `release/X.Y.Z` and that its
-changelog section exists. Both protected branches receive changes through PRs.
+changelog section exists. Version updates reach the release branch and main
+through reviewed PRs.
 
 Publication checks successful CI on the exact main merge commit, verifies that
 it preserves the release branch's history and contents, and validates versions,

@@ -181,7 +181,7 @@ batch's history. Successful push CI on that exact merge commit automatically
 publishes the release. Manual dispatch of `.github/workflows/bump.yml` with the
 release-to-main `release_pr` number remains available for recovery. Neither
 protected branch receives direct version pushes. Nothing is published to PyPI.
-See `RELEASE.md` for required repository settings and recovery instructions.
+See `RELEASE.md` for release and recovery instructions.
 
 ## PR Checklist
 - [ ] Changes are limited to intended scope
