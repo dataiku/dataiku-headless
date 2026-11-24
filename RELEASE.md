@@ -1,7 +1,7 @@
 # Releasing `dataiku-headless`
 
 Feature PRs go into a release branch. When the batch is ready, update its
-version, merge it into `main`, and publish it.
+version and merge it into `main`. Successful main CI publishes it automatically.
 
 ## Normal release checklist
 
@@ -10,11 +10,11 @@ chosen release version before running them. Contributors should use the active
 release branch; list existing branches with `git ls-remote --heads origin 'release/*'`
 or ask a maintainer which one to target. Use a minor bump for new features (for
 example, `0.7.0` → `0.8.0`) and a patch bump for fixes (`0.8.0` → `0.8.1`). The
-release branch name determines the version the workflow will write.
+release branch name determines the version the finalization command writes.
 
-Before your first release, an administrator must complete the
-[one-time repository setup](#repository-setup-and-transition) below. Run these
-commands from a clean checkout of this repository with `git` and `gh`
+Before your first release, have an administrator verify the
+[repository settings](#repository-settings) below. Run these commands from a
+clean checkout of this repository with `git` and `gh`
 authenticated to GitHub.
 
 ### 1. Create the release branch
@@ -50,34 +50,43 @@ gh pr create --base release/X.Y.Z --head feat/my-feature \
 Replace the example branch name and title with your own. After review and
 passing checks, choose **Squash and merge**. Use titles such as `feat: add a
 capability` or `fix: correct a bug` so the changelog can group the changes.
-Repeat for each feature or fix in the batch.
+Repeat for each feature or fix in the batch. For the last PR, complete step 3
+before merging.
 
 **Do not update version files yet.** They keep the previous release's version
 until the next step. Feature PRs target `release/X.Y.Z`, not `main`.
 
-### 3. Prepare the version update
+### 3. Finalize in the last feature or fix PR
 
-When the batch is ready, pause new feature merges and run:
+Pause other merges into the release branch. On your final feature/fix working
+branch, include the latest `origin/main` and `origin/release/X.Y.Z`, and commit
+your feature changes with Conventional Commit messages. Then run from the
+repository root:
 
 ```bash
-gh workflow run bump.yml --ref main \
-  -f operation=prepare \
-  -f release_branch=release/X.Y.Z
+uv run python scripts/finalize_release.py release/X.Y.Z
 ```
 
-Or use **Actions → Bump version → Run workflow**: select branch **main**,
-operation **prepare**, and enter `release/X.Y.Z` as **release_branch**.
+The command fetches origin, verifies the branch and committed lockfiles, updates
+the project and plugin versions, refreshes the unpublished changelog section,
+and updates `uv.lock`. It leaves those changes in your worktree. It does not
+create a branch, commit, PR, or tag, and does not push.
 
-Open the workflow run and follow the PR link in its summary. This is the
-**version-update PR**:
+Review the diff, run the contributor checks, and include the generated files in
+the same feature/fix PR:
 
-```text
-prepare-release/X.Y.Z → release/X.Y.Z
+```bash
+git add -u
+git commit -m 'bump: finalize X.Y.Z'
+git push
 ```
 
-It updates the project version, plugin manifests, lockfile, and changelog.
-Review those changes, select **Approve workflows to run** if prompted, and wait
-for checks to pass. Then **Squash and merge** this PR into `release/X.Y.Z`.
+After review and passing checks, **Squash and merge** that PR into
+`release/X.Y.Z`. There is no separate version-update PR or preparation dispatch.
+If changes land before the release merges into main, bring them into your
+working branch, commit them, and rerun the command to refresh the notes. It
+replaces the target version's generated section while preserving released
+history; review any manual edits to unpublished notes after refreshing.
 
 ### 4. Merge the release into main
 
@@ -98,37 +107,24 @@ Review it and wait for checks to pass. Choose **Create a merge commit**.
 **Do not squash or rebase this PR.** If only squash is available, an admin must
 enable merge commits before you proceed.
 
-Write down this PR's number: you need it for publishing. It is **not** the
-version-update PR number from step 3.
+### 5. Publication runs automatically
 
-### 5. Publish the release
-
-In **Actions → CI**, wait for the run on the release's merge commit on `main`
-to pass. Then run the command below, replacing `123` with the **release PR
-number from step 4**:
-
-```bash
-gh workflow run bump.yml --ref main \
-  -f operation=publish \
-  -f release_pr=123
-```
-
-Or use **Actions → Bump version → Run workflow**: select branch **main**,
-operation **publish**, and enter that PR number as **release_pr**. Leave
-**release_branch** empty for publication.
-
-Wait for the workflow to succeed, then check **Releases** in GitHub. It creates
-the `vX.Y.Z` GitHub release and both tags on the reviewed merge commit:
+After the release PR merges, **CI** runs on its exact merge commit. When CI
+succeeds, **Release** finds the merged release PR and publishes `vX.Y.Z` with
+both tags on that commit:
 
 - `vX.Y.Z`
 - `dataiku-headless--vX.Y.Z`
 
-Nothing is published to PyPI. Merging the PR alone does not publish anything.
+There is no second workflow dispatch or PR number to copy. Failed or cancelled
+CI does not publish. For a transient failure or cancellation, rerun CI on that
+exact merge commit. Fixes that change code need another reviewed release PR.
+Check **Actions → Release** for the publication result and release link. Nothing
+is published to PyPI.
 
 ### 6. Clean up and start the next cycle
 
-After successful publication, delete `release/X.Y.Z` and
-`prepare-release/X.Y.Z` in GitHub if they have not already been deleted. Start
+After successful publication, delete `release/X.Y.Z` in GitHub. Start
 the next release branch from the latest `main` by repeating step 1 with the
 next version.
 
@@ -136,15 +132,14 @@ next version.
 
 | PR | Source → target | Merge method |
 | --- | --- | --- |
-| Feature or fix | Your working branch → `release/X.Y.Z` | Squash and merge |
-| Version update (created by Prepare) | `prepare-release/X.Y.Z` → `release/X.Y.Z` | Squash and merge |
-| Release (its number is used for Publish) | `release/X.Y.Z` → `main` | Create a merge commit |
+| Feature or fix (last one includes version/changelog updates) | Your working branch → `release/X.Y.Z` | Squash and merge |
+| Release (publishes after main CI) | `release/X.Y.Z` → `main` | Create a merge commit |
+| Synchronize main into a release | Working branch containing `main` → `release/X.Y.Z` | Create a merge commit |
 
-## Repository setup and transition
+## Repository settings
 
-Merge the workflow change before enabling the new required source check. That
-bootstrap PR is the last normal development PR into `main`; do not rename it to
-a release branch or pretend it is a versioned release. Then configure:
+An administrator should verify these settings. Workflow files do not configure
+branch protection or repository permissions:
 
 - Protect `main` and `release/*` with required PR reviews and CI checks. Require
   branches to be up to date before merging, and dismiss stale reviews on new
@@ -156,33 +151,30 @@ a release branch or pretend it is a versioned release. Then configure:
   in repository settings to block merges; adding YAML alone does not do that.
 - Enable **Allow merge commits** in repository settings. Release PRs into
   `main` must use **Create a merge commit**, not squash or rebase. Disable any
-  linear-history requirement on `main`; if a ruleset offers allowed merge
-  methods, restrict `main` to merge commits. Squash can remain enabled for
-  feature PRs into release branches. Publication rejects a squash/rebase merge.
-- In **Settings → Actions → General → Workflow permissions**, enable **Allow
-  GitHub Actions to create and approve pull requests**. The workflow creates
-  version-update PRs but never approves or merges them. No PAT or bypass is needed.
+  linear-history requirements on `main` and release branches so synchronization
+  PRs can preserve ancestry too. If a ruleset offers allowed merge methods,
+  restrict `main` to merge commits. Release branches need both squash merges
+  for feature PRs and merge commits for synchronization PRs. Publication rejects
+  a squash/rebase release merge.
 
-The repository was configured for squash merges only when this workflow was
-written. A repository administrator must enable merge commits and configure the
-required checks; these settings are not changed by merging this PR.
+Publication needs the workflow's declared contents-write, pull-request-read,
+and Actions-read permissions. It does not create or approve PRs. Manual recovery
+is dispatched from `main`. Automatic publication uses `workflow_run` after
+successful push CI on main in this repository; the workflow must be on `main`
+before automatic publication can run.
 
-PRs created with `GITHUB_TOKEN` may require a maintainer to select **Approve
-workflows to run** before CI starts. See
-[GitHub's token documentation](https://docs.github.com/en/actions/concepts/security/github_token).
-The old `RELEASE_ENABLED` variable is unused and can be removed. Both workflow
-operations are dispatched from `main`.
+## What the release checks
 
-## What the workflow checks
+Local finalization requires a clean feature/fix branch containing current main,
+the target release branch, and the previous version tag. The target version must
+be newer than main and must not already be tagged. Commitizen updates the
+version files and generates release notes from committed Conventional Commits.
+Rerunning for an unpublished target refreshes its notes without another bump.
+Committed runtime dependencies are checked without upgrading them; dependency
+upgrades belong in their own tested PRs.
 
-Preparation checks the previous version tag and requires current `main` to be
-included in the release branch. Commitizen sets the version from the branch
-name and generates notes from Conventional Commits. The workflow opens a PR;
-it never pushes version changes directly into either protected branch.
-
-Preparation also runs `uv lock --script runtime/run_mcp.py --upgrade` in the
-runner. If this changes the runtime lockfile, update and test the lock through
-a PR into the release branch before retrying preparation.
+The release PR's CI checks that its versions match `release/X.Y.Z` and that its
+changelog section exists. Both protected branches receive changes through PRs.
 
 Publication checks successful CI on the exact main merge commit, verifies that
 it preserves the release branch's history and contents, and validates versions,
@@ -190,30 +182,47 @@ locks, and notes before publishing. Later commits on `main` are not included.
 The two tags are pushed together and existing tags are never moved. Retrying
 publication reuses matching tags and leaves an existing GitHub release unchanged.
 
-Tags record what shipped. Between steps 4 and 5, `main` briefly contains the
+Tags record what shipped. While main CI and publication run, `main` contains the
 merged release before its tags and GitHub release exist.
 
-If a late fix is needed after the version-update PR merges, add the fix and its
-changelog entry through a PR into the release branch, then re-review the batch.
-Do not run another version bump for the same release.
+If a late fix is needed before publication, include it through a PR into the
+release branch and rerun local finalization there to refresh its notes. If the
+release already merged into main, reconcile the history and use a newer patch
+version. Do not modify published tags.
 
 ## Hotfixes and recovery
 
+If automatic publication fails after CI succeeds, rerun the failed **Release**
+run, or dispatch recovery from main with the merged **release PR** number
+(`release/X.Y.Z → main`):
+
+```bash
+gh workflow run bump.yml --ref main -f release_pr=123
+```
+
+Recovery runs the same checks and reuses matching tags. For a failed main CI
+run caused by a transient failure, rerun CI on the same commit first;
+successful completion triggers publication again.
+
 For an urgent patch while the next feature release is in progress, create
-`release/X.Y.Z` for the patch from `main`, PR the fix into it, then finalize,
-merge and publish using the same process. Bring the patch release's main
-commit into the active feature release branch through a PR before its release.
+`release/X.Y.Z` for the patch from `main`, finalize in the fix PR, then
+merge and let CI publish using the same process. Bring the patch release's main
+commit into the active feature release branch through a synchronization PR
+before its release. Choose **Create a merge commit** for that PR so `main`
+remains an ancestor of the release branch. Squashing copies the changes but
+does not preserve the ancestry required by finalization.
 
 | Situation | Action |
 | --- | --- |
-| Run skipped | Dispatch the workflow from `main`. |
-| Target is not newer | The branch is already finalized or has the wrong version name. Open its release PR or choose the correct newer version. |
-| Main is not an ancestor | Bring current main into the release branch through a PR before preparation. |
-| Version-update branch exists | Use its existing PR; do not overwrite it. If PR creation failed, open it manually against the release branch. |
-| Generated PR CI is waiting | Select **Approve workflows to run**. |
+| Manual recovery skipped | Dispatch recovery from `main`. |
+| Automatic run skipped or reports no release PR | Only successful push CI on `main` for an exact merged release PR publishes. PR CI and ordinary main commits do not publish. |
+| Target is not newer than main | Choose a newer release version. Already published versions cannot be finalized again. |
+| Previous version tag is missing | Fetch tags and verify the previous release was published. Recover that publication before finalizing the next release. |
+| Main is not an ancestor | Bring current main into the release branch through a synchronization PR using **Create a merge commit**, then retry finalization. |
+| Worktree is dirty | Commit your feature changes or previous generated updates, then rerun local finalization. |
 | Only squash merge is available | Ask an admin to enable merge commits before merging a release into main. |
 | Publish fails on merge shape | Do not tag a squash/rebase merge. Reconcile the history with maintainers before retrying. |
-| Publish fails on CI | Wait for or resolve CI on that exact main merge commit. |
+| Publish fails on CI | For transient failures, rerun CI on the exact main merge commit. Successful CI triggers publication. Code fixes require another reviewed release PR. |
 | Tags exist but release creation failed | Retry publish with the same PR number. Matching tags are reused. |
 | Tag points elsewhere | Investigate; the workflow never overwrites published history. |
 
