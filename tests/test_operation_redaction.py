@@ -67,6 +67,37 @@ def test_operation_redaction_covers_secret_containers_and_url_credentials(value)
     assert SECRET not in json.dumps(redact_sensitive_data(value))
 
 
+@pytest.mark.parametrize(
+    "column_name,redact_diagnostics,should_redact",
+    [
+        ("X-API-Key", False, True),
+        ("password", True, True),
+        ("error", True, True),
+        ("error", False, False),
+        ("description", True, False),
+    ],
+)
+def test_sql_column_redaction_uses_existing_field_name_policy(
+    column_name, redact_diagnostics, should_redact
+):
+    from dataiku_mcp.utils.redaction import redact_sensitive_data
+
+    table = {
+        "columns": [{"name": column_name, "type": "text"}],
+        "rows": [[SECRET], [], [None]],
+    }
+    result = redact_sensitive_data(table, redact_diagnostics=redact_diagnostics)
+
+    hidden = "__DATAIKU_REDACTED__"
+    assert result["columns"] == table["columns"]
+    assert result["rows"] == [
+        [hidden if should_redact else SECRET],
+        [],
+        [hidden if should_redact else None],
+    ]
+    assert table["rows"] == [[SECRET], [], [None]]
+
+
 def test_api_test_query_redaction_preserves_only_saved_header_names():
     from dataiku_mcp.utils.redaction import (
         redact_api_test_queries,

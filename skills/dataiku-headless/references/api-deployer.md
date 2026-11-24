@@ -126,9 +126,11 @@ explicit body. API Deployer supports these infrastructure types:
 
 Responses have credential fields redacted by best effort field-name matching and
 omit query echoes, response headers, raw error messages and stack traces. Large
-individual response bodies are bounded and marked with `response_truncated`; SQL
-rows may carry values positionally, so field-name redaction cannot detect every
-sensitive value. Inspect detailed failures in the Deployer test
+individual response bodies are bounded and marked with `response_truncated`.
+The documented SQL result format (`results[].columns` containing `name`/`type`
+objects and positional `rows`) also has cells under sensitive column names
+redacted before truncation. Values under unrecognized names or in custom response
+formats may remain visible. Inspect detailed failures in the Deployer test
 UI. After a timeout or uncertain failure, queries may already have executed; do not
 blindly retry functions or SQL with side effects. Test requests can create audit
 records and incur normal serving costs.

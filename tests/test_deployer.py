@@ -1148,6 +1148,54 @@ def test_api_deployment_read_discovers_endpoint_queries_without_code(
     ]
 
 
+@pytest.mark.parametrize("row_count", [1, 1_000])
+def test_sql_test_results_redact_sensitive_columns_before_truncation(
+    api_test_backend, row_count
+):
+    columns = [
+        {"name": "id", "type": "int8"},
+        {"name": "api_key", "type": "text"},
+        {"name": "description", "type": "text"},
+    ]
+    body = {
+        "results": [
+            {
+                "columns": columns,
+                "rows": [[1, SECRET, "x" * 30] for _ in range(row_count)],
+                "updatedRows": 0,
+            },
+            {"updatedRows": 2},
+        ]
+    }
+    before = copy.deepcopy(body)
+    api_test_backend.test_response = {"responses": [{"response": body}]}
+
+    result = call(
+        deployer.run_deployer_test_queries,
+        api_test_backend,
+        deployment_id="deployment",
+        endpoint_id="endpoint",
+    )
+
+    response = result["responses"][0]
+    assert SECRET not in json.dumps(response)
+    assert body == before
+    if row_count == 1:
+        assert response["response"] == {
+            "results": [
+                {
+                    "columns": columns,
+                    "rows": [[1, "__DATAIKU_REDACTED__", "x" * 30]],
+                    "updatedRows": 0,
+                },
+                {"updatedRows": 2},
+            ]
+        }
+    else:
+        assert response["response_truncated"] is True
+        assert "__DATAIKU_REDACTED__" in response["response"]["preview"]
+
+
 def test_api_test_responses_are_bounded_and_marked_truncated(api_test_backend):
     api_test_backend.test_response = {
         "responses": [{"response": {"result": "x" * 20_000}}]

@@ -84,6 +84,30 @@ def redact_sensitive_data(value: Any, *, redact_diagnostics: bool = True) -> Any
                 redacted[key] = redact_sensitive_data(
                     item, redact_diagnostics=redact_diagnostics
                 )
+        # SQL endpoint result sets describe positional row values in columns.
+        columns = value.get("columns")
+        if isinstance(columns, list) and isinstance(value.get("rows"), list):
+            sensitive_columns = {
+                index
+                for index, column in enumerate(columns)
+                if isinstance(column, dict)
+                and isinstance(column.get("name"), str)
+                and _is_sensitive_key(
+                    column["name"], redact_diagnostics=redact_diagnostics
+                )
+            }
+            if sensitive_columns:
+                redacted["rows"] = [
+                    [
+                        _CONNECTION_SECRET_REDACTION
+                        if index in sensitive_columns
+                        else cell
+                        for index, cell in enumerate(row)
+                    ]
+                    if isinstance(row, list)
+                    else row
+                    for row in redacted["rows"]
+                ]
         return redacted
 
     if isinstance(value, list):
