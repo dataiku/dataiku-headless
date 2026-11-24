@@ -371,8 +371,32 @@ def test_automatic_publication_only_follows_trusted_main_push_ci():
 
 
 @pytest.fixture
-def finalization_repo(release_tree, tmp_path):
-    shutil.copy(ROOT / "uv.lock", release_tree / "uv.lock")
+def finalization_repo(release_tree, tmp_path, monkeypatch):
+    # Exercise real uv locking without registry packages or a developer's cache.
+    monkeypatch.setenv(
+        "UV_CACHE_DIR", str(tmp_path.parent / f"{tmp_path.name}-uv-cache")
+    )
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_PYTHON", sys.executable)
+    monkeypatch.setenv("UV_PYTHON_DOWNLOADS", "never")
+    pyproject = release_tree / "pyproject.toml"
+    settings = HELPERS["tomllib"].loads(pyproject.read_text())
+    sections = {
+        "project": {
+            key: settings["project"][key]
+            for key in ("name", "version", "requires-python")
+        },
+        "tool.commitizen": settings["tool"]["commitizen"],
+    }
+    pyproject.write_text(
+        "\n".join(
+            f"[{section}]\n"
+            + "\n".join(f"{key} = {json.dumps(value)}" for key, value in values.items())
+            + "\n"
+            for section, values in sections.items()
+        )
+    )
+    subprocess.run(["uv", "lock"], cwd=release_tree, check=True, capture_output=True)
     (release_tree / "runtime").mkdir()
     for name in ("run_mcp.py", "run_mcp.py.lock"):
         shutil.copy(ROOT / "runtime" / name, release_tree / "runtime" / name)
