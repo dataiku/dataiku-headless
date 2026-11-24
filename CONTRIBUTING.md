@@ -25,6 +25,23 @@ not by themselves trigger this expectation. Maintainers may apply the
 `rfc-required` label to a pull request and defer review until the RFC is
 discussed.
 
+## Plugin packaging
+
+Antigravity uses `.antigravity-plugin/plugin.json` and a root `mcp_config.json`
+with `${PLUGIN_ROOT}` launch paths. Its `logo` references the bundled
+`docs/assets/antigravity_logo.png`. The 900-second MCP timeout accommodates the
+ten-minute browser setup session. Validate a local checkout with
+`agy plugin validate .`; Google's [multi-tool repository guidance](https://antigravity.google/docs/build-plugins/#warnings-in-multi-tool-repositories)
+allows expected warnings for files belonging to other clients.
+
+Claude's directory icon is bundled at `docs/assets/claude_logo.png` and referenced
+by `icon` in `.claude-plugin/plugin.json`. Anthropic's
+[manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference#directory-listing-fields)
+places directory listing fields in the plugin manifest only, not in
+`marketplace.json`. The directory reads these fields on submission; the Claude
+Code runtime ignores them. Validation recognizes them starting with v2.1.281;
+older clients may warn about them.
+
 ## Opening a pull request
 
 1. Fork the repository and create a focused branch from the active `release/X.Y.Z` branch.

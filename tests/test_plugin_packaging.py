@@ -31,7 +31,9 @@ def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("host", ["claude", "codex", "cortex", "cursor", "github"])
+@pytest.mark.parametrize(
+    "host", ["antigravity", "claude", "codex", "cortex", "cursor", "github"]
+)
 def test_plugin_identity_matches_host(host):
     path = (
         ".github/plugin/plugin.json"
@@ -186,5 +188,46 @@ def test_copilot_launches_from_an_unrelated_working_directory(tmp_path):
         timeout=10,
     )
 
+    assert result.returncode == 0, result.stderr
+    assert "Run the Dataiku MCP server." in result.stdout
+
+
+def test_antigravity_launches_from_an_unrelated_working_directory(tmp_path):
+    manifest = _json(".antigravity-plugin/plugin.json")
+    assert manifest["version"] == _json(".codex-plugin/plugin.json")["version"]
+    assert (ROOT / manifest["skills"]).is_dir()
+    # Antigravity discovers MCP definitions at the root, separately from metadata.
+    assert "mcpServers" not in manifest
+    server = _json("mcp_config.json")["mcpServers"]["dataiku"]
+    assert server["command"] == "uv"
+    assert server["timeoutSeconds"] > 600  # The browser manager lives for ten minutes.
+    # Use saved profiles or inherited environment credentials.
+    assert "env" not in server
+    plugin_root = tmp_path / "installed plugin"
+    runtime = plugin_root / "runtime"
+    runtime.mkdir(parents=True)
+    shutil.copy2(ROOT / "runtime/run_mcp.py", runtime / "run_mcp.py")
+    session_directory = tmp_path / "customer project"
+    session_directory.mkdir()
+    variables = {"PLUGIN_ROOT": str(plugin_root)}
+    args = [Template(arg).substitute(variables) for arg in server["args"]]
+    assert args[:5] == [
+        "run",
+        "--quiet",
+        "--locked",
+        "--script",
+        str(runtime / "run_mcp.py"),
+    ]
+    assert args[-2:] == ["--transport", "stdio"]
+    cwd = Path(Template(server["cwd"]).substitute(variables))
+    assert cwd == plugin_root
+    # Replay path expansion with the test interpreter; native agy validation is separate.
+    result = subprocess.run(
+        [sys.executable, *args[4:], "--help"],
+        cwd=session_directory,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     assert result.returncode == 0, result.stderr
     assert "Run the Dataiku MCP server." in result.stdout

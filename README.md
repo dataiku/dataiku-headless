@@ -35,6 +35,7 @@ Use it with:
 - [Snowflake CoCo desktop app](docs/getting-started/snowflake-coco-desktop.md) /
   [Snowflake CoCo CLI](docs/getting-started/snowflake-coco-cli.md)
 - [Grok CLI](docs/getting-started/grok-cli.md)
+- [Google Antigravity](docs/getting-started/google-antigravity.md)
 - [Another MCP-compatible agent](docs/getting-started/other-mcp-agents.md)
 
 Your work lives in Dataiku, where you can review and continue it.
