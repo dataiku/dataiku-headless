@@ -18,6 +18,7 @@ Use this guide as the default path for project-level asset creation. This includ
 - One operation runs at a time per conversation. A completed result must be observed before starting the next operation.
 - Cobuild can inspect project context, propose changes, and make permitted changes through the same conversation.
 - Deletion confirmations and questions are separate response steps bound to their exact `turn_id`. A request to edit does not authorize a broader or unexpected deletion.
+- `client_application` is fixed when a conversation starts and is returned by creation and listing. Reusing a conversation preserves its original attribution; listing lets recovery workflows check it.
 - Conversations and turns are retained only in the MCP server process and are lost when it restarts.
 - Responses include `project_url` for the project Flow and may include `object_links` with URLs for specific assets.
 
@@ -40,7 +41,7 @@ Do not use this guide when:
 1. Confirm the exact `project_key`.
 2. When changing an existing asset, inspect it through its relevant object guide before preparing the Cobuild request. For greenfield work, ask Cobuild to inspect the necessary project context.
 3. Reuse a known `conversation_id` only with its matching `project_key`. For a requested continuation without an available ID, use `list_cobuild_conversations` to rediscover it.
-4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies.
+4. Start a conversation with `start_cobuild_conversation` only when no existing conversation applies. Keep the default `client_application` unless the calling workflow names another value.
 5. Send the grounded request with `conversation_id` and `project_key`. Set `allow_edit_project=false` for inspection or explanation and `true` for an explicitly requested creation or modification.
 6. A message, confirmation answer, or question answer waits for up to 240 seconds by default. If it returns `status=queued` or `status=in_progress`, keep calling `get_cobuild_turn_status` with its exact `turn_id` until it returns a terminal result; never resend the instruction. Cobuild has a finite server-side timeout, so this polling does not continue indefinitely.
 7. If an interrupted call loses its response, use `list_cobuild_conversations` to recover the conversation's `current_turn_id`. When it is present, call `get_cobuild_turn_status` before doing anything else; when it is absent, a new message may be sent.
